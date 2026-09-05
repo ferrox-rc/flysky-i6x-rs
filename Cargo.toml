@@ -1,0 +1,17 @@
+[package]
+name = "flysky-i6x-rs"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+
+[profile.dev]
+opt-level = 1
+debug = true
+
+[profile.release]
+opt-level = "z"     # Optimize for size
+lto = "fat"         # Enable Link-Time Optimization
+codegen-units = 1   # Maximize LTO optimization across crates
+panic = "abort"     # Remove stack unwinding overhead
+debug = true        # Keep debug symbols for probe-rs / GDB
