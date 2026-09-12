@@ -36,12 +36,12 @@ The standard OpenTX/EdgeTX port for the FS-i6X ([OpenI6X](https://github.com/Ope
 | | Chip Select (CS) | `PD2` | Active Low (held Low for bus access) |
 | | Strobe (RD / E) | `PD7` | 6800-series latch strobe (High -> Low pulse) |
 | | Backlight (Stock) | `PF3` | **Active HIGH** (drives NPN transistor base) |
-| | Backlight (Modded)| `PC9` / `PB1` | `TIM3_CH4` PWM dimming mod pad |
-| **Analog Inputs** | 12-bit ADC1 via DMA | 10 Channels scanned | Circular DMA buffer |
-| | Sticks (RV, RH, LV, LH) | `PA0`, `PA1`, `PA2`, `PA3` | Channels 0, 1, 2, 3 |
-| | Potentiometers (VR1, VR2)| `PA6`, `PB0` | Channels 6, 8 |
-| | Battery Sense | `PC0` | Channel 10 (voltage divider) |
-| | Switches (SA, SB, SC, SD)| Resistor dividers on ADC | Channels 4, 5, 7, 9 |
+| | Backlight (Modded)| `PC9` | `TIM3_CH4` PWM dimming mod pad (Do NOT use `PB1`) |
+| **Analog Inputs** | 12-bit ADC1 via DMA | 11 Channels scanned | Continuous circular DMA1 Ch1 buffer |
+| | Sticks (RH, RV, LV, LH) | `PA0`, `PA1`, `PA2`, `PA3` | Channels 0 (Roll), 1 (Pitch), 2 (Thr), 3 (Yaw) |
+| | Potentiometers (VRA, VRB)| `PA6`, `PA7` | Channels 6 (VR1 / Left), 7 (VR2 / Right) |
+| | Switches (SA, SB, SC, SD)| `PA4`, `PA5`, `PB0`, `PB1` | Channels 4 (2-pos), 5 (3-pos), 8 (3-pos), 9 (2-pos) |
+| | Battery Sense | `PC0` | Channel 10 (voltage divider: `(raw * 100) / 421 + 20`) |
 | **Digital Keys** | 3 Columns × 4 Rows Matrix | Keypad & Trims | Polled at ~50–100 Hz |
 | | Matrix Columns (R1..R3)| `PC6`, `PC7`, `PC8` | Driven Low sequentially |
 | | Matrix Rows (L1..L4) | `PD12`, `PD13`, `PD14`, `PD15` | Inputs with internal pull-ups |
@@ -126,11 +126,14 @@ The ST7567 parallel LCD driver maintains a **1024-byte framebuffer** in SRAM (`1
 - [x] Fast power-on boot (< 30 ms).
 - **Footprint:** **8.9 KB Flash** (leaves > 119 KB free / ~93% headroom), **0 B static data**, **> 14 KB free SRAM**.
 
-### Phase 2: Analog & Digital Inputs
-- [ ] Setup ADC1 with DMA continuous circular buffer for 4 stick axes + battery voltage.
-- [ ] Calibrate ADC readings to normalized stick positions (`-1000 .. +1000`).
-- [ ] Implement key matrix scanner on `GPIOC`/`GPIOD` for trims, buttons, and bind switch.
-- [ ] Create basic stick calibration wizard screen.
+### Phase 2: Analog & Digital Inputs (COMPLETED)
+- [x] Configure ADC1 + DMA1 Channel 1 for continuous 11-channel circular scanning.
+- [x] Piecewise calibration with dynamic endpoint tracking (`-1000 .. +1000`) and boot auto-centering.
+- [x] Adaptive zero-latency EMA filter for pot / gimbal noise suppression.
+- [x] Decode 2-pos/3-pos switches (`SA..SD`), rotary pots (`VRA`, `VRB`), and battery voltage (`PC0`).
+- [x] Live flight dashboard UI with 3-pixel cursor gauges for AER, unipolar progress bar for Throttle, battery voltage, and switch states.
+- [x] Key matrix scanner (inward trims for safe DFU bootloader jump).
+- **Footprint:** **12.4 KB Flash** (leaves > 115 KB free / ~90% headroom), **64 B static RAM**, **> 14 KB free SRAM**.
 
 ### Phase 3: A7105 SPI Driver & Hopping Table
 - [ ] Implement A7105 SPI1 driver and verify register read/write (confirm chip ID `0x00` / `0x01`).

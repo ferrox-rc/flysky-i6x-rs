@@ -103,10 +103,13 @@ The ST7567 controller contains 132 column segment drivers, while the FS-i6X phys
 - **Dimming:** Digital ON/OFF only. `PF3` does not support hardware timer PWM.
 
 ### Optional Hardware PWM Mod (Dimming)
-- **Control Pin:** **`GPIOC` Pin 9 (`PC9`)** (or `PB1`)
+- **Control Pin:** **`GPIOC` Pin 9 (`PC9`)**
 - **Circuit:** Solder jumper added from the unpopulated `PC9` pad to the backlight transistor base pad (`BL`).
 - **Dimming:** Driven via `TIM3_CH4` (AF0) with 500 Hz PWM for variable brightness levels ($0\dots 100\%$).
 - **Software Strategy:** The firmware simultaneously drives `PF3` and `PC9` HIGH, supporting both stock and modded hardware transparently.
+
+> [!CAUTION]
+> **Do NOT drive `PB1` for backlight control.** Although older OpenI6X documentation mentioned `PB1` as an alternative pad, hardware verification confirmed that **`PB1` is physically wired to Switch SD (ADC Channel 9)**. If `PB1` is configured as a GPIO output, flipping Switch SD to the DOWN position dead-shorts `PB1` directly to ground. This drags down the MCU 3.3V rail, turns off the LCD backlight, and can trigger brownout resets.
 
 ---
 
@@ -127,3 +130,53 @@ The STM32F072 contains a factory-programmed DFU bootloader in System ROM (`0x1FF
 If custom firmware ever hangs before polling the keys, the hardware override is the **`R53`** solder pads located on the back of the motherboard:
 - Shorting `R53` pulls `BOOT0` to 3.3V.
 - Powering on while shorted forces the chip directly into the ROM bootloader (`0483:df11`).
+
+---
+
+## 6. Analog Inputs & ADC1 Channel Map
+
+The FlySky FS-i6X uses a single 12-bit ADC peripheral (**ADC1**) paired with **DMA1 Channel 1** operating in circular mode to continuously scan 11 analog channels into SRAM without CPU intervention.
+
+### Verified 11-Channel Mapping
+
+| ADC Ch | MCU Pin | Function / Axis | Physical Input | Normal Expected Range | Notes |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **CH0** | `PA0` | **Roll / Aileron** | Right Stick Horizontal | ~1100 .. 2048 .. ~2900 | Spring return |
+| **CH1** | `PA1` | **Pitch / Elevator** | Right Stick Vertical | ~1100 .. 2048 .. ~2900 | Spring return |
+| **CH2** | `PA2` | **Throttle** | Left Stick Vertical | ~1100 .. ~2900 | Friction ratchet (no spring) |
+| **CH3** | `PA3` | **Yaw / Rudder** | Left Stick Horizontal | ~1100 .. 2048 .. ~2900 | Spring return |
+| **CH4** | `PA4` | **Switch SA** | 2-Position Toggle | Down < 2000, Up > 2000 | Resistor divider |
+| **CH5** | `PA5` | **Switch SB** | 3-Position Toggle | Up > 2500, Mid 1000..2500, Dwn < 1000 | Resistor divider |
+| **CH6** | `PA6` | **Potentiometer VRA** | Left Rotary Dial (VR1) | 0 .. 4095 (scaled 0..9) | Linear pot |
+| **CH7** | `PA7` | **Potentiometer VRB** | Right Rotary Dial (VR2) | 0 .. 4095 (scaled 0..9) | Linear pot |
+| **CH8** | `PB0` | **Switch SC** | 3-Position Toggle | Up > 2500, Mid 1000..2500, Dwn < 1000 | Resistor divider |
+| **CH9** | `PB1` | **Switch SD** | 2-Position Toggle | Down < 2000, Up > 2000 | Resistor divider |
+| **CH10**| `PC0` | **Battery Sense** | 4×AA Battery Pack | ~1600 .. 2300 (4.0V .. 6.0V) | 2:1 resistive divider |
+
+> [!NOTE]
+> **Pot & Switch Verification Note:** Prior reverse-engineering notes occasionally misidentified `VRB` as `PB0` and `SC` as `PA7`. Physical silicon testing proved conclusively that **`VRB` is `PA7`** and **`SC` is `PB0`**.
+
+### Stick Calibration & Mechanical Offset
+
+1. **Resting Center Offset:**
+   - The mechanical potentiometers on the FS-i6X gimbals physically rest around **~1930 counts**, not the theoretical mathematical midpoint of **2048**.
+   - If scaled assuming a fixed 2048 center, sticks report approximately **-13%** offset at resting neutral.
+   - **Solution:** The firmware dynamically auto-calibrates resting centers at boot by taking an average of 16 full ADC scans after the first DMA conversion cycle completes.
+2. **DMA First-Conversion Synchronization:**
+   - Calling input calibration immediately after ADC initialization will read zeroes if the DMA buffer has not yet completed its first 11-channel sweep.
+   - The driver waits for DMA1 Channel 1 Transfer Complete Flag (`TCIF1`) before sampling centers (`adc::wait_first_conversion()`).
+3. **Endpoint Range Expansion:**
+   - Rather than relying on rigid factory bounds, the piecewise calibrator expands its min/max endpoints dynamically whenever physical stick deflection exceeds the stored bounds, ensuring full `-1000 .. +1000` throw without clipping.
+4. **Adaptive Noise / Jitter Filtering:**
+   - To counteract track wear and ADC noise (especially prominent on the Rudder gimbal), an adaptive exponential moving average (EMA) filter is applied:
+     - Movements $\le 12$ raw counts are filtered to eliminate jitter.
+     - Rapid intentional movements ($> 12$ counts) bypass the filter completely to preserve zero-latency response.
+
+### Battery Voltage Sensing
+
+- Connected to `PC0` (ADC Channel 10) through a resistive voltage divider:
+  $$\text{Voltage (in 0.1V units)} = \frac{\text{raw} \times 100}{421} + 20$$
+- Validated against physical AA battery pack voltages:
+  - 4× NiMH (~4.8V): ~1930 raw counts $\to$ `4.8V`
+  - 4× Alkaline fresh (~6.0V): ~2440 raw counts $\to$ `6.0V`
+
