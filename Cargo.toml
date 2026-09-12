@@ -1,9 +1,19 @@
 [package]
 name = "flysky-i6x-rs"
 version = "0.1.0"
-edition = "2024"
+edition = "2021"
 
 [dependencies]
+cortex-m = "0.7"
+cortex-m-rt = "0.7"
+panic-halt = "0.2"
+stm32f0xx-hal = { version = "0.18.0", features = ["stm32f072", "rt"] }
+embedded-graphics = "0.8.1"
+
+[features]
+default = ["stm32"]
+stm32 = []
+apm32 = []
 
 [profile.dev]
 opt-level = 1
