@@ -28,23 +28,25 @@ The standard OpenTX/EdgeTX port for the FS-i6X ([OpenI6X](https://github.com/Ope
 | | Antenna Switch | `PE10` (RF0), `PE11` (RF1) | Diversity / TR switch |
 | | Packet Ready IRQ | `PB2` (EXTI2) | GIO2 line from A7105 (Tx/Rx done) |
 | | RF Timer | `TIM16` | Periodic packet scheduling (~3.8ms–7.5ms) |
-| **Display** | **ST7567** (128×64 Monochrome LCD) | 8-bit Parallel Bus | 1024-byte framebuffer in RAM |
-| | Data Bus (D0..D7) | `PE0 .. PE7` | Full-byte ODR write |
+| **Display** | **ST7567** (128×64 Monochrome LCD) | 8-bit 6800 Parallel Bus | 1024-byte framebuffer in RAM |
+| | Data Bus (D0..D7) | `PE0 .. PE7` | Full-byte ODR write (`GPIOE->ODR[7:0]`) |
 | | Command/Data (RS) | `PB3` | Low = Command, High = Data |
-| | Reset (RST) | `PB4` | Active Low reset |
-| | Read/Write (RW / WR) | `PB5` | Write strobe |
-| | Chip Select (CS) | `PD2` | Active Low |
-| | Read (RD) | `PD7` | Kept High during writes |
-| | Backlight | `PB1` / `TIM3_CH4` | PWM brightness control |
+| | Reset (RST) | `PB4` | Active Low hardware reset |
+| | Read/Write (RW) | `PB5` | Kept Low for write mode |
+| | Chip Select (CS) | `PD2` | Active Low (held Low for bus access) |
+| | Strobe (RD / E) | `PD7` | 6800-series latch strobe (High -> Low pulse) |
+| | Backlight (Stock) | `PF3` | **Active HIGH** (drives NPN transistor base) |
+| | Backlight (Modded)| `PC9` / `PB1` | `TIM3_CH4` PWM dimming mod pad |
 | **Analog Inputs** | 12-bit ADC1 via DMA | 10 Channels scanned | Circular DMA buffer |
 | | Sticks (RV, RH, LV, LH) | `PA0`, `PA1`, `PA2`, `PA3` | Channels 0, 1, 2, 3 |
 | | Potentiometers (VR1, VR2)| `PA6`, `PB0` | Channels 6, 8 |
 | | Battery Sense | `PC0` | Channel 10 (voltage divider) |
 | | Switches (SA, SB, SC, SD)| Resistor dividers on ADC | Channels 4, 5, 7, 9 |
-| **Digital Keys** | 4 Rows × 3 Columns Matrix | Keypad & Trims | Polled at ~50–100 Hz |
-| | Matrix Columns | `PC6`, `PC7`, `PC8` | Driven Low sequentially |
-| | Matrix Rows | `PD12`, `PD13`, `PD14`, `PD15` | Inputs with pull-ups |
-| | Dedicated Bind Key | `PF2` | Active Low |
+| **Digital Keys** | 3 Columns × 4 Rows Matrix | Keypad & Trims | Polled at ~50–100 Hz |
+| | Matrix Columns (R1..R3)| `PC6`, `PC7`, `PC8` | Driven Low sequentially |
+| | Matrix Rows (L1..L4) | `PD12`, `PD13`, `PD14`, `PD15` | Inputs with internal pull-ups |
+| | Inward Trim Keys | `PC6`+`PD13` & `PC7`+`PD14` | Roll Left (RHL) + Yaw Right (LHR) |
+| | Dedicated Bind Key | `PF2` | Active Low (pull-up enabled) |
 | **Storage** | 24C64 I2C EEPROM (64 Kbit) | `I2C2` (`PB10` SCL, `PB11` SDA) | Model configs & calibrations |
 | **Telemetry / Serial**| UART Interfaces | `USART2` (PD5 Tx / PA15 Rx) | External telemetry / i-BUS mirror |
 | **Audio** | Piezo Buzzer | `TIM14` | Frequency & tone generator |
@@ -114,11 +116,15 @@ The ST7567 parallel LCD driver maintains a **1024-byte framebuffer** in SRAM (`1
 
 ## 6. Implementation Roadmap
 
-### Phase 1: Board Bring-Up & Display
-- [ ] Configure `cortex-m-rt`, linker script, and clock tree (48 MHz PLL from 8 MHz HSE/HSI).
-- [ ] Implement parallel 8-bit ST7567 driver for `GPIOE` + control pins.
-- [ ] Connect `embedded-graphics` `DrawTarget` to 1024-byte buffer.
-- [ ] Display test pattern and text fonts.
+### Phase 1: Board Bring-Up & Display (COMPLETED)
+- [x] Configure `cortex-m-rt`, linker script (`memory.x`), and target `thumbv6m-none-eabi`.
+- [x] Dual MCU support for both `STM32F072VB` and `APM32F072VB` (UID & DFU mapping).
+- [x] Implement parallel 8-bit ST7567 driver for `GPIOE` (ODR write) + control lines.
+- [x] Connect `embedded-graphics` `DrawTarget` to 1024-byte SRAM buffer.
+- [x] Fix screen orientation (`0xA1`/`0xC0`), column 4 offset, and factory backlight on `PF3`.
+- [x] Safe DFU bootloader software jump on startup/runtime via inward trims or Bind key.
+- [x] Fast power-on boot (< 30 ms).
+- **Footprint:** **8.9 KB Flash** (leaves > 119 KB free / ~93% headroom), **0 B static data**, **> 14 KB free SRAM**.
 
 ### Phase 2: Analog & Digital Inputs
 - [ ] Setup ADC1 with DMA continuous circular buffer for 4 stick axes + battery voltage.
@@ -146,8 +152,22 @@ The ST7567 parallel LCD driver maintains a **1024-byte framebuffer** in SRAM (`1
 
 ---
 
-## 7. Toolchain & Flashing
+## 7. Toolchain, Flashing & Reversion
 
 - **Rust Target:** `thumbv6m-none-eabi`
-- **Compiler:** `nightly` or `stable` (edition 2021)
-- **Flashing / Debugging:** ST-Link v2 via SWD header (`SWDIO`, `SWCLK`, `GND`, `3.3V` on FS-i6X motherboard) using [`probe-rs`](https://probe.rs/) or `openocd`.
+- **Compiler:** `stable` or `nightly` (edition 2021)
+- **DFU Flashing (USB):**
+  1. Push both horizontal trims inward toward the power switch (or hold the Bind key) and turn ON.
+  2. The MCU jumps directly into the factory ST ROM bootloader (`0483:df11`).
+  3. Flash firmware via `dfu-util`:
+     ```bash
+     dfu-util -a0 -s 0x08000000:leave -d 0483:df11 -D target/flysky-i6x-rs.bin
+     ```
+- **Reverting to OpenTX / OpenI6X:**
+  Because the factory bootloader resides in permanent ROM, you can restore your original firmware anytime:
+  ```bash
+  dfu-util -a0 -s 0x08000000:leave -d 0483:df11 -D opentx_backup.bin
+  ```
+- **Hardware Recovery Override:**
+  If custom code ever hangs before key polling, short the `R53` pads (BOOT0 to 3.3V) with tweezers while plugging in USB to force hardware DFU mode.
+
