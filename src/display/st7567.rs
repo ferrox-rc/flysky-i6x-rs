@@ -81,11 +81,9 @@ impl St7567 {
             let f_moder = ptr::read_volatile(GPIOF_MODER);
             ptr::write_volatile(GPIOF_MODER, (f_moder & !(3 << 6)) | (1 << 6));
 
-            // Modded Backlight pads on PC9 and PB1. Configure as outputs too.
+            // Modded Backlight pad on PC9. Configure as output too.
             let c_moder = ptr::read_volatile(GPIOC_MODER);
             ptr::write_volatile(GPIOC_MODER, (c_moder & !(3 << 18)) | (1 << 18));
-            let b_moder = ptr::read_volatile(GPIOB_MODER);
-            ptr::write_volatile(GPIOB_MODER, (b_moder & !(3 << 2)) | (1 << 2));
 
             // Default LCD states matching OpenI6X:
             // CS (PD2) = Low (chip enabled)
@@ -98,19 +96,17 @@ impl St7567 {
         }
     }
 
-    /// Set Backlight state (Standard PF3 active HIGH, and PC9/PB1 active HIGH).
+    /// Set Backlight state (Standard PF3 active HIGH, and PC9 active HIGH).
     pub fn set_backlight(&self, on: bool) {
         unsafe {
             if on {
                 // Stock FS-i6X factory backlight: PF3 HIGH turns it ON (OpenTX GPIO_SetBits)
                 ptr::write_volatile(GPIOF_BSRR, 1 << 3);
-                // Also drive PC9 and PB1 HIGH for any modded backlights
+                // Also drive PC9 HIGH for any modded backlights
                 ptr::write_volatile(GPIOC_BSRR, 1 << 9);
-                ptr::write_volatile(GPIOB_BSRR, 1 << 1);
             } else {
                 ptr::write_volatile(GPIOF_BSRR, 1 << (3 + 16));
                 ptr::write_volatile(GPIOC_BSRR, 1 << (9 + 16));
-                ptr::write_volatile(GPIOB_BSRR, 1 << (1 + 16));
             }
         }
     }

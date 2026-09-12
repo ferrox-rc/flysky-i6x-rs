@@ -49,6 +49,7 @@ pub fn get_mcu_profile() -> McuProfile {
 }
 
 /// Read the 96-bit (12-byte) Unique Device ID from MCU silicon.
+#[allow(dead_code)]
 pub fn read_uid(profile: &McuProfile) -> [u8; 12] {
     let mut uid = [0u8; 12];
     unsafe {
