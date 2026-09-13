@@ -184,34 +184,6 @@ pub fn load_storage() -> RadioStorage {
             for i in 0..word_count {
                 *dst.add(i) = core::ptr::read_volatile(src.add(i));
             }
-
-            // Auto-heal 9-point throttle curves where points 5..8 were zeroed
-            let mut need_save = false;
-            for model in storage.models.iter_mut() {
-                if model.thr_curve_pts == 9 && model.thr_curve[8] == 0 && model.thr_curve[4] == 100 {
-                    let c0 = model.thr_curve[0];
-                    let c1 = model.thr_curve[1];
-                    let c2 = model.thr_curve[2];
-                    let c3 = model.thr_curve[3];
-                    let c4 = model.thr_curve[4];
-                    model.thr_curve = [
-                        c0,
-                        ((c0 as u16 + c1 as u16) / 2) as u8,
-                        c1,
-                        ((c1 as u16 + c2 as u16) / 2) as u8,
-                        c2,
-                        ((c2 as u16 + c3 as u16) / 2) as u8,
-                        c3,
-                        ((c3 as u16 + c4 as u16) / 2) as u8,
-                        c4,
-                    ];
-                    need_save = true;
-                }
-            }
-            if need_save {
-                save_storage(&storage);
-            }
-
             return storage;
         }
 
