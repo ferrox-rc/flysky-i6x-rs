@@ -113,7 +113,29 @@ The ST7567 controller contains 132 column segment drivers, while the FS-i6X phys
 
 ---
 
-## 5. Safe DFU Bootloader Jump
+## 5. Piezo Buzzer Audio Driver
+
+The audible beeper is a passive piezoelectric transducer driven by hardware PWM:
+- **Control Pin:** **`GPIOA` Pin 8 (`PA8`)**
+- **Timer / Channel:** **`TIM1_CH1`** configured in Alternate Function 2 (`AF2`, push-pull).
+- **Clock Configuration:** `TIM1` clocked at 48 MHz with prescaler `PSC = 47` yielding an exact 1.000 µs tick count.
+- **Tone Generation:** Variable period register (`ARR = 1,000,000 / freq_hz`) and 50% duty cycle (`CCR1 = ARR / 2`).
+- **Advanced Timer Output:** Requires Main Output Enable bit set in Break and Dead-Time Register (`TIM1->BDTR |= TIM_BDTR_MOE`).
+- **Non-Blocking Sequencing:** The audio state machine tracks duration via `buzzer.tick(dt_ms)` in the main loop, automatically disabling timer output on tone completion without blocking RF interrupts.
+
+| Audio Event | Frequency (Hz) | Duration (ms) | Description |
+| :--- | :--- | :--- | :--- |
+| **Boot Click** | 2250 Hz | 15 ms | Friendly power-on acoustic confirmation |
+| **Nav Click** | 2400 Hz | 12 ms | Light feedback when pressing menu buttons |
+| **Trim Step** | 1500 .. 2500 Hz | 25 ms | Dynamic pitch shifting with trim step offset |
+| **Trim Center** | 2800 Hz | 60 ms | High-pitch confirmation when reaching 0 neutral |
+| **Trim Limit** | 1100 Hz | 45 ms | Low warning buzz when hitting $\pm 25$ limits |
+| **Bind Success** | 2200 / 2800 Hz | 80 ms each | Two-tone rising fanfare upon binding receiver |
+| **Calib Success** | 2000 / 2800 Hz | 100 ms each | Confirmation chime when saving gimbals |
+
+---
+
+## 6. Safe DFU Bootloader Jump
 
 The STM32F072 contains a factory-programmed DFU bootloader in System ROM (`0x1FFFC800`). The firmware can jump into this bootloader in software without physical access to the `BOOT0` pin.
 
@@ -133,7 +155,7 @@ If custom firmware ever hangs before polling the keys, the hardware override is 
 
 ---
 
-## 6. Analog Inputs & ADC1 Channel Map
+## 7. Analog Inputs & ADC1 Channel Map
 
 The FlySky FS-i6X uses a single 12-bit ADC peripheral (**ADC1**) paired with **DMA1 Channel 1** operating in circular mode to continuously scan 11 analog channels into SRAM without CPU intervention.
 

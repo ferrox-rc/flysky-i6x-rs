@@ -86,13 +86,32 @@ sequenceDiagram
     Note over TX: Phase 4: Save RX ID to Flash & Switch to Normal Hopping Mode
 ```
 
-### Cancelling Binding
-- If binding is initiated accidentally or without an active receiver nearby, the bottom status bar prompts: `[ESC] Abort Bind`.
-- Pressing the **Cancel / Exit** key (`ESC`, bit 11) immediately invokes `rf::set_bind_mode(false)`, restores standard power, and returns to normal flight transmission.
+### Two-Way Telemetry Receivers (FS-iA6B, FS-iA10B)
+1. In Phase 1 (`0xBB`), the receiver replies with its 32-bit `rx_id`.
+2. The transmitter captures the ID, transitions to Phase 3 (`0xBC`), sends the hopping table, and waits for receiver ACK.
+3. Upon receiving ACK, the radio automatically commits `rx_id` to the active model profile, sounds a 2-tone confirmation chime, and transitions to normal hopping.
+
+### One-Way Receivers (FS-A8S, Fli14, FS-iA6)
+One-way receivers lack an RF power amplifier/transmitter and cannot send RF downlink packets back to the radio:
+1. The transmitter broadcasts `0xBB` and `0xBC` continuously on the bind channel.
+2. Once the receiver's LED turns solid (indicating it has locked onto the transmitter's ID and hopping table), the user presses **`[ESC]`** or taps the **`BIND`** button.
+3. The transmitter immediately completes the bind process, saves the active configuration to Flash, and begins normal hopping transmission.
 
 ---
 
-## 5. Downlink Telemetry (i-BUS Telemetry)
+## 5. Model Match & Dynamic RX Switching
+
+AFHDS 2A transmitters only filter telemetry downlink frames using the 32-bit `rx_id`. To support 20 independent models without receiver crosstalk:
+- Each of the 20 `ModelConfig` profiles stores an independent `rx_id`.
+- When the user selects a new model in `MODEL SELECT`, the menu controller calls:
+  ```rust
+  rf::set_rx_id(storage.models[new_model_idx].rx_id);
+  ```
+- This dynamically updates the RF driver's active receiver filter in real time. Downlink telemetry frames are only accepted if they match the active model's bound receiver, preventing telemetry corruption or accidental cross-model commands.
+
+---
+
+## 6. Downlink Telemetry (i-BUS Telemetry)
 
 Immediately following transmission of each stick packet, the A7105 is switched to RX mode for a short reception window (~1.2 ms):
 - **RSSI**: Signal strength percentage ($0 \dots 100\%$).

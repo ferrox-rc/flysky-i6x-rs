@@ -47,9 +47,9 @@ The standard OpenTX/EdgeTX port for the FS-i6X ([OpenI6X](https://github.com/Ope
 | | Matrix Rows (L1..L4) | `PD12`, `PD13`, `PD14`, `PD15` | Inputs with internal pull-ups |
 | | Inward Trim Keys | `PC6`+`PD13` & `PC7`+`PD14` | Roll Left (RHL) + Yaw Right (LHR) |
 | | Dedicated Bind Key | `PF2` | Active Low (pull-up enabled) |
-| **Storage** | 24C64 I2C EEPROM (64 Kbit) | `I2C2` (`PB10` SCL, `PB11` SDA) | Model configs & calibrations |
+| **Storage** | On-chip Flash (Pages 62 & 63)| `0x0801_F000 .. 0x0801_FFFF` (4 KB) | 20 models + radio settings (2688 bytes) |
 | **Telemetry / Serial**| UART Interfaces | `USART2` (PD5 Tx / PA15 Rx) | External telemetry / i-BUS mirror |
-| **Audio** | Piezo Buzzer | `TIM14` | Frequency & tone generator |
+| **Audio** | Piezo Buzzer | `TIM1_CH1` (`PA8`) | Hardware PWM frequency & tone generator |
 
 ---
 
@@ -118,12 +118,13 @@ The ST7567 parallel LCD driver maintains a **1024-byte framebuffer** in SRAM (`1
 
 Comprehensive technical documentation is maintained in the [`docs/`](docs/) directory:
 
-- **[System Architecture & Timing Model](docs/architecture.md)**: 48 MHz clock tree, real-time concurrency model, TIM16 260 Hz packet loop, and zero-heap memory layout.
-- **[AFHDS 2A Protocol & A7105 RF Driver](docs/rf_protocol.md)**: SPI1 hardware driver, 16-channel FHSS hopping table, 38-byte packet structure, 4-phase bind sequence, and telemetry downlink.
+- **[User Guide & Operations Manual](docs/user_guide.md)**: Complete operator guide covering flight dashboard, menu navigation, 20-model setup, throttle curves, calibration, and binding.
+- **[System Architecture & Timing Model](docs/architecture.md)**: 48 MHz clock tree, real-time concurrency model, TIM16 260 Hz packet loop, Catmull-Rom curve math, and zero-heap memory layout.
+- **[AFHDS 2A Protocol & A7105 RF Driver](docs/rf_protocol.md)**: SPI1 hardware driver, 16-channel FHSS hopping table, 38-byte packet structure, Model Match, and one-way/two-way receiver binding.
 - **[Flight Inputs & Digital Trims](docs/input_subsystem.md)**: 11-channel continuous ADC DMA scanner, MMA jitter filtering, physical gimbal geometry, 4-axis digital trims, and TIM1 hardware PWM buzzer driver.
-- **[Stick Calibration & Flash Persistence](docs/calibration_and_storage.md)**: 2-step interactive calibration wizard, tolerance margin calculation, and non-volatile Flash storage layout at `0x0801_F800`.
+- **[Stick Calibration & Flash Persistence](docs/calibration_and_storage.md)**: 2-step interactive calibration wizard, tolerance margin calculation, and 20-model Flash storage architecture across Pages 62 & 63.
 - **[Architecture & Performance Comparison](docs/firmware_comparison.md)**: Deep-dive comparative analysis vs OpenI6X and stock firmware (Flash headroom, <4ms latency, safety locks, backlight PWM mod).
-- **[Hardware Reference & Pinout](docs/hardware_reference.md)**: Detailed schematics, pin mappings, ST7567 LCD 6800-bus timings, and dual-MCU (STM32 / APM32) profiles.
+- **[Hardware Reference & Pinout](docs/hardware_reference.md)**: Detailed schematics, pin mappings, ST7567 LCD 6800-bus timings, buzzer PWM, and dual-MCU (STM32 / APM32) profiles.
 
 ---
 
@@ -149,7 +150,7 @@ Comprehensive technical documentation is maintained in the [`docs/`](docs/) dire
 ### Phase 4: AFHDS 2A Over-the-Air Link & Telemetry (COMPLETED)
 - [x] 14-channel 38-byte stick frame generation ($1000 \dots 2000\,\mu\text{s}$).
 - [x] 4-phase bidirectional bind sequence with persistent RX ID Flash storage.
-- [x] Cancel / Abort binding mode via `[ESC]` (Cancel key).
+- [x] Cancel / Abort binding mode via `[ESC]` (Cancel key) and support for one-way receivers (FS-A8S, Fli14).
 - [x] Downlink telemetry reception window: live RSSI and RX battery voltage.
 
 ### Phase 5: Trims, Audio, & Calibration (COMPLETED)
@@ -166,9 +167,19 @@ Comprehensive technical documentation is maintained in the [`docs/`](docs/) dire
 - [x] Real-time 12-bit Analog Diagnostics (`Diag Anas`) displaying raw counts ($0 \dots 4095$) for all 11 ADC channels.
 - [x] System Information screen displaying MCU profile, 96-bit silicon UID, clock speed, and memory usage.
 
+### Phase 7: 20-Model Memory & Smoothed Throttle Curves (COMPLETED)
+- [x] 20 independent model memory slots (`M01`..`M20`), each allocated an exact 128-byte profile.
+- [x] Multi-sector Flash driver across Pages 62 & 63 (`0x0801_F000`..`0x0801_FFFF`, 4 KB) with automatic legacy migration.
+- [x] Model Match: independent `rx_id` per model profile with dynamic RF switching on model change.
+- [x] Per-model digital trims (Roll, Pitch, Throttle, Yaw) and 14-channel reversing bitmask.
+- [x] Switchable 5-point and 9-point throttle curves with optional **Catmull-Rom cubic Hermite spline** smoothing.
+- [x] Real-time curve graph visualization ($44 \times 36$ pixels) in the on-screen throttle curve editor.
+- [x] Model setup: 10-character ASCII model name editor and aircraft type selector.
+
 ### Current Firmware Footprint
-- **Flash ROM**: **30.4 KB** used out of **128 KB** available (**~76% Flash free**).
-- **Static RAM**: **2.4 KB** used (including 1024-byte framebuffer) out of **16 KB** available (**~85% SRAM free**).
+- **Flash ROM**: **35.4 KB** used out of **128 KB** available (Flash Pages 0–17; Pages 18–61 free).
+- **Static RAM**: **228 bytes** (`.data` + `.bss`) out of **16 KB** available (**>90% SRAM free**).
+- **Non-Volatile Storage**: **2,688 bytes** allocated across Pages 62 & 63 (1,408 bytes free headroom).
 
 ---
 
@@ -176,8 +187,9 @@ Comprehensive technical documentation is maintained in the [`docs/`](docs/) dire
 
 | Action | Control | Notes |
 | :--- | :--- | :--- |
-| **Open Settings Menu** | **Hold `OK` for 1.2s** | Opens Radio Setup, Calibration, RX Setup, Monitors, & Diagnostics |
+| **Open Settings Menu** | **Hold `OK` for 1.2s** | Opens Model Select, Model Setup, Ch Reverse, Thr Curve, Radio Setup, Calib, RX Setup, Monitors, & Diagnostics |
 | **Direct Calibration (Boot)**| **Hold `OK` during Power-On** | Launches 2-step calibration wizard immediately on boot |
+| **Initiate / Finish Binding**| **Tap `BIND` button** | Starts binding; finish & save for one-way receivers |
 | **Abort / Cancel Binding** | **Press `Cancel` (`ESC`)** | Exits binding mode immediately and restores normal RF |
 | **Enter DFU Bootloader** | **Inward Trims + Power ON** | Push Roll Left & Yaw Right inward while turning on |
 | **Fast DFU Jump (Runtime)**| **Hold Inward Trims for 100 ms** | Re-enters ST factory ROM bootloader from main screen |
