@@ -114,12 +114,17 @@ impl AxisCalib {
     }
 }
 
+pub const GIMBAL_HALF_SPAN: u16 = 1670;
+const DEFAULT_STICK_CENTER: u16 = 2048;
+const DEFAULT_STICK_MIN: u16 = DEFAULT_STICK_CENTER - GIMBAL_HALF_SPAN; // 378
+const DEFAULT_STICK_MAX: u16 = DEFAULT_STICK_CENTER + GIMBAL_HALF_SPAN; // 3718
+
 // Initial default gimbal endpoints based on FlySky FS-i6X mechanical potentiometer throw
 // Roll and Pitch pots are inverted on FlySky hardware (matching OpenI6X ana_direction = {1, -1, 1, -1})
-static mut ROLL_CALIB: AxisCalib = AxisCalib::new(1180, 2048, 2920, true);
-static mut PITCH_CALIB: AxisCalib = AxisCalib::new(1180, 2048, 2920, true);
-static mut THROTTLE_CALIB: AxisCalib = AxisCalib::new(1180, 2048, 2920, false);
-static mut YAW_CALIB: AxisCalib = AxisCalib::new(1180, 2048, 2920, false);
+static mut ROLL_CALIB: AxisCalib = AxisCalib::new(DEFAULT_STICK_MIN, DEFAULT_STICK_CENTER, DEFAULT_STICK_MAX, true);
+static mut PITCH_CALIB: AxisCalib = AxisCalib::new(DEFAULT_STICK_MIN, DEFAULT_STICK_CENTER, DEFAULT_STICK_MAX, true);
+static mut THROTTLE_CALIB: AxisCalib = AxisCalib::new(DEFAULT_STICK_MIN, DEFAULT_STICK_CENTER, DEFAULT_STICK_MAX, false);
+static mut YAW_CALIB: AxisCalib = AxisCalib::new(DEFAULT_STICK_MIN, DEFAULT_STICK_CENTER, DEFAULT_STICK_MAX, false);
 
 /// Initialize input subsystem and measure resting center for spring-loaded gimbals.
 pub fn init() {
@@ -150,20 +155,20 @@ pub fn init() {
         // Roll: PA0 (RH)
         if avg_roll >= 1500 && avg_roll <= 2500 {
             (*core::ptr::addr_of_mut!(ROLL_CALIB)).center = avg_roll;
-            (*core::ptr::addr_of_mut!(ROLL_CALIB)).min = avg_roll.saturating_sub(850);
-            (*core::ptr::addr_of_mut!(ROLL_CALIB)).max = avg_roll.saturating_add(850);
+            (*core::ptr::addr_of_mut!(ROLL_CALIB)).min = avg_roll.saturating_sub(GIMBAL_HALF_SPAN);
+            (*core::ptr::addr_of_mut!(ROLL_CALIB)).max = avg_roll.saturating_add(GIMBAL_HALF_SPAN);
         }
         // Pitch: PA1 (RV)
         if avg_pitch >= 1500 && avg_pitch <= 2500 {
             (*core::ptr::addr_of_mut!(PITCH_CALIB)).center = avg_pitch;
-            (*core::ptr::addr_of_mut!(PITCH_CALIB)).min = avg_pitch.saturating_sub(850);
-            (*core::ptr::addr_of_mut!(PITCH_CALIB)).max = avg_pitch.saturating_add(850);
+            (*core::ptr::addr_of_mut!(PITCH_CALIB)).min = avg_pitch.saturating_sub(GIMBAL_HALF_SPAN);
+            (*core::ptr::addr_of_mut!(PITCH_CALIB)).max = avg_pitch.saturating_add(GIMBAL_HALF_SPAN);
         }
         // Yaw: PA3 (LH)
         if avg_yaw >= 1500 && avg_yaw <= 2500 {
             (*core::ptr::addr_of_mut!(YAW_CALIB)).center = avg_yaw;
-            (*core::ptr::addr_of_mut!(YAW_CALIB)).min = avg_yaw.saturating_sub(850);
-            (*core::ptr::addr_of_mut!(YAW_CALIB)).max = avg_yaw.saturating_add(850);
+            (*core::ptr::addr_of_mut!(YAW_CALIB)).min = avg_yaw.saturating_sub(GIMBAL_HALF_SPAN);
+            (*core::ptr::addr_of_mut!(YAW_CALIB)).max = avg_yaw.saturating_add(GIMBAL_HALF_SPAN);
         }
     }
 }
