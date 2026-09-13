@@ -13,8 +13,10 @@ use core::ptr;
 
 pub const NUM_CHANNELS: usize = 11;
 
-/// Statically allocated circular buffer written directly by DMA1 hardware.
+/// Statically allocated buffer written directly by DMA1 hardware.
 static mut ADC_RAW_BUFFER: [u16; NUM_CHANNELS] = [0; NUM_CHANNELS];
+/// Stable snapshot of latest completed conversion sequence.
+static mut LATEST_ADC_SNAPSHOT: [u16; NUM_CHANNELS] = [2048; NUM_CHANNELS];
 
 // Base register addresses for STM32F072
 const RCC_AHBENR: *mut u32 = 0x4002_1014 as *mut u32;
@@ -48,18 +50,43 @@ const DMA1_CH1_CNDTR: *mut u32 = (DMA1_CH1_BASE + 0x04) as *mut u32;
 const DMA1_CH1_CPAR: *mut u32 = (DMA1_CH1_BASE + 0x08) as *mut u32;
 const DMA1_CH1_CMAR: *mut u32 = (DMA1_CH1_BASE + 0x0C) as *mut u32;
 
-/// Wait for at least one complete 11-channel DMA circular conversion cycle.
+// DMA CCR configuration for single scan:
+// Bit 7:  MINC (memory increment)
+// Bit 8:  PSIZE = 16-bit halfword (01)
+// Bit 10: MSIZE = 16-bit halfword (01)
+// Bits [13:12]: PL = High (10)
+// Bit 0:  EN
+const DMA_CCR_VAL: u32 = (1 << 7) | (1 << 8) | (1 << 10) | (2 << 12) | (1 << 0);
+
+/// Wait for at least one complete 11-channel DMA conversion cycle and start the next.
 pub fn wait_first_conversion() {
     unsafe {
         let mut timeout = 200_000u32;
         while (ptr::read_volatile(DMA1_ISR) & (1 << 1)) == 0 && timeout > 0 {
             timeout -= 1;
         }
-        ptr::write_volatile(DMA1_IFCR, 1 << 1);
+
+        // Snapshot initial readings
+        for i in 0..NUM_CHANNELS {
+            LATEST_ADC_SNAPSHOT[i] = ptr::read_volatile(&ADC_RAW_BUFFER[i]);
+        }
+
+        // Clear DMA flags (TCIF1, HTIF1, TEIF1, GIF1)
+        ptr::write_volatile(DMA1_IFCR, 0x0F);
+        // Clear ADC EOSEQ / OVR
+        ptr::write_volatile(ADC1_ISR, (1 << 4) | (1 << 3));
+
+        // Re-arm DMA Channel 1
+        ptr::write_volatile(DMA1_CH1_CCR, 0);
+        ptr::write_volatile(DMA1_CH1_CNDTR, NUM_CHANNELS as u32);
+        ptr::write_volatile(DMA1_CH1_CCR, DMA_CCR_VAL);
+
+        // Start next conversion sequence
+        ptr::write_volatile(ADC1_CR, ptr::read_volatile(ADC1_CR) | (1 << 2)); // ADSTART
     }
 }
 
-/// Initialize GPIO analog pins, ADC1, and DMA1 Channel 1 in continuous circular mode.
+/// Initialize GPIO analog pins, ADC1, and DMA1 Channel 1 for single-sequence scan.
 pub fn init() {
     unsafe {
         // 1. Enable GPIOA, GPIOB, GPIOC, DMA1 in RCC_AHBENR
@@ -104,49 +131,56 @@ pub fn init() {
             timeout -= 1;
         }
 
-        // 7. Configure Channels (0 through 10)
+        // 6. Configure Channels (0 through 10)
         // 0x07FF = bits [10:0] set
         ptr::write_volatile(ADC1_CHSELR, 0x07FF);
 
-        // 8. Sampling Time: 239.5 ADC cycles (SMPR = 0b111) for low-noise sampling
+        // 7. Sampling Time: 239.5 ADC cycles (SMPR = 0b111) for low-noise sampling
         ptr::write_volatile(ADC1_SMPR, 0x07);
 
-        // 9. Configure ADC CFGR1:
-        // Bit 13: CONT (continuous conversion)
-        // Bit 1:  DMACFG (1: circular DMA mode)
-        // Bit 0:  DMAEN (1: DMA enable)
-        ptr::write_volatile(ADC1_CFGR1, (1 << 13) | (1 << 1) | (1 << 0));
+        // 8. Configure ADC CFGR1:
+        // Bit 0: DMAEN (1: DMA enable)
+        // Bit 1: DMACFG = 0 (one-shot DMA mode)
+        // Bit 13: CONT = 0 (single sequence conversion)
+        ptr::write_volatile(ADC1_CFGR1, 1 << 0);
 
-        // 10. Configure DMA1 Channel 1:
-        // Disable channel first
+        // 9. Configure DMA1 Channel 1:
         ptr::write_volatile(DMA1_CH1_CCR, 0);
-
         ptr::write_volatile(DMA1_CH1_CPAR, ADC1_DR as u32);
         ptr::write_volatile(DMA1_CH1_CMAR, core::ptr::addr_of_mut!(ADC_RAW_BUFFER) as u32);
         ptr::write_volatile(DMA1_CH1_CNDTR, NUM_CHANNELS as u32);
-
-        // CCR Configuration:
-        // Bit 5:  CIRC (circular mode)
-        // Bit 7:  MINC (memory increment)
-        // Bit 8:  PSIZE = 16-bit halfword (01)
-        // Bit 10: MSIZE = 16-bit halfword (01)
-        // Bits [13:12]: PL = High (10)
-        // Bit 0:  EN
-        const DMA_CCR_VAL: u32 = (1 << 5) | (1 << 7) | (1 << 8) | (1 << 10) | (2 << 12) | (1 << 0);
         ptr::write_volatile(DMA1_CH1_CCR, DMA_CCR_VAL);
 
-        // 11. Start ADC Continuous Conversions
+        // 10. Start first 11-channel conversion sequence
         ptr::write_volatile(ADC1_CR, ptr::read_volatile(ADC1_CR) | (1 << 2)); // ADSTART
     }
 }
 
-/// Read a snapshot of the latest 11 raw ADC values from SRAM.
+/// Read a safe, synchronized snapshot of the latest 11 raw ADC values.
+/// Automatically re-arms DMA and restarts conversion sequence when finished.
 pub fn read_raw() -> [u16; NUM_CHANNELS] {
-    let mut snapshot = [0u16; NUM_CHANNELS];
     unsafe {
-        for i in 0..NUM_CHANNELS {
-            snapshot[i] = ptr::read_volatile(&ADC_RAW_BUFFER[i]);
+        // If the current sequence is complete (TCIF1 = bit 1 of DMA1_ISR):
+        if (ptr::read_volatile(DMA1_ISR) & (1 << 1)) != 0 {
+            // Snapshot all 11 channels cleanly
+            for i in 0..NUM_CHANNELS {
+                LATEST_ADC_SNAPSHOT[i] = ptr::read_volatile(&ADC_RAW_BUFFER[i]);
+            }
+
+            // Clear DMA flags for Channel 1
+            ptr::write_volatile(DMA1_IFCR, 0x0F);
+            // Clear ADC EOSEQ and OVR
+            ptr::write_volatile(ADC1_ISR, (1 << 4) | (1 << 3));
+
+            // Re-arm DMA Channel 1
+            ptr::write_volatile(DMA1_CH1_CCR, 0);
+            ptr::write_volatile(DMA1_CH1_CNDTR, NUM_CHANNELS as u32);
+            ptr::write_volatile(DMA1_CH1_CCR, DMA_CCR_VAL);
+
+            // Trigger next conversion sequence
+            ptr::write_volatile(ADC1_CR, ptr::read_volatile(ADC1_CR) | (1 << 2)); // ADSTART
         }
+
+        LATEST_ADC_SNAPSHOT
     }
-    snapshot
 }

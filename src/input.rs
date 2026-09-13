@@ -61,7 +61,7 @@ pub struct AxisCalib {
     pub min: u16,
     pub center: u16,
     pub max: u16,
-    pub filtered_raw: u16,
+    pub filtered_raw: u32,
     pub invert: bool,
 }
 
@@ -76,29 +76,25 @@ impl AxisCalib {
         }
     }
 
-    /// Normalize raw ADC count (0..4095) piecewise around center point to -1000..+1000.
+    /// Normalize raw ADC count (0..4095) around center point to -1000..+1000.
+    /// OpenTX/OpenI6X MMA filter: filters micro-jitter without adding latency or deadband.
     pub fn normalize(&mut self, raw: u16) -> i16 {
-        // Adaptive jitter filter:
-        // Carbon pots on FlySky gimbals exhibit micro-flutter (< 10 ADC counts).
-        // If movement is small, apply EMA smoothing; if fast/intentional, pass through with 0 latency.
         if self.filtered_raw == 0 {
-            self.filtered_raw = raw;
+            self.filtered_raw = raw as u32 * 16;
         }
-        let diff = (raw as i32 - self.filtered_raw as i32).abs();
-        if diff < 12 {
-            self.filtered_raw = (((self.filtered_raw as u32 * 3) + raw as u32) / 4) as u16;
-        } else {
-            self.filtered_raw = raw;
-        }
-        let smoothed_raw = self.filtered_raw;
 
-        // Dynamic endpoint expansion when physical stick reaches further than initial default
-        if smoothed_raw < self.min && smoothed_raw > 400 {
-            self.min = smoothed_raw;
+        let previous = (self.filtered_raw / 16) as u16;
+        let diff = (raw as i32 - previous as i32).abs();
+
+        // OpenTX jitter filter:
+        // Pass through any change >= 20 counts directly (0 latency)
+        // For small changes (< 20 counts), use MMA filter
+        if diff < 20 {
+            self.filtered_raw = (self.filtered_raw - previous as u32) + raw as u32;
+        } else {
+            self.filtered_raw = raw as u32 * 16;
         }
-        if smoothed_raw > self.max && smoothed_raw < 3700 {
-            self.max = smoothed_raw;
-        }
+        let smoothed_raw = (self.filtered_raw / 16) as u16;
 
         let val = if smoothed_raw <= self.center {
             let span = (self.center - self.min).max(100) as i32;
@@ -110,25 +106,18 @@ impl AxisCalib {
             ((delta * 1000) / span).clamp(0, 1000)
         };
 
-        // 1.5% deadband at resting center to eliminate remaining center noise
-        let filtered = if val > -15 && val < 15 {
-            0
-        } else {
-            val
-        };
-
         if self.invert {
-            -filtered as i16
+            -val as i16
         } else {
-            filtered as i16
+            val as i16
         }
     }
 }
 
 // Initial default gimbal endpoints based on FlySky FS-i6X mechanical potentiometer throw
-// Typical sweep is ~1150 (min), ~2048 (center), ~2950 (max)
-static mut ROLL_CALIB: AxisCalib = AxisCalib::new(1180, 2048, 2920, false);
-static mut PITCH_CALIB: AxisCalib = AxisCalib::new(1180, 2048, 2920, false);
+// Roll and Pitch pots are inverted on FlySky hardware (matching OpenI6X ana_direction = {1, -1, 1, -1})
+static mut ROLL_CALIB: AxisCalib = AxisCalib::new(1180, 2048, 2920, true);
+static mut PITCH_CALIB: AxisCalib = AxisCalib::new(1180, 2048, 2920, true);
 static mut THROTTLE_CALIB: AxisCalib = AxisCalib::new(1180, 2048, 2920, false);
 static mut YAW_CALIB: AxisCalib = AxisCalib::new(1180, 2048, 2920, false);
 
@@ -138,33 +127,33 @@ pub fn init() {
     adc::wait_first_conversion();
 
     // Average 16 scans over ~4ms for rock-solid zero reference
-    let mut sum_roll = 0u32;
     let mut sum_pitch = 0u32;
+    let mut sum_roll = 0u32;
     let mut sum_yaw = 0u32;
     const SAMPLES: u32 = 16;
 
     for _ in 0..SAMPLES {
         let raw = adc::read_raw();
-        sum_roll += raw[0] as u32;
-        sum_pitch += raw[1] as u32;
-        sum_yaw += raw[3] as u32;
+        sum_pitch += raw[0] as u32; // PA0 = RV (Pitch)
+        sum_roll += raw[1] as u32;  // PA1 = RH (Roll)
+        sum_yaw += raw[3] as u32;   // PA3 = LH (Yaw)
         for _ in 0..3_000 {
             cortex_m::asm::nop();
         }
     }
 
-    let avg_roll = (sum_roll / SAMPLES) as u16;
     let avg_pitch = (sum_pitch / SAMPLES) as u16;
+    let avg_roll = (sum_roll / SAMPLES) as u16;
     let avg_yaw = (sum_yaw / SAMPLES) as u16;
 
     unsafe {
-        // Roll: PA0 (RH)
+        // Roll: PA1 (RH)
         if avg_roll >= 1500 && avg_roll <= 2500 {
             (*core::ptr::addr_of_mut!(ROLL_CALIB)).center = avg_roll;
             (*core::ptr::addr_of_mut!(ROLL_CALIB)).min = avg_roll.saturating_sub(850);
             (*core::ptr::addr_of_mut!(ROLL_CALIB)).max = avg_roll.saturating_add(850);
         }
-        // Pitch: PA1 (RV)
+        // Pitch: PA0 (RV)
         if avg_pitch >= 1500 && avg_pitch <= 2500 {
             (*core::ptr::addr_of_mut!(PITCH_CALIB)).center = avg_pitch;
             (*core::ptr::addr_of_mut!(PITCH_CALIB)).min = avg_pitch.saturating_sub(850);
@@ -213,15 +202,15 @@ fn calculate_battery_mv(raw: u16) -> u16 {
 pub fn poll() -> InputState {
     let raw = adc::read_raw();
 
-    // Mode 2 Pinout:
-    // raw[0] = PA0 (RH - Roll / Aileron)
-    // raw[1] = PA1 (RV - Pitch / Elevator, spring return)
-    // raw[2] = PA2 (LV - Throttle, friction ratchet / no spring return)
-    // raw[3] = PA3 (LH - Yaw / Rudder, spring return)
+    // Mode 2 Pinout matching FlySky FS-i6X hardware (OpenI6X hal.h):
+    // raw[0] = PA0: RV (Right Vertical - Pitch / Elevator)
+    // raw[1] = PA1: RH (Right Horizontal - Roll / Aileron)
+    // raw[2] = PA2: LV (Left Vertical - Throttle, friction ratchet / no spring return)
+    // raw[3] = PA3: LH (Left Horizontal - Yaw / Rudder)
     let sticks = unsafe {
         Sticks {
-            roll: (*core::ptr::addr_of_mut!(ROLL_CALIB)).normalize(raw[0]),
-            pitch: (*core::ptr::addr_of_mut!(PITCH_CALIB)).normalize(raw[1]),
+            roll: (*core::ptr::addr_of_mut!(ROLL_CALIB)).normalize(raw[1]),
+            pitch: (*core::ptr::addr_of_mut!(PITCH_CALIB)).normalize(raw[0]),
             throttle: (*core::ptr::addr_of_mut!(THROTTLE_CALIB)).normalize(raw[2]),
             yaw: (*core::ptr::addr_of_mut!(YAW_CALIB)).normalize(raw[3]),
         }

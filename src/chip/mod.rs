@@ -61,6 +61,58 @@ pub fn read_uid(profile: &McuProfile) -> [u8; 12] {
     uid
 }
 
+/// Initialize system clock to 48 MHz using external 8 MHz crystal (HSE) + PLL.
+/// Matches OpenI6X SetSysClock configuration.
+pub fn init_system_clock() {
+    const RCC_CR: *mut u32 = 0x4002_1000 as *mut u32;
+    const RCC_CFGR: *mut u32 = 0x4002_1004 as *mut u32;
+    const FLASH_ACR: *mut u32 = 0x4002_2000 as *mut u32;
+
+    unsafe {
+        // 1. Enable HSE (8 MHz external crystal on FlySky FS-i6X PCB)
+        let cr = ptr::read_volatile(RCC_CR);
+        ptr::write_volatile(RCC_CR, cr | (1 << 16)); // HSEON
+
+        // 2. Wait for HSERDY with timeout
+        let mut timeout = 100_000u32;
+        while (ptr::read_volatile(RCC_CR) & (1 << 17)) == 0 && timeout > 0 {
+            timeout -= 1;
+        }
+
+        if timeout > 0 {
+            // 3. Set Flash latency to 1 wait state (required for 48 MHz) & enable prefetch buffer
+            ptr::write_volatile(FLASH_ACR, (1 << 4) | (1 << 0)); // PRFTBE | LATENCY
+
+            // 4. Configure PLL: HSE / 1 * 6 = 48 MHz
+            // PLLSRC = HSE PREDIV (bit 16)
+            // PLLMUL = 6 (0b0100 << 18 = 0x0010_0000)
+            let cfgr = ptr::read_volatile(RCC_CFGR);
+            let cfgr_clean = cfgr & !(0x003F_0000 | 0x0000_0003);
+            ptr::write_volatile(RCC_CFGR, cfgr_clean | (1 << 16) | 0x0010_0000);
+
+            // 5. Enable PLL (PLLON = bit 24)
+            let cr = ptr::read_volatile(RCC_CR);
+            ptr::write_volatile(RCC_CR, cr | (1 << 24));
+
+            // 6. Wait for PLLRDY (bit 25)
+            timeout = 100_000;
+            while (ptr::read_volatile(RCC_CR) & (1 << 25)) == 0 && timeout > 0 {
+                timeout -= 1;
+            }
+
+            // 7. Select PLL as system clock source (SW = 0b10)
+            let cfgr = ptr::read_volatile(RCC_CFGR);
+            ptr::write_volatile(RCC_CFGR, (cfgr & !0x03) | 0x02);
+
+            // 8. Wait for PLL to be used as system clock source (SWS = 0b1000)
+            timeout = 100_000;
+            while (ptr::read_volatile(RCC_CFGR) & 0x0C) != 0x08 && timeout > 0 {
+                timeout -= 1;
+            }
+        }
+    }
+}
+
 /// Reset RCC to default power-on state (HSI 8MHz, no PLL, peripheral clocks disabled).
 unsafe fn rcc_deinit() {
     const RCC_CR: *mut u32 = 0x4002_1000 as *mut u32;

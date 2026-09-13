@@ -18,6 +18,7 @@ mod boot;
 mod chip;
 mod display;
 mod input;
+mod rf;
 
 use display::St7567;
 
@@ -201,14 +202,32 @@ fn main() -> ! {
     let mcu_profile = chip::get_mcu_profile();
     boot::check_dfu_entry(&mcu_profile);
 
-    // 2. Initialize ST7567 128×64 LCD & Backlight immediately
+    // 2. Initialize System Clock to 48 MHz using external 8 MHz crystal (HSE) + PLL
+    chip::init_system_clock();
+
+    // 3. Initialize ST7567 128×64 LCD & Backlight immediately
     let mut lcd = St7567::new();
 
-    // 3. Initialize ADC1 + DMA1 autonomous continuous scanner
+    // 4. Initialize ADC1 + DMA1 autonomous continuous scanner
     adc::init();
 
-    // 4. Initialize input calibration and capture resting stick centers
+    // 5. Initialize input calibration and capture resting stick centers
     input::init();
+
+    // 5. Initialize A7105 RF transceiver & AFHDS 2A stack
+    let uid = chip::read_uid(&mcu_profile);
+    let w0 = u32::from_le_bytes([uid[0], uid[1], uid[2], uid[3]]);
+    let w1 = u32::from_le_bytes([uid[4], uid[5], uid[6], uid[7]]);
+    let w2 = u32::from_le_bytes([uid[8], uid[9], uid[10], uid[11]]);
+    let tx_id = w0 ^ w1 ^ w2;
+
+    let initial_keys = boot::scan_keys();
+    let bind_on_boot = (initial_keys & (1 << 12)) != 0;
+
+    let rf_ok = rf::init(tx_id);
+    if bind_on_boot {
+        rf::set_bind_mode(true);
+    }
 
     let text_style = MonoTextStyle::new(&FONT_6X10, BinaryColor::On);
     let sep_style = PrimitiveStyle::with_stroke(BinaryColor::On, 1);
@@ -219,8 +238,37 @@ fn main() -> ! {
         // Poll continuous DMA inputs
         let state = input::poll();
 
+        // Map inputs to 14 AFHDS 2A channels (1000..2000 µs)
+        let mut rf_chs = [1500u16; 14];
+        rf_chs[0] = ((state.sticks.roll / 2) + 1500).clamp(1000, 2000) as u16;
+        rf_chs[1] = ((state.sticks.pitch / 2) + 1500).clamp(1000, 2000) as u16;
+        rf_chs[2] = ((state.sticks.throttle / 2) + 1500).clamp(1000, 2000) as u16;
+        rf_chs[3] = ((state.sticks.yaw / 2) + 1500).clamp(1000, 2000) as u16;
+        rf_chs[4] = if state.switches.sa == input::SwitchPos::Up { 1000 } else { 2000 };
+        rf_chs[5] = match state.switches.sb {
+            input::SwitchPos::Up => 1000,
+            input::SwitchPos::Mid => 1500,
+            input::SwitchPos::Down => 2000,
+        };
+        rf_chs[6] = ((state.pots.vr1 / 2) + 1500).clamp(1000, 2000) as u16;
+        rf_chs[7] = ((state.pots.vr2 / 2) + 1500).clamp(1000, 2000) as u16;
+        rf_chs[8] = match state.switches.sc {
+            input::SwitchPos::Up => 1000,
+            input::SwitchPos::Mid => 1500,
+            input::SwitchPos::Down => 2000,
+        };
+        rf_chs[9] = if state.switches.sd == input::SwitchPos::Up { 1000 } else { 2000 };
+        rf::set_channels(&rf_chs);
+
+        // Fetch telemetry
+        let telem = rf::get_telemetry();
+
         // Check keys and runtime DFU trigger
         let keys = boot::scan_keys();
+        if (keys & (1 << 12)) != 0 {
+            rf::set_bind_mode(true);
+        }
+
         if boot::is_dfu_requested(keys) {
             dfu_confirm_count += 1;
             if dfu_confirm_count >= 5 {
@@ -248,11 +296,46 @@ fn main() -> ! {
             .draw(&mut lcd)
             .ok();
 
+        // Center RF status
+        if !rf_ok {
+            let id = rf::get_last_chip_id();
+            let mut err_buf = [b'E', b':', b'0', b'0'];
+            err_buf[2] = HEX_CHARS[((id >> 4) & 0x0F) as usize];
+            err_buf[3] = HEX_CHARS[(id & 0x0F) as usize];
+            let err_str = core::str::from_utf8(&err_buf).unwrap_or("E:??");
+            Text::new(err_str, Point::new(48, 9), text_style)
+                .draw(&mut lcd)
+                .ok();
+        } else if !rf::is_bound() {
+            Text::new("BINDING", Point::new(46, 9), text_style)
+                .draw(&mut lcd)
+                .ok();
+        } else if telem.connected {
+            let mut rssi_buf = [b'R', b':', b' ', b' ', b'%'];
+            let r = telem.rssi.min(100);
+            if r >= 100 {
+                rssi_buf[2] = b'1';
+                rssi_buf[3] = b'0';
+                rssi_buf[4] = b'0';
+            } else {
+                rssi_buf[2] = b'0' + (r / 10);
+                rssi_buf[3] = b'0' + (r % 10);
+            }
+            let r_str = core::str::from_utf8(&rssi_buf).unwrap_or("R:--%");
+            Text::new(r_str, Point::new(48, 9), text_style)
+                .draw(&mut lcd)
+                .ok();
+        } else {
+            Text::new("RF:OK", Point::new(50, 9), text_style)
+                .draw(&mut lcd)
+                .ok();
+        }
+
         // Battery voltage
         let mut vbat_buf = [0u8; 6];
         let vbat_str = format_vbat(state.battery_mv, &mut vbat_buf);
 
-        Text::new(vbat_str, Point::new(76, 9), text_style)
+        Text::new(vbat_str, Point::new(94, 9), text_style)
             .draw(&mut lcd)
             .ok();
 
@@ -322,7 +405,14 @@ fn main() -> ! {
         Text::new("KEY:", Point::new(2, 63), text_style).draw(&mut lcd).ok();
         Text::new(key_str, Point::new(28, 63), text_style).draw(&mut lcd).ok();
 
-        if (keys & (1 << 12)) != 0 {
+        if !rf::is_bound() {
+            Text::new("BINDING...", Point::new(58, 63), text_style).draw(&mut lcd).ok();
+        } else if telem.connected && telem.rx_voltage_mv > 0 {
+            let mut rxv_buf = [0u8; 6];
+            let rxv_str = format_vbat(telem.rx_voltage_mv, &mut rxv_buf);
+            Text::new("RX:", Point::new(58, 63), text_style).draw(&mut lcd).ok();
+            Text::new(rxv_str, Point::new(76, 63), text_style).draw(&mut lcd).ok();
+        } else if (keys & (1 << 12)) != 0 {
             Text::new("BIND", Point::new(58, 63), text_style).draw(&mut lcd).ok();
         } else {
             Text::new("DFU:Trims", Point::new(58, 63), text_style).draw(&mut lcd).ok();
@@ -330,10 +420,5 @@ fn main() -> ! {
 
         // Flush frame to ST7567 LCD
         lcd.flush();
-
-        // Frame pacing (~30 Hz refresh rate at 8 MHz)
-        for _ in 0..50_000 {
-            cortex_m::asm::nop();
-        }
     }
 }

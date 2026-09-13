@@ -146,6 +146,7 @@ impl St7567 {
         self.write_byte(cmd, false);
     }
 
+    #[allow(dead_code)]
     #[inline(always)]
     pub fn write_data(&self, data: u8) {
         self.write_byte(data, true);
@@ -183,17 +184,43 @@ impl St7567 {
     }
 
     /// Flush the entire 1024-byte framebuffer to the ST7567 LCD.
-    /// Notice: Controller is 132 columns wide while the panel is 128, starting at column 4!
+    /// Uses OpenI6X direct 8-bit parallel bus strobing: RS set once per page,
+    /// direct 8-bit STRB to GPIOE_ODR, and single-cycle RD pulses.
     pub fn flush(&self) {
-        for page in 0..8 {
-            self.write_cmd(0xB0 | page as u8); // Set page (0..7)
-            self.write_cmd(0x04);             // Col low nibble = 4
-            self.write_cmd(0x10);             // Col high nibble = 0
+        unsafe {
+            let data_odr_u8 = GPIOE_ODR as *mut u8;
+            let bsrr_b = GPIOB_BSRR;
+            let bsrr_d = GPIOD_BSRR;
 
-            let start = page * WIDTH;
-            let end = start + WIDTH;
-            for &byte in &self.framebuffer[start..end] {
-                self.write_data(byte);
+            for page in 0..8 {
+                // Command mode: PB3 Low
+                ptr::write_volatile(bsrr_b, 1 << (3 + 16));
+
+                // Page selection (0xB0..0xB7)
+                ptr::write_volatile(data_odr_u8, 0xB0 | page as u8);
+                ptr::write_volatile(bsrr_d, 1 << 7);
+                ptr::write_volatile(bsrr_d, 1 << (7 + 16));
+
+                // Column low nibble = 4 (controller is 132 col, LCD is 128)
+                ptr::write_volatile(data_odr_u8, 0x04);
+                ptr::write_volatile(bsrr_d, 1 << 7);
+                ptr::write_volatile(bsrr_d, 1 << (7 + 16));
+
+                // Column high nibble = 0 (0x10)
+                ptr::write_volatile(data_odr_u8, 0x10);
+                ptr::write_volatile(bsrr_d, 1 << 7);
+                ptr::write_volatile(bsrr_d, 1 << (7 + 16));
+
+                // Data mode: PB3 High (set ONCE for the entire 128-byte page!)
+                ptr::write_volatile(bsrr_b, 1 << 3);
+
+                let start = page * WIDTH;
+                let end = start + WIDTH;
+                for &byte in &self.framebuffer[start..end] {
+                    ptr::write_volatile(data_odr_u8, byte);
+                    ptr::write_volatile(bsrr_d, 1 << 7);
+                    ptr::write_volatile(bsrr_d, 1 << (7 + 16));
+                }
             }
         }
     }

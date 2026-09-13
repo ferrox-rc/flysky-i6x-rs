@@ -98,19 +98,13 @@ pub fn scan_keys() -> u16 {
 }
 
 /// Check if the DFU bootloader key combination is held:
-/// 1. Inward trims: Roll L (bit 1) + Yaw R (bit 6) [or any horizontal trim pair]
-/// 2. OR Bind key (bit 12)
+/// Both horizontal trims pushed inward towards power switch:
+/// Roll Left (bit 1) + Yaw Right (bit 6).
 pub fn is_dfu_requested(keys: u16) -> bool {
-    // Both horizontal trims pushed inward:
     let rh_inward = (keys & (1 << 1)) != 0; // Roll Left
     let lh_inward = (keys & (1 << 6)) != 0; // Yaw Right
 
-    // Also support alternate mode (Roll Right + Yaw Left) or Bind key
-    let rh_any = (keys & 0x0003) != 0;      // Roll trim active
-    let lh_any = (keys & 0x00C0) != 0;      // Yaw trim active
-    let bind_pressed = (keys & (1 << 12)) != 0; // Bind key held
-
-    (rh_inward && lh_inward) || (rh_any && lh_any) || bind_pressed
+    rh_inward && lh_inward
 }
 
 /// Power-on boot check for DFU entry.
