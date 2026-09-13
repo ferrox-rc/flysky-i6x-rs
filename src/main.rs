@@ -324,12 +324,21 @@ fn main() -> ! {
         rf_chs[9] = if state.switches.sd == input::SwitchPos::Up { 1000 } else { 2000 };
         rf::set_channels(&rf_chs);
 
-        // Fetch telemetry
         let telem = rf::get_telemetry();
+        let is_binding = rf::is_binding();
 
-        // Check dedicated Bind key
-        if (keys & (1 << 12)) != 0 {
+        // Check dedicated Bind key (PF2) and Cancel key (bit 11) for binding control
+        let bind_key = (keys & (1 << 12)) != 0;
+        let cancel_key = (keys & (1 << 11)) != 0;
+
+        if is_binding {
+            if cancel_key {
+                rf::set_bind_mode(false);
+                buzzer.click();
+            }
+        } else if bind_key {
             rf::set_bind_mode(true);
+            buzzer.click();
         }
 
         // Long-press OK (1.2s) from flight dashboard launches stick calibration
@@ -393,7 +402,7 @@ fn main() -> ! {
             Text::new(err_str, Point::new(48, 9), text_style)
                 .draw(&mut lcd)
                 .ok();
-        } else if !rf::is_bound() {
+        } else if is_binding {
             Text::new("BINDING", Point::new(46, 9), text_style)
                 .draw(&mut lcd)
                 .ok();
@@ -412,8 +421,12 @@ fn main() -> ! {
             Text::new(r_str, Point::new(48, 9), text_style)
                 .draw(&mut lcd)
                 .ok();
-        } else {
+        } else if rf::is_bound() {
             Text::new("RF:OK", Point::new(50, 9), text_style)
+                .draw(&mut lcd)
+                .ok();
+        } else {
+            Text::new("NO BIND", Point::new(44, 9), text_style)
                 .draw(&mut lcd)
                 .ok();
         }
@@ -505,8 +518,8 @@ fn main() -> ! {
             Text::new(key_str, Point::new(28, 63), text_style).draw(&mut lcd).ok();
         }
 
-        if !rf::is_bound() {
-            Text::new("BINDING...", Point::new(58, 63), text_style).draw(&mut lcd).ok();
+        if is_binding {
+            Text::new("[ESC] Abort Bind", Point::new(22, 63), text_style).draw(&mut lcd).ok();
         } else if telem.connected && telem.rx_voltage_mv > 0 {
             let mut rxv_buf = [0u8; 6];
             let rxv_str = format_vbat(telem.rx_voltage_mv, &mut rxv_buf);

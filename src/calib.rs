@@ -239,14 +239,14 @@ impl CalibWizard {
                     let y = 13 + (i as i32 * 8);
                     Text::new(labels[i], Point::new(2, y + 6), text_style).draw(lcd).ok();
 
-                    // Outline gauge box (width = 80)
-                    Rectangle::new(Point::new(12, y), Size::new(80, 7))
+                    // Outline gauge box (width = 62, from 10 to 72)
+                    Rectangle::new(Point::new(10, y), Size::new(62, 7))
                         .into_styled(border_style)
                         .draw(lcd)
                         .ok();
 
-                    // Center tick mark at 52 (center of 80 box: 12 + 40 = 52)
-                    Line::new(Point::new(52, y), Point::new(52, y + 6))
+                    // Center tick mark at 41 (center of 62 box: 10 + 31 = 41)
+                    Line::new(Point::new(41, y), Point::new(41, y + 6))
                         .into_styled(border_style)
                         .draw(lcd)
                         .ok();
@@ -256,19 +256,19 @@ impl CalibWizard {
                     let span_neg = center.saturating_sub(self.mins[i]);
                     let span_pos = self.maxs[i].saturating_sub(center);
 
-                    // Left fill: up to 38 pixels left
-                    let left_w = ((span_neg as u32 * 38) / 1600).min(38) as i32;
+                    // Left fill: up to 29 pixels left
+                    let left_w = ((span_neg as u32 * 29) / 1600).min(29) as i32;
                     if left_w > 0 {
-                        Line::new(Point::new(52 - left_w, y + 3), Point::new(52, y + 3))
+                        Line::new(Point::new(41 - left_w, y + 3), Point::new(41, y + 3))
                             .into_styled(border_style)
                             .draw(lcd)
                             .ok();
                     }
 
-                    // Right fill: up to 38 pixels right
-                    let right_w = ((span_pos as u32 * 38) / 1600).min(38) as i32;
+                    // Right fill: up to 29 pixels right
+                    let right_w = ((span_pos as u32 * 29) / 1600).min(29) as i32;
                     if right_w > 0 {
-                        Line::new(Point::new(52, y + 3), Point::new(52 + right_w, y + 3))
+                        Line::new(Point::new(41, y + 3), Point::new(41 + right_w, y + 3))
                             .into_styled(border_style)
                             .draw(lcd)
                             .ok();
@@ -277,19 +277,57 @@ impl CalibWizard {
                     // Current stick position tick mark
                     let cur = current_raw[i];
                     let delta = cur as i32 - center as i32;
-                    let cur_x = (52 + ((delta * 38) / 1600)).clamp(13, 90);
+                    let cur_x = (41 + ((delta * 29) / 1600)).clamp(11, 71);
                     Line::new(Point::new(cur_x, y + 1), Point::new(cur_x, y + 5))
                         .into_styled(border_style)
                         .draw(lcd)
                         .ok();
 
-                    // Status text on right
+                    // Stick status text
                     if stick_ready[i] {
-                        Text::new("OK", Point::new(96, y + 6), text_style).draw(lcd).ok();
+                        Text::new("OK", Point::new(74, y + 6), text_style).draw(lcd).ok();
                     } else {
-                        Text::new("--", Point::new(96, y + 6), text_style).draw(lcd).ok();
+                        Text::new("--", Point::new(74, y + 6), text_style).draw(lcd).ok();
                     }
                 }
+
+                // Render VRA (Pot 1) on upper right (x = 92..126)
+                let pot1_moved = self.maxs[4].saturating_sub(self.mins[4]) >= 500;
+                let pot1_txt = if pot1_moved { "V1 OK" } else { "V1 --" };
+                Text::new(pot1_txt, Point::new(92, 19), text_style).draw(lcd).ok();
+                Rectangle::new(Point::new(92, 21), Size::new(34, 7))
+                    .into_styled(border_style)
+                    .draw(lcd)
+                    .ok();
+                Line::new(Point::new(109, 21), Point::new(109, 27))
+                    .into_styled(border_style)
+                    .draw(lcd)
+                    .ok();
+                let p1_delta = current_raw[4] as i32 - self.centers[4] as i32;
+                let p1_x = (109 + ((p1_delta * 15) / 1900)).clamp(93, 125);
+                Line::new(Point::new(p1_x, 22), Point::new(p1_x, 26))
+                    .into_styled(border_style)
+                    .draw(lcd)
+                    .ok();
+
+                // Render VRB (Pot 2) on lower right (x = 92..126)
+                let pot2_moved = self.maxs[5].saturating_sub(self.mins[5]) >= 500;
+                let pot2_txt = if pot2_moved { "V2 OK" } else { "V2 --" };
+                Text::new(pot2_txt, Point::new(92, 35), text_style).draw(lcd).ok();
+                Rectangle::new(Point::new(92, 37), Size::new(34, 7))
+                    .into_styled(border_style)
+                    .draw(lcd)
+                    .ok();
+                Line::new(Point::new(109, 37), Point::new(109, 43))
+                    .into_styled(border_style)
+                    .draw(lcd)
+                    .ok();
+                let p2_delta = current_raw[5] as i32 - self.centers[5] as i32;
+                let p2_x = (109 + ((p2_delta * 15) / 1900)).clamp(93, 125);
+                Line::new(Point::new(p2_x, 38), Point::new(p2_x, 42))
+                    .into_styled(border_style)
+                    .draw(lcd)
+                    .ok();
 
                 Line::new(Point::new(0, 48), Point::new(127, 48)).into_styled(border_style).draw(lcd).ok();
                 if self.waiting_release {
@@ -297,7 +335,7 @@ impl CalibWizard {
                 } else if all_ready {
                     Text::new("[OK] Save  [ESC] Exit", Point::new(2, 59), text_style).draw(lcd).ok();
                 } else {
-                    Text::new("Stir sticks to stops", Point::new(2, 59), text_style).draw(lcd).ok();
+                    Text::new("Stir sticks & pots", Point::new(2, 59), text_style).draw(lcd).ok();
                 }
             }
 

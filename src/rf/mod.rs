@@ -74,6 +74,15 @@ pub fn is_bound() -> bool {
     })
 }
 
+/// Query whether the radio is currently in binding mode.
+pub fn is_binding() -> bool {
+    cortex_m::interrupt::free(|_| {
+        unsafe {
+            RF_DRIVER.as_ref().map(|d| d.mode == afhds2a::RadioMode::Binding).unwrap_or(false)
+        }
+    })
+}
+
 /// Get latest downlink telemetry from the receiver.
 pub fn get_telemetry() -> TelemetryData {
     cortex_m::interrupt::free(|_| {
