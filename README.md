@@ -55,24 +55,40 @@ The standard OpenTX/EdgeTX port for the FS-i6X ([OpenI6X](https://github.com/Ope
 
 ## 3. Software Architecture
 
-```
-                 +---------------------------------------------+
-                 |            RTIC v2 Application              |
-                 +---------------------------------------------+
-                   |                 |                       |
-       [Priority 3 (High)]    [Priority 2 (Mid)]     [Priority 1 (Low / Idle)]
-       ------------------     ------------------     -------------------------
-       TIM16 & EXTI2 (RF)       ADC1 DMA IRQ            SysTick / Idle Loop
-       - A7105 State Machine   - Stick Calibration    - Key Matrix Debounce
-       - AFHDS2A Packet Tx     - Mixer & Rates/Expo   - 20 Hz Display Engine
-       - i-BUS Telemetry Rx    - Channel Mapping      - Menu Navigation
-                               - Failsafe Monitor     - EEPROM Persistence
+```mermaid
+flowchart TD
+    subgraph Core ["FlySky FS-i6X Reactive Architecture (48 MHz)"]
+        SCHED["Deterministic Scheduler & Event Loop"]
+    end
+
+    subgraph P3 ["Priority 3: High (TIM16 & EXTI2_3 IRQ)"]
+        RF1["A7105 State Machine"]
+        RF2["AFHDS 2A 260 Hz Packet Tx (3.850 ms)"]
+        RF3["i-BUS Downlink Telemetry Rx"]
+    end
+
+    subgraph P2 ["Priority 2: Mid (ADC1 & DMA1_CH1)"]
+        ADC1["Autonomous 11-Ch DMA Scan (0.23 ms)"]
+        ADC2["MMA Micro-Jitter Filter"]
+        ADC3["Endpoint Calibration & Deadbands"]
+    end
+
+    subgraph P1 ["Priority 1: Low (Main Execution Loop ~500 Hz)"]
+        UI1["Keypad & Trim Matrix Scan"]
+        UI2["Catmull-Rom Spline Curve Engine"]
+        UI3["14-Channel Mixer & Reversing"]
+        UI4["ST7567 LCD Parallel Display Driver"]
+        UI5["Multi-Page Flash Configuration Sync"]
+    end
+
+    SCHED --> P3
+    SCHED --> P2
+    SCHED --> P1
 ```
 
 ### Key Libraries / Crates
 - `cortex-m`, `cortex-m-rt`: Core ARM runtime and interrupt vector tables.
 - `stm32f0xx-hal`: Embedded HAL implementation for STM32F0 peripherals.
-- `rtic` (v2.x): Real-Time Interrupt-driven Concurrency framework for hardware-timed tasks without an RTOS.
 - `embedded-graphics`: Monochrome UI primitive rendering, fonts, lines, and bitmaps.
 - `embedded-hal`: Trait abstractions for SPI, I2C, and GPIO.
 
@@ -96,21 +112,7 @@ UID (at 0x1FFFF7AC) -> LCG Random Seed -> 16 Unique Channels (1..164 with min sp
 
 ## 5. Display & User Interface (128×64)
 
-The ST7567 parallel LCD driver maintains a **1024-byte framebuffer** in SRAM (`128 * 64 / 8`). Updating the entire screen takes $< 1\text{ ms}$ via direct 8-bit GPIO port writes (`GPIOE->ODR`).
-
-### Planned Screens (OpenTX Inspired)
-1. **Flight Screen (Main View):**
-   - Top status bar: Model name, TX battery voltage, RX battery voltage, RSSI signal bar.
-   - Graphic channel indicators: Live CH1–CH4 horizontal bar graphs.
-   - Flight timer & digital trim indicators.
-2. **Channel Monitor:**
-   - Numerical (µs) and bar display for all active channels (CH1–CH14).
-3. **Model Configuration:**
-   - Channel reversing, dual rates, expo curves, endpoints (min/max), and sub-trims.
-4. **Telemetry Monitor:**
-   - Live sensor list displaying received i-BUS sensor IDs, names, and current readings.
-5. **RX Setup & Bind:**
-   - AFHDS2A bind trigger, receiver output mode selection (PWM / i-BUS), and failsafe configuration.
+The ST7567 parallel LCD driver maintains a **1024-byte framebuffer** in SRAM (`128 * 64 / 8`). Updating the entire screen takes &lt; 1.2 ms via direct 8-bit GPIO port writes (`GPIOE->ODR`).
 
 ---
 
@@ -118,13 +120,13 @@ The ST7567 parallel LCD driver maintains a **1024-byte framebuffer** in SRAM (`1
 
 Comprehensive technical documentation is maintained in the [`docs/`](docs/) directory:
 
-- **[User Guide & Operations Manual](docs/user_guide.md)**: Complete operator guide covering flight dashboard, menu navigation, 20-model setup, throttle curves, calibration, and binding.
-- **[System Architecture & Timing Model](docs/architecture.md)**: 48 MHz clock tree, real-time concurrency model, TIM16 260 Hz packet loop, Catmull-Rom curve math, and zero-heap memory layout.
-- **[AFHDS 2A Protocol & A7105 RF Driver](docs/rf_protocol.md)**: SPI1 hardware driver, 16-channel FHSS hopping table, 38-byte packet structure, Model Match, and one-way/two-way receiver binding.
-- **[Flight Inputs & Digital Trims](docs/input_subsystem.md)**: 11-channel continuous ADC DMA scanner, MMA jitter filtering, physical gimbal geometry, 4-axis digital trims, and TIM1 hardware PWM buzzer driver.
-- **[Stick Calibration & Flash Persistence](docs/calibration_and_storage.md)**: 2-step interactive calibration wizard, tolerance margin calculation, and 20-model Flash storage architecture across Pages 62 & 63.
-- **[Architecture & Performance Comparison](docs/firmware_comparison.md)**: Deep-dive comparative analysis vs OpenI6X and stock firmware (Flash headroom, <4ms latency, safety locks, backlight PWM mod).
-- **[Hardware Reference & Pinout](docs/hardware_reference.md)**: Detailed schematics, pin mappings, ST7567 LCD 6800-bus timings, buzzer PWM, and dual-MCU (STM32 / APM32) profiles.
+- **[User Guide & Operations Manual](docs/USER_GUIDE.md)**: Complete operator guide covering flight dashboard, menu navigation, 20-model setup, throttle curves, calibration, and binding.
+- **[System Architecture & Timing Model](docs/ARCHITECTURE.md)**: 48 MHz clock tree, real-time concurrency model, TIM16 260 Hz packet loop, Catmull-Rom curve math, and zero-heap memory layout.
+- **[AFHDS 2A Protocol & A7105 RF Driver](docs/RF_PROTOCOL.md)**: SPI1 hardware driver, 16-channel FHSS hopping table, 38-byte packet structure, Model Match, and one-way/two-way receiver binding.
+- **[Flight Inputs & Digital Trims](docs/INPUT_SUBSYSTEM.md)**: 11-channel continuous ADC DMA scanner, MMA jitter filtering, physical gimbal geometry, 4-axis digital trims, and TIM1 hardware PWM buzzer driver.
+- **[Stick Calibration & Flash Persistence](docs/CALIBRATION_AND_STORAGE.md)**: 2-step interactive calibration wizard, tolerance margin calculation, and 20-model Flash storage architecture across Pages 62 & 63.
+- **[Architecture & Performance Comparison](docs/FIRMWARE_COMPARISON.md)**: Deep-dive comparative analysis vs OpenI6X and stock firmware (Flash headroom, &lt;4ms latency, safety locks, backlight PWM mod).
+- **[Hardware Reference & Pinout](docs/HARDWARE_REFERENCE.md)**: Detailed schematics, pin mappings, ST7567 LCD 6800-bus timings, buzzer PWM, and dual-MCU (STM32 / APM32) profiles.
 
 ---
 

@@ -1,4 +1,4 @@
-# Flight Control Inputs & Digital Trims
+# FLIGHT CONTROL INPUTS & DIGITAL TRIMS
 
 Documentation for analog stick sampling, gimbal potentiometer geometry, switch decoding, digital trim controllers, and audio feedback on the FlySky FS-i6X.
 
@@ -33,7 +33,7 @@ FlySky FS-i6X gimbals use dedicated potentiometers that sweep almost their entir
 ### OpenTX Modified Moving Average (MMA) Jitter Filter
 To remove potentiometer electrical jitter without introducing deadbands or control latency:
 - If raw ADC change is $\ge 20$ counts (stick actively in motion), the sample passes through immediately (**zero latency**).
-- For micro-fluctuations ($< 20$ counts), an integer MMA filter ($16\times$ oversampling) smooths the reading:
+- For micro-fluctuations (&lt; 20 counts), an integer MMA filter ($16\times$ oversampling) smooths the reading:
   $$\text{filtered} = \text{filtered} - \text{prev} + \text{raw}$$
 
 Implemented in [`src/input.rs`](../src/input.rs).
@@ -52,7 +52,7 @@ The transmitter has 4 trim rocker switches (8 directional switches) connected to
 | **Yaw (R)** | Right (`TRM_LH_UP`) / Left (`TRM_LH_DWN`) | Bit 6 / Bit 7 | $\pm 25$ steps ($\pm 100\,\mu\text{s}$) |
 
 ### Behavior & Features
-- **Single-Click & Auto-Repeat**: Instant single step on press; automatically repeats every **90 ms** if held for $> 350\text{ ms}$.
+- **Single-Click & Auto-Repeat**: Instant single step on press; automatically repeats every **90 ms** if held for &gt; 350 ms.
 - **DFU Bootloader Lockout**: When the DFU inward trim combination is pressed (Roll Left + Yaw Right), trim adjustments are locked out to prevent accidental trim changes.
 - **Selectable Throttle Trim Modes**: Configurable via the Radio Setup menu (`config.throttle_trim`):
   1. **`OFF (Lock)` (Default)**: Throttle trim rockers are disabled; pressing them sounds a limit warning buzz (`1100 Hz`). Safe for Betaflight, INAV, and ArduPilot flight controllers to avoid accidental disarm or arming lockouts.

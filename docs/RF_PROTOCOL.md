@@ -1,4 +1,4 @@
-# AFHDS 2A Protocol & A7105 RF Driver
+# AFHDS 2A PROTOCOL & A7105 RF DRIVER
 
 Technical documentation for the Amiccom A7105 2.4 GHz FSK transceiver driver and the FlySky AFHDS 2A (Automatic Frequency Hopping Digital System 2nd Gen) protocol implementation.
 
@@ -116,4 +116,4 @@ AFHDS 2A transmitters only filter telemetry downlink frames using the 32-bit `rx
 Immediately following transmission of each stick packet, the A7105 is switched to RX mode for a short reception window (~1.2 ms):
 - **RSSI**: Signal strength percentage ($0 \dots 100\%$).
 - **RX Battery Voltage**: Receiver bus voltage parsed from incoming telemetry frames, displayed as `RX: X.XXV` on the flight dashboard.
-- **Lost Packet Counter**: If no valid telemetry packets are received for $> 52$ consecutive frames (~200 ms), telemetry is marked disconnected.
+- **Lost Packet Counter**: If no valid telemetry packets are received for &gt; 52 consecutive frames (~200 ms), telemetry is marked disconnected.

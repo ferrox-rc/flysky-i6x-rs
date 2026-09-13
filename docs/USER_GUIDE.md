@@ -1,4 +1,4 @@
-# FlySky FS-i6X User Guide & Operations Manual
+# FLYSKY FS-I6X USER GUIDE & OPERATIONS MANUAL
 
 A comprehensive guide to operating the `flysky-i6x-rs` firmware on the FlySky FS-i6X transmitter.
 

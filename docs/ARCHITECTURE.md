@@ -1,4 +1,4 @@
-# Software Architecture & Timing Model
+# SOFTWARE ARCHITECTURE & TIMING MODEL
 
 `flysky-i6x-rs` uses a bare-metal, `no_std` reactive architecture designed for deterministic RF packet timing and sub-millisecond control latency on the STM32F072VB Cortex-M0 microcontroller.
 
@@ -21,7 +21,7 @@ Implemented in [`src/chip/mod.rs`](../src/chip/mod.rs).
 
 ```mermaid
 flowchart TD
-    subgraph Hardware_Timers [Deterministic Interrupts & Peripherals]
+    subgraph Hardware_Timers ["Deterministic Interrupts & Peripherals"]
         TIM16["TIM16 ISR @ 259.74 Hz (3.850 ms)<br>Pulls fresh PENDING_CHANNELS<br>Transmits 38-byte AFHDS 2A Packet via SPI"]
         EXTI["EXTI2_3 ISR (A7105 GIO2)<br>Handles TX Finished / RX Telemetry Available"]
         DMA["DMA1 Channel 1 (Autonomous)<br>Scans all 11 ADC channels in 0.23 ms"]
@@ -29,7 +29,7 @@ flowchart TD
         PWM_BL["TIM3 Channel 4 (Hardware PWM @ PC9)<br>1 kHz Backlight Dimming Mod"]
     end
 
-    subgraph Main_Thread [Main Execution Loop (~500 Hz)]
+    subgraph Main_Thread ["Main Execution Loop (~500 Hz)"]
         ADC_Poll["1. Read DMA Buffer (input::poll)<br>Adaptive Jitter Filter + Calibrations"]
         Keys["2. Scan Key Matrix (boot::scan_keys)<br>Digital Trims & Navigation Shortcuts"]
         Trims["3. Apply Digital Trims<br>Roll, Pitch, Throttle (Option 1/2), Yaw"]
@@ -83,4 +83,4 @@ The curve engine transforms normalized stick inputs ($0 \dots 1000$) into tailor
   To achieve smooth, C1-continuous throttle response without flat inflection points or aggressive step changes, the engine evaluates standard Catmull-Rom cubic Hermite splines:
   $$P(t) = 0.5 \times \left(2 P_1 + (-P_0 + P_2) t + (2 P_0 - 5 P_1 + 4 P_2 - P_3) t^2 + (-P_0 + 3 P_1 - 3 P_2 + P_3) t^3\right)$$
 - **Deterministic Fixed-Point Execution**:
-  Implemented using integer-only fixed-point arithmetic ($t$ scaled by 1024). Spline interpolation executes in **$< 60$ CPU clock cycles** ($< 1.25\,\mu\text{s}$ at 48 MHz), meaning spline smoothing imposes zero perceptible latency on the control loop.
+  Implemented using integer-only fixed-point arithmetic ($t$ scaled by 1024). Spline interpolation executes in **&lt; 60 CPU clock cycles** (&lt; 1.25 µs at 48 MHz), meaning spline smoothing imposes zero perceptible latency on the control loop.

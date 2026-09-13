@@ -1,4 +1,4 @@
-# Stick Calibration & Flash Persistence
+# STICK CALIBRATION & FLASH PERSISTENCE
 
 Technical documentation for the interactive 2-step calibration wizard and the non-volatile Flash configuration storage on the FlySky FS-i6X.
 

@@ -1,4 +1,4 @@
-# Hardware Reference & Bring-Up Notes
+# HARDWARE REFERENCE & BRING-UP NOTES
 
 Comprehensive technical documentation for the FlySky FS-i6X hardware reverse-engineered from board analysis and OpenI6X sources.
 
@@ -167,12 +167,12 @@ The FlySky FS-i6X uses a single 12-bit ADC peripheral (**ADC1**) paired with **D
 | **CH1** | `PA1` | **Pitch / Elevator** | Right Stick Vertical | ~1100 .. 2048 .. ~2900 | Spring return |
 | **CH2** | `PA2` | **Throttle** | Left Stick Vertical | ~1100 .. ~2900 | Friction ratchet (no spring) |
 | **CH3** | `PA3` | **Yaw / Rudder** | Left Stick Horizontal | ~1100 .. 2048 .. ~2900 | Spring return |
-| **CH4** | `PA4` | **Switch SA** | 2-Position Toggle | Down < 2000, Up > 2000 | Resistor divider |
-| **CH5** | `PA5` | **Switch SB** | 3-Position Toggle | Up > 2500, Mid 1000..2500, Dwn < 1000 | Resistor divider |
+| **CH4** | `PA4` | **Switch SA** | 2-Position Toggle | Down &lt; 2000, Up &gt; 2000 | Resistor divider |
+| **CH5** | `PA5` | **Switch SB** | 3-Position Toggle | Up &gt; 2500, Mid 1000..2500, Dwn &lt; 1000 | Resistor divider |
 | **CH6** | `PA6` | **Potentiometer VRA** | Left Rotary Dial (VR1) | 0 .. 4095 (scaled 0..9) | Linear pot |
 | **CH7** | `PA7` | **Potentiometer VRB** | Right Rotary Dial (VR2) | 0 .. 4095 (scaled 0..9) | Linear pot |
-| **CH8** | `PB0` | **Switch SC** | 3-Position Toggle | Up > 2500, Mid 1000..2500, Dwn < 1000 | Resistor divider |
-| **CH9** | `PB1` | **Switch SD** | 2-Position Toggle | Down < 2000, Up > 2000 | Resistor divider |
+| **CH8** | `PB0` | **Switch SC** | 3-Position Toggle | Up &gt; 2500, Mid 1000..2500, Dwn &lt; 1000 | Resistor divider |
+| **CH9** | `PB1` | **Switch SD** | 2-Position Toggle | Down &lt; 2000, Up &gt; 2000 | Resistor divider |
 | **CH10**| `PC0` | **Battery Sense** | 4×AA Battery Pack | ~1600 .. 2300 (4.0V .. 6.0V) | 2:1 resistive divider |
 
 > [!NOTE]
