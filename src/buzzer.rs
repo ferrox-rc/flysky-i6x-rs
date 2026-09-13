@@ -1,0 +1,205 @@
+//! Hardware Piezo Buzzer driver using TIM1 Channel 1 on PA8.
+//!
+//! Pin PA8 is configured as Alternate Function 2 (TIM1_CH1).
+//! TIM1 is clocked at 48 MHz from APB2 with PSC=47 (1 MHz tick).
+//! Outputs clean hardware PWM tones with programmable frequency and duration.
+
+use core::ptr;
+
+// RCC registers
+const RCC_AHBENR: *mut u32 = 0x4002_1014 as *mut u32;
+const RCC_APB2ENR: *mut u32 = 0x4002_1018 as *mut u32;
+
+// GPIOA registers (Base 0x4800_0000)
+const GPIOA_MODER: *mut u32 = 0x4800_0000 as *mut u32;
+const GPIOA_AFRH: *mut u32 = 0x4800_0024 as *mut u32;
+
+// TIM1 registers (Base 0x4001_2C00)
+const TIM1_CR1: *mut u32 = 0x4001_2C00 as *mut u32;
+const TIM1_SR: *mut u32 = 0x4001_2C10 as *mut u32;
+const TIM1_CCMR1: *mut u32 = 0x4001_2C18 as *mut u32;
+const TIM1_CCER: *mut u32 = 0x4001_2C20 as *mut u32;
+const TIM1_CNT: *mut u32 = 0x4001_2C24 as *mut u32;
+const TIM1_PSC: *mut u32 = 0x4001_2C28 as *mut u32;
+const TIM1_ARR: *mut u32 = 0x4001_2C2C as *mut u32;
+const TIM1_CCR1: *mut u32 = 0x4001_2C34 as *mut u32;
+const TIM1_BDTR: *mut u32 = 0x4001_2C44 as *mut u32;
+
+pub const BEEP_DEFAULT_FREQ: u16 = 2250;
+pub const BEEP_CENTER_FREQ: u16 = 2800;
+pub const BEEP_LIMIT_FREQ: u16 = 1100;
+
+pub struct Buzzer {
+    remaining_ms: u16,
+    pause_ms: u16,
+    repeat_count: u8,
+    active_freq: u16,
+    active_len_ms: u16,
+    active_pause_ms: u16,
+}
+
+#[allow(dead_code)]
+impl Buzzer {
+    pub const fn new() -> Self {
+        Self {
+            remaining_ms: 0,
+            pause_ms: 0,
+            repeat_count: 0,
+            active_freq: 0,
+            active_len_ms: 0,
+            active_pause_ms: 0,
+        }
+    }
+
+    /// Initialize GPIOA PA8 as AF2 (TIM1_CH1) and configure TIM1 PWM output.
+    pub fn init(&mut self) {
+        unsafe {
+            // 1. Enable GPIOA (bit 17) and TIM1 (bit 11) clocks
+            let ahb = ptr::read_volatile(RCC_AHBENR);
+            ptr::write_volatile(RCC_AHBENR, ahb | (1 << 17));
+
+            let apb2 = ptr::read_volatile(RCC_APB2ENR);
+            ptr::write_volatile(RCC_APB2ENR, apb2 | (1 << 11));
+
+            // 2. Configure PA8:
+            // MODER bits [17:16] = 0b10 (Alternate function)
+            let moder = ptr::read_volatile(GPIOA_MODER);
+            ptr::write_volatile(GPIOA_MODER, (moder & !(0b11 << 16)) | (0b10 << 16));
+
+            // AFRH bits [3:0] = 0x2 (AF2: TIM1_CH1)
+            let afrh = ptr::read_volatile(GPIOA_AFRH);
+            ptr::write_volatile(GPIOA_AFRH, (afrh & !0x0F) | 0x02);
+
+            // 3. Configure TIM1:
+            // PSC = 47 -> 48 MHz / (47 + 1) = 1.000 MHz (1 µs per tick)
+            ptr::write_volatile(TIM1_PSC, 47);
+
+            // CCMR1: PWM Mode 1 (0b110 << 4) + Preload Enable (1 << 3)
+            ptr::write_volatile(TIM1_CCMR1, (0b110 << 4) | (1 << 3));
+
+            // CCER: CC1E = 1 (Channel 1 output enable) | CC1P = 1 (Low polarity matching OpenI6X)
+            ptr::write_volatile(TIM1_CCER, (1 << 1) | (1 << 0));
+
+            // BDTR: MOE = 1 (Main Output Enable for TIM1 advanced timer)
+            ptr::write_volatile(TIM1_BDTR, 1 << 15);
+
+            // Ensure timer starts stopped
+            ptr::write_volatile(TIM1_CR1, 0);
+            ptr::write_volatile(TIM1_CNT, 0);
+            ptr::write_volatile(TIM1_SR, 0);
+        }
+    }
+
+    /// Turn on the hardware PWM generator at the specified frequency (50% duty cycle).
+    fn hardware_on(&self, freq_hz: u16) {
+        if freq_hz < 100 {
+            return;
+        }
+
+        unsafe {
+            // Period in 1 µs ticks = 1_000_000 / freq_hz
+            let period = (1_000_000u32 / (freq_hz as u32)).clamp(10, 65535);
+            let arr = period.saturating_sub(1);
+            let ccr = period / 2; // 50% duty cycle
+
+            ptr::write_volatile(TIM1_ARR, arr);
+            ptr::write_volatile(TIM1_CCR1, ccr);
+            if ptr::read_volatile(TIM1_CNT) > arr {
+                ptr::write_volatile(TIM1_CNT, 0);
+            }
+
+            // Start counter: CEN (bit 0) | ARPE (bit 7)
+            ptr::write_volatile(TIM1_CR1, (1 << 7) | (1 << 0));
+        }
+    }
+
+    /// Turn off the hardware PWM generator.
+    fn hardware_off(&self) {
+        unsafe {
+            ptr::write_volatile(TIM1_CR1, 0);
+            ptr::write_volatile(TIM1_CNT, 0);
+            ptr::write_volatile(TIM1_SR, 0);
+        }
+    }
+
+    /// Play a single tone of `freq_hz` for `duration_ms`.
+    pub fn play_tone(&mut self, freq_hz: u16, duration_ms: u16) {
+        self.play_tone_pattern(freq_hz, duration_ms, 0, 0);
+    }
+
+    /// Play a repeating pattern of `freq_hz` for `duration_ms` with `pause_ms` between repeats.
+    pub fn play_tone_pattern(&mut self, freq_hz: u16, duration_ms: u16, pause_ms: u16, repeats: u8) {
+        self.active_freq = freq_hz;
+        self.active_len_ms = duration_ms;
+        self.active_pause_ms = pause_ms;
+        self.remaining_ms = duration_ms;
+        self.pause_ms = pause_ms;
+        self.repeat_count = repeats;
+
+        self.hardware_on(freq_hz);
+    }
+
+    /// Immediate silence.
+    pub fn stop(&mut self) {
+        self.remaining_ms = 0;
+        self.pause_ms = 0;
+        self.repeat_count = 0;
+        self.hardware_off();
+    }
+
+    /// Periodic update advancing active tone playback (called from main loop).
+    pub fn tick(&mut self, elapsed_ms: u16) {
+        if self.remaining_ms > 0 {
+            if self.remaining_ms <= elapsed_ms {
+                self.remaining_ms = 0;
+                self.hardware_off();
+
+                // If repeats remain, start inter-beep pause
+                if self.repeat_count > 0 {
+                    self.pause_ms = self.active_pause_ms;
+                }
+            } else {
+                self.remaining_ms -= elapsed_ms;
+            }
+        } else if self.pause_ms > 0 {
+            if self.pause_ms <= elapsed_ms {
+                self.pause_ms = 0;
+                if self.repeat_count > 0 {
+                    self.repeat_count -= 1;
+                    self.remaining_ms = self.active_len_ms;
+                    self.hardware_on(self.active_freq);
+                }
+            } else {
+                self.pause_ms -= elapsed_ms;
+            }
+        }
+    }
+
+    // --- Sound presets ---
+
+    /// Short tactile button click.
+    pub fn click(&mut self) {
+        self.play_tone(BEEP_DEFAULT_FREQ, 15);
+    }
+
+    /// Trim position adjustment step. Pitch scales with trim value (-25..+25).
+    pub fn trim_step(&mut self, step: i8) {
+        let freq = (2000i32 + (step as i32 * 20)).clamp(1500, 2500) as u16;
+        self.play_tone(freq, 25);
+    }
+
+    /// Trim center reference confirmed. Higher pitch distinct tone.
+    pub fn trim_center(&mut self) {
+        self.play_tone(BEEP_CENTER_FREQ, 60);
+    }
+
+    /// Trim limit reached (cannot increment/decrement further).
+    pub fn trim_limit(&mut self) {
+        self.play_tone(BEEP_LIMIT_FREQ, 45);
+    }
+
+    /// Low battery double-chirp warning alert.
+    pub fn warn_battery(&mut self) {
+        self.play_tone_pattern(2400, 70, 50, 1);
+    }
+}

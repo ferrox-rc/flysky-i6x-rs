@@ -15,10 +15,12 @@ use embedded_graphics::{
 
 mod adc;
 mod boot;
+mod buzzer;
 mod chip;
 mod display;
 mod input;
 mod rf;
+mod trim;
 
 use display::St7567;
 
@@ -115,7 +117,7 @@ fn format_throttle_percent(val: i16, buf: &mut [u8; 5]) -> &str {
     }
 }
 
-/// Draw a horizontal channel gauge (-1000..+1000) with center ticks and a sliding 3px cursor.
+/// Draw a horizontal channel gauge (-1000..+1000) with center ticks, trim marker, and a sliding 3px cursor.
 fn draw_channel_gauge(
     lcd: &mut St7567,
     x: i32,
@@ -123,6 +125,7 @@ fn draw_channel_gauge(
     width: u32,
     height: u32,
     val: i16,
+    trim: i8,
 ) {
     let border_style = PrimitiveStyle::with_stroke(BinaryColor::On, 1);
     let fill_style = PrimitiveStyle::with_fill(BinaryColor::On);
@@ -155,6 +158,15 @@ fn draw_channel_gauge(
     let max_pos = x + width as i32 - 3;
     let travel = max_pos - min_pos;
     let cursor_center = min_pos + (((val as i32 + 1000) * travel + 1000) / 2000);
+
+    // If trim is non-zero, draw a 1-pixel trim indicator tick
+    if trim != 0 {
+        let trim_x = center_x + ((trim as i32 * (travel / 2)) / 25);
+        Line::new(Point::new(trim_x, y + 2), Point::new(trim_x, y + height as i32 - 3))
+            .into_styled(border_style)
+            .draw(lcd)
+            .ok();
+    }
 
     Rectangle::new(
         Point::new(cursor_center - 1, y + 1),
@@ -196,6 +208,28 @@ fn draw_progress_bar(
     }
 }
 
+/// Format active trim status to "TRM X:+00"
+fn format_trim(axis: trim::ActiveTrim, val: i8, buf: &mut [u8; 9]) -> &str {
+    let name = match axis {
+        trim::ActiveTrim::Roll => b'A',
+        trim::ActiveTrim::Pitch => b'E',
+        trim::ActiveTrim::Throttle => b'T',
+        trim::ActiveTrim::Yaw => b'R',
+        trim::ActiveTrim::None => b' ',
+    };
+    buf[0] = b'T';
+    buf[1] = b'R';
+    buf[2] = b'M';
+    buf[3] = b' ';
+    buf[4] = name;
+    buf[5] = b':';
+    buf[6] = if val < 0 { b'-' } else if val > 0 { b'+' } else { b' ' };
+    let abs = val.unsigned_abs();
+    buf[7] = b'0' + (abs / 10);
+    buf[8] = b'0' + (abs % 10);
+    core::str::from_utf8(buf).unwrap_or("TRIM")
+}
+
 #[entry]
 fn main() -> ! {
     // 1. MCU Profile & Fast DFU Bootloader Check
@@ -229,6 +263,13 @@ fn main() -> ! {
         rf::set_bind_mode(true);
     }
 
+    // 6. Initialize Buzzer & Digital Trims
+    let mut buzzer = buzzer::Buzzer::new();
+    buzzer.init();
+    buzzer.click(); // Power-on audible confirmation
+
+    let mut trims = trim::TrimController::new();
+
     let text_style = MonoTextStyle::new(&FONT_6X10, BinaryColor::On);
     let sep_style = PrimitiveStyle::with_stroke(BinaryColor::On, 1);
 
@@ -238,12 +279,26 @@ fn main() -> ! {
         // Poll continuous DMA inputs
         let state = input::poll();
 
-        // Map inputs to 14 AFHDS 2A channels (1000..2000 µs)
+        // Check keys and update trims and buzzer
+        let keys = boot::scan_keys();
+        buzzer.tick(20);
+        trims.update(keys, 20, &mut buzzer);
+
+        // Map inputs to 14 AFHDS 2A channels with digital trims (1000..2000 µs)
         let mut rf_chs = [1500u16; 14];
-        rf_chs[0] = ((state.sticks.roll / 2) + 1500).clamp(1000, 2000) as u16;
-        rf_chs[1] = ((state.sticks.pitch / 2) + 1500).clamp(1000, 2000) as u16;
-        rf_chs[2] = ((state.sticks.throttle / 2) + 1500).clamp(1000, 2000) as u16;
-        rf_chs[3] = ((state.sticks.yaw / 2) + 1500).clamp(1000, 2000) as u16;
+        let ch1_raw = ((state.sticks.roll / 2) + 1500).clamp(1000, 2000) as u16;
+        let ch2_raw = ((state.sticks.pitch / 2) + 1500).clamp(1000, 2000) as u16;
+        let ch3_raw = ((state.sticks.throttle / 2) + 1500).clamp(1000, 2000) as u16;
+        let ch4_raw = ((state.sticks.yaw / 2) + 1500).clamp(1000, 2000) as u16;
+
+        rf_chs[0] = trim::TrimController::apply(ch1_raw, trims.values.roll);
+        rf_chs[1] = trim::TrimController::apply(ch2_raw, trims.values.pitch);
+        rf_chs[2] = if trims.throttle_enabled {
+            trim::TrimController::apply(ch3_raw, trims.values.throttle)
+        } else {
+            ch3_raw
+        };
+        rf_chs[3] = trim::TrimController::apply(ch4_raw, trims.values.yaw);
         rf_chs[4] = if state.switches.sa == input::SwitchPos::Up { 1000 } else { 2000 };
         rf_chs[5] = match state.switches.sb {
             input::SwitchPos::Up => 1000,
@@ -263,8 +318,7 @@ fn main() -> ! {
         // Fetch telemetry
         let telem = rf::get_telemetry();
 
-        // Check keys and runtime DFU trigger
-        let keys = boot::scan_keys();
+        // Check dedicated Bind key
         if (keys & (1 << 12)) != 0 {
             rf::set_bind_mode(true);
         }
@@ -350,13 +404,13 @@ fn main() -> ! {
 
         // CH1: Roll / Aileron
         Text::new("A", Point::new(2, 19), text_style).draw(&mut lcd).ok();
-        draw_channel_gauge(&mut lcd, 12, 13, 76, 7, state.sticks.roll);
+        draw_channel_gauge(&mut lcd, 12, 13, 76, 7, state.sticks.roll, trims.values.roll);
         let p1 = format_percent(state.sticks.roll, &mut pct_buf);
         Text::new(p1, Point::new(92, 19), text_style).draw(&mut lcd).ok();
 
         // CH2: Pitch / Elevator
         Text::new("E", Point::new(2, 27), text_style).draw(&mut lcd).ok();
-        draw_channel_gauge(&mut lcd, 12, 21, 76, 7, state.sticks.pitch);
+        draw_channel_gauge(&mut lcd, 12, 21, 76, 7, state.sticks.pitch, trims.values.pitch);
         let p2 = format_percent(state.sticks.pitch, &mut pct_buf);
         Text::new(p2, Point::new(92, 27), text_style).draw(&mut lcd).ok();
 
@@ -368,7 +422,7 @@ fn main() -> ! {
 
         // CH4: Yaw / Rudder
         Text::new("R", Point::new(2, 43), text_style).draw(&mut lcd).ok();
-        draw_channel_gauge(&mut lcd, 12, 37, 76, 7, state.sticks.yaw);
+        draw_channel_gauge(&mut lcd, 12, 37, 76, 7, state.sticks.yaw, trims.values.yaw);
         let p4 = format_percent(state.sticks.yaw, &mut pct_buf);
         Text::new(p4, Point::new(92, 43), text_style).draw(&mut lcd).ok();
 
@@ -398,12 +452,25 @@ fn main() -> ! {
         Text::new(pot_str, Point::new(96, 54), text_style).draw(&mut lcd).ok();
 
         // --- Bottom Diagnostic / Key Line (y = 56..63) ---
-        let mut key_buf = [b'0'; 4];
-        u16_to_hex(keys, &mut key_buf);
-        let key_str = core::str::from_utf8(&key_buf).unwrap_or("0000");
+        if trims.last_active != trim::ActiveTrim::None {
+            let mut trm_buf = [0u8; 9];
+            let val = match trims.last_active {
+                trim::ActiveTrim::Roll => trims.values.roll,
+                trim::ActiveTrim::Pitch => trims.values.pitch,
+                trim::ActiveTrim::Throttle => trims.values.throttle,
+                trim::ActiveTrim::Yaw => trims.values.yaw,
+                trim::ActiveTrim::None => 0,
+            };
+            let trm_str = format_trim(trims.last_active, val, &mut trm_buf);
+            Text::new(trm_str, Point::new(2, 63), text_style).draw(&mut lcd).ok();
+        } else {
+            let mut key_buf = [b'0'; 4];
+            u16_to_hex(keys, &mut key_buf);
+            let key_str = core::str::from_utf8(&key_buf).unwrap_or("0000");
 
-        Text::new("KEY:", Point::new(2, 63), text_style).draw(&mut lcd).ok();
-        Text::new(key_str, Point::new(28, 63), text_style).draw(&mut lcd).ok();
+            Text::new("KEY:", Point::new(2, 63), text_style).draw(&mut lcd).ok();
+            Text::new(key_str, Point::new(28, 63), text_style).draw(&mut lcd).ok();
+        }
 
         if !rf::is_bound() {
             Text::new("BINDING...", Point::new(58, 63), text_style).draw(&mut lcd).ok();

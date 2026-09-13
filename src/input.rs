@@ -134,26 +134,26 @@ pub fn init() {
 
     for _ in 0..SAMPLES {
         let raw = adc::read_raw();
-        sum_pitch += raw[0] as u32; // PA0 = RV (Pitch)
-        sum_roll += raw[1] as u32;  // PA1 = RH (Roll)
+        sum_roll += raw[0] as u32;  // PA0 = Roll (Aileron)
+        sum_pitch += raw[1] as u32; // PA1 = Pitch (Elevator)
         sum_yaw += raw[3] as u32;   // PA3 = LH (Yaw)
         for _ in 0..3_000 {
             cortex_m::asm::nop();
         }
     }
 
-    let avg_pitch = (sum_pitch / SAMPLES) as u16;
     let avg_roll = (sum_roll / SAMPLES) as u16;
+    let avg_pitch = (sum_pitch / SAMPLES) as u16;
     let avg_yaw = (sum_yaw / SAMPLES) as u16;
 
     unsafe {
-        // Roll: PA1 (RH)
+        // Roll: PA0 (RH)
         if avg_roll >= 1500 && avg_roll <= 2500 {
             (*core::ptr::addr_of_mut!(ROLL_CALIB)).center = avg_roll;
             (*core::ptr::addr_of_mut!(ROLL_CALIB)).min = avg_roll.saturating_sub(850);
             (*core::ptr::addr_of_mut!(ROLL_CALIB)).max = avg_roll.saturating_add(850);
         }
-        // Pitch: PA0 (RV)
+        // Pitch: PA1 (RV)
         if avg_pitch >= 1500 && avg_pitch <= 2500 {
             (*core::ptr::addr_of_mut!(PITCH_CALIB)).center = avg_pitch;
             (*core::ptr::addr_of_mut!(PITCH_CALIB)).min = avg_pitch.saturating_sub(850);
@@ -202,15 +202,15 @@ fn calculate_battery_mv(raw: u16) -> u16 {
 pub fn poll() -> InputState {
     let raw = adc::read_raw();
 
-    // Mode 2 Pinout matching FlySky FS-i6X hardware (OpenI6X hal.h):
-    // raw[0] = PA0: RV (Right Vertical - Pitch / Elevator)
-    // raw[1] = PA1: RH (Right Horizontal - Roll / Aileron)
+    // Mode 2 Pinout matching FlySky FS-i6X hardware:
+    // raw[0] = PA0: RH (Right Horizontal - Roll / Aileron)
+    // raw[1] = PA1: RV (Right Vertical - Pitch / Elevator)
     // raw[2] = PA2: LV (Left Vertical - Throttle, friction ratchet / no spring return)
     // raw[3] = PA3: LH (Left Horizontal - Yaw / Rudder)
     let sticks = unsafe {
         Sticks {
-            roll: (*core::ptr::addr_of_mut!(ROLL_CALIB)).normalize(raw[1]),
-            pitch: (*core::ptr::addr_of_mut!(PITCH_CALIB)).normalize(raw[0]),
+            roll: (*core::ptr::addr_of_mut!(ROLL_CALIB)).normalize(raw[0]),
+            pitch: (*core::ptr::addr_of_mut!(PITCH_CALIB)).normalize(raw[1]),
             throttle: (*core::ptr::addr_of_mut!(THROTTLE_CALIB)).normalize(raw[2]),
             yaw: (*core::ptr::addr_of_mut!(YAW_CALIB)).normalize(raw[3]),
         }
