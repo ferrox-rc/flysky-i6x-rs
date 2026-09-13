@@ -65,6 +65,15 @@ pub fn set_bind_mode(enable: bool) {
     });
 }
 
+/// Dynamically update receiver ID in the RF driver (e.g. on model switch).
+pub fn set_rx_id(rx_id: u32) {
+    cortex_m::interrupt::free(|_| {
+        if let Some(ref mut driver) = unsafe { RF_DRIVER.as_mut() } {
+            driver.set_rx_id(rx_id);
+        }
+    });
+}
+
 /// Query whether binding has completed.
 pub fn is_bound() -> bool {
     cortex_m::interrupt::free(|_| {

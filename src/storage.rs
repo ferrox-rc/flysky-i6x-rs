@@ -1,10 +1,15 @@
-//! Flash storage for non-volatile configuration (RX ID, stick & pot calibrations).
+//! Flash storage for non-volatile configuration and 20-model memory system.
 //!
-//! Stored in the last 2KB sector of Flash on STM32F072VB (0x0801_F800).
+//! - Page 62: 0x0801_F000 (2048 bytes)
+//! - Page 63: 0x0801_F800 (2048 bytes)
+//!
+//! Total available: 4096 bytes. Total used: 2688 bytes.
 
-pub const FLASH_STORAGE_ADDR: usize = 0x0801_F800;
+pub const FLASH_STORAGE_ADDR: usize = 0x0801_F000;
+pub const FLASH_LEGACY_ADDR: usize = 0x0801_F800;
 pub const FLASH_MAGIC: u32 = 0x4653_4B59; // "FSKY"
-pub const CONFIG_VERSION: u32 = 2;
+pub const CONFIG_VERSION: u32 = 3;
+pub const NUM_MODELS: usize = 20;
 
 const FLASH_KEYR: *mut u32 = 0x4002_2004 as *mut u32;
 const FLASH_SR: *mut u32 = 0x4002_200C as *mut u32;
@@ -32,19 +37,21 @@ impl ChannelCalib {
     }
 }
 
-/// Persistent radio settings and calibration data (64 bytes).
+/// Persistent system/radio-level configuration (exactly 128 bytes).
 #[repr(C)]
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct RadioConfig {
-    pub magic: u32,
-    pub version: u32,
-    pub rx_id: u32,
-    pub sticks: [ChannelCalib; 4], // 0: Roll, 1: Pitch, 2: Throttle, 3: Yaw (32 bytes)
-    pub pots: [ChannelCalib; 2],   // 0: VRA, 1: VRB (16 bytes)
-    pub throttle_trim: u8,         // 0: Disabled (safety lock), 1: Enabled
-    pub audio_enabled: u8,         // 0: Muted, 1: Enabled
-    pub backlight_timeout: u8,     // 0: Always On, 1: 15s, 2: 30s, 3: 60s
-    pub backlight_brightness: u8,  // 1..10 (10%..100%, default 10)
+    pub magic: u32,                // 0..4 ("FSKY")
+    pub version: u32,              // 4..8 (3)
+    pub active_model: u8,          // 8 (0..19, active model index)
+    pub throttle_trim: u8,         // 9 (0: Off/Lock, 1: Idle T-Trim, 2: Linear)
+    pub audio_enabled: u8,         // 10 (0: Muted, 1: Enabled)
+    pub backlight_timeout: u8,     // 11 (0: Always On, 1: 15s, 2: 30s, 3: 60s)
+    pub backlight_brightness: u8,  // 12 (1..10)
+    pub _pad0: [u8; 3],            // 13..16 (align sticks to 16)
+    pub sticks: [ChannelCalib; 4], // 16..48 (32 bytes: Roll, Pitch, Throttle, Yaw)
+    pub pots: [ChannelCalib; 2],   // 48..64 (16 bytes: VRA, VRB)
+    pub _reserved: [u8; 64],       // 64..128
 }
 
 impl RadioConfig {
@@ -52,7 +59,12 @@ impl RadioConfig {
         Self {
             magic: FLASH_MAGIC,
             version: CONFIG_VERSION,
-            rx_id: 0,
+            active_model: 0,
+            throttle_trim: 0,
+            audio_enabled: 1,
+            backlight_timeout: 0,
+            backlight_brightness: 10,
+            _pad0: [0; 3],
             sticks: [
                 ChannelCalib::new(2048 - 1670, 2048, 2048 + 1670), // Roll (Horizontal)
                 ChannelCalib::new(2048 - 1580, 2048, 2048 + 1580), // Pitch (Vertical)
@@ -63,56 +75,156 @@ impl RadioConfig {
                 ChannelCalib::new(2048 - 1950, 2048, 2048 + 1950), // VRA
                 ChannelCalib::new(2048 - 1950, 2048, 2048 + 1950), // VRB
             ],
-            throttle_trim: 0,        // Default disabled for FC arming safety
-            audio_enabled: 1,        // Default audible buzzer enabled
-            backlight_timeout: 0,    // Default Always On
-            backlight_brightness: 10, // Default 100%
+            _reserved: [0; 64],
         }
     }
 }
 
-/// Load saved configuration from Flash, or return default factory settings if unprogrammed.
-pub fn load_config() -> RadioConfig {
+/// Complete profile for an individual aircraft/model (exactly 128 bytes).
+#[repr(C)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub struct ModelConfig {
+    pub name: [u8; 10],            // 0..10: 10-char ASCII name
+    pub model_type: u8,            // 10: 0: Quad, 1: Plane, 2: Heli, 3: Glider
+    pub _pad0: u8,                 // 11: align rx_id to 4 bytes
+    pub rx_id: u32,                // 12..16: Model Match bound receiver ID
+    pub trims: [i8; 4],            // 16..20: Roll, Pitch, Throttle, Yaw (-25..+25)
+    pub channel_reverse: u16,      // 20..22: Bitmask for CH1..CH14 inversion
+    pub dr_switch: u8,             // 22: 0: None, 1: SA, 2: SB, 3: SC, 4: SD
+    pub thr_curve_pts: u8,         // 23: 5 or 9 points mode
+    pub thr_curve_smooth: u8,      // 24: 0: Linear, 1: Spline / Smooth
+    pub thr_curve: [u8; 9],        // 25..34: Points 1..9 (0..100%)
+    pub dr_high: [u8; 3],          // 34..37: High rate (AIL, ELE, RUD: 50..100%)
+    pub dr_low: [u8; 3],           // 37..40: Low rate (AIL, ELE, RUD: 30..100%)
+    pub expo_high: [i8; 3],        // 40..43: High expo (-100..+100%)
+    pub expo_low: [i8; 3],         // 43..46: Low expo (-100..+100%)
+    pub timer_secs: u16,           // 46..48: Countdown timer in seconds (e.g. 300 = 5 min)
+    pub timer_source: u8,          // 48: 0: Off, 1: Thr > 5%, 2: SA, 3: SB, 4: SC, 5: SD
+    pub protocol_subtype: u8,      // 49: 0: PWM, 1: PPM, 2: i-BUS, 3: S.BUS
+    pub failsafe_thr: u16,         // 50..52: Failsafe throttle pulse in µs (e.g. 1000)
+    pub _reserved: [u8; 76],       // 52..128
+}
+
+impl ModelConfig {
+    pub const fn default_for_index(idx: usize) -> Self {
+        let num = (idx + 1) as u8;
+        let digit1 = b'0' + (num / 10);
+        let digit2 = b'0' + (num % 10);
+        Self {
+            name: [b'M', b'O', b'D', b'E', b'L', b' ', digit1, digit2, b' ', b' '],
+            model_type: 0,
+            _pad0: 0,
+            rx_id: 0,
+            trims: [0, 0, 0, 0],
+            channel_reverse: 0,
+            dr_switch: 0,
+            thr_curve_pts: 5,
+            thr_curve_smooth: 0,
+            thr_curve: [0, 25, 50, 75, 100, 0, 0, 0, 0],
+            dr_high: [100, 100, 100],
+            dr_low: [70, 70, 70],
+            expo_high: [0, 0, 0],
+            expo_low: [0, 0, 0],
+            timer_secs: 300,
+            timer_source: 1,
+            protocol_subtype: 0,
+            failsafe_thr: 1000,
+            _reserved: [0; 76],
+        }
+    }
+}
+
+/// Complete Flash storage layout containing radio settings and 20 models (2,688 bytes).
+#[repr(C)]
+#[derive(Copy, Clone, Debug)]
+pub struct RadioStorage {
+    pub radio: RadioConfig,
+    pub models: [ModelConfig; NUM_MODELS],
+}
+
+impl RadioStorage {
+    pub const fn default_factory() -> Self {
+        let radio = RadioConfig::default_factory();
+        let mut models = [ModelConfig::default_for_index(0); NUM_MODELS];
+        let mut i = 1;
+        while i < NUM_MODELS {
+            models[i] = ModelConfig::default_for_index(i);
+            i += 1;
+        }
+        Self { radio, models }
+    }
+
+    pub fn active_model(&self) -> &ModelConfig {
+        let idx = (self.radio.active_model as usize).min(NUM_MODELS - 1);
+        &self.models[idx]
+    }
+
+    pub fn active_model_mut(&mut self) -> &mut ModelConfig {
+        let idx = (self.radio.active_model as usize).min(NUM_MODELS - 1);
+        &mut self.models[idx]
+    }
+}
+
+// Compile-time size guarantees
+const _: () = assert!(core::mem::size_of::<RadioConfig>() == 128);
+const _: () = assert!(core::mem::size_of::<ModelConfig>() == 128);
+const _: () = assert!(core::mem::size_of::<RadioStorage>() == 2688);
+
+/// Load complete storage from Flash (with automatic migration from legacy v1/v2).
+pub fn load_storage() -> RadioStorage {
     unsafe {
         let magic = core::ptr::read_volatile(FLASH_STORAGE_ADDR as *const u32);
-        if magic != FLASH_MAGIC {
-            return RadioConfig::default_factory();
-        }
+        let version = core::ptr::read_volatile((FLASH_STORAGE_ADDR + 4) as *const u32);
 
-        let word1 = core::ptr::read_volatile((FLASH_STORAGE_ADDR + 4) as *const u32);
-        if word1 == CONFIG_VERSION {
-            // Full RadioConfig v2 is saved
-            let mut cfg = RadioConfig::default_factory();
+        if magic == FLASH_MAGIC && version == CONFIG_VERSION {
+            let mut storage = RadioStorage::default_factory();
             let src = FLASH_STORAGE_ADDR as *const u32;
-            let dst = &mut cfg as *mut RadioConfig as *mut u32;
-            let word_count = core::mem::size_of::<RadioConfig>() / 4;
+            let dst = &mut storage as *mut RadioStorage as *mut u32;
+            let word_count = core::mem::size_of::<RadioStorage>() / 4;
             for i in 0..word_count {
                 *dst.add(i) = core::ptr::read_volatile(src.add(i));
             }
-            cfg
-        } else if word1 == 1 {
-            // Version 1 had sticks and pots but no settings tail (15 words = 60 bytes)
-            let mut cfg = RadioConfig::default_factory();
-            let src = FLASH_STORAGE_ADDR as *const u32;
-            let dst = &mut cfg as *mut RadioConfig as *mut u32;
-            for i in 0..15 {
-                *dst.add(i) = core::ptr::read_volatile(src.add(i));
-            }
-            cfg.version = CONFIG_VERSION;
-            cfg
-        } else {
-            // Legacy layout: [magic, rx_id]
-            let mut cfg = RadioConfig::default_factory();
-            if word1 != 0 && word1 != 0xFFFF_FFFF {
-                cfg.rx_id = word1;
-            }
-            cfg
+            return storage;
         }
+
+        // Check for legacy v1/v2 at FLASH_LEGACY_ADDR (0x0801_F800)
+        let legacy_magic = core::ptr::read_volatile(FLASH_LEGACY_ADDR as *const u32);
+        let legacy_ver = core::ptr::read_volatile((FLASH_LEGACY_ADDR + 4) as *const u32);
+        if legacy_magic == FLASH_MAGIC && (legacy_ver == 1 || legacy_ver == 2) {
+            let mut storage = RadioStorage::default_factory();
+            let rx_id = core::ptr::read_volatile((FLASH_LEGACY_ADDR + 8) as *const u32);
+            if rx_id != 0 && rx_id != 0xFFFF_FFFF {
+                storage.models[0].rx_id = rx_id;
+            }
+
+            // Copy sticks (32 bytes)
+            let src_sticks = (FLASH_LEGACY_ADDR + 12) as *const ChannelCalib;
+            for i in 0..4 {
+                storage.radio.sticks[i] = core::ptr::read_volatile(src_sticks.add(i));
+            }
+            // Copy pots (16 bytes)
+            let src_pots = (FLASH_LEGACY_ADDR + 44) as *const ChannelCalib;
+            for i in 0..2 {
+                storage.radio.pots[i] = core::ptr::read_volatile(src_pots.add(i));
+            }
+            if legacy_ver == 2 {
+                storage.radio.throttle_trim = core::ptr::read_volatile((FLASH_LEGACY_ADDR + 60) as *const u8);
+                storage.radio.audio_enabled = core::ptr::read_volatile((FLASH_LEGACY_ADDR + 61) as *const u8);
+                storage.radio.backlight_timeout = core::ptr::read_volatile((FLASH_LEGACY_ADDR + 62) as *const u8);
+                storage.radio.backlight_brightness = core::ptr::read_volatile((FLASH_LEGACY_ADDR + 63) as *const u8);
+            }
+
+            // Immediately persist upgraded v3 storage to 0x0801_F000
+            save_storage(&storage);
+            return storage;
+        }
+
+        RadioStorage::default_factory()
     }
 }
 
-/// Save radio configuration to Flash.
-pub fn save_config(config: &RadioConfig) {
+/// Save complete storage to Flash (Pages 62 and 63).
+pub fn save_storage(storage: &RadioStorage) {
     unsafe {
         // Unlock flash
         core::ptr::write_volatile(FLASH_KEYR, 0x4567_0123);
@@ -120,19 +232,23 @@ pub fn save_config(config: &RadioConfig) {
 
         while (core::ptr::read_volatile(FLASH_SR) & 1) != 0 {}
 
-        // Erase page 0x0801_F800
+        // Erase Page 62 (0x0801_F000)
         core::ptr::write_volatile(FLASH_CR, 1 << 1); // PER
         core::ptr::write_volatile(FLASH_AR, FLASH_STORAGE_ADDR as u32);
         core::ptr::write_volatile(FLASH_CR, (1 << 1) | (1 << 6)); // PER | STRT
+        while (core::ptr::read_volatile(FLASH_SR) & 1) != 0 {}
 
+        // Erase Page 63 (0x0801_F800)
+        core::ptr::write_volatile(FLASH_AR, (FLASH_STORAGE_ADDR + 2048) as u32);
+        core::ptr::write_volatile(FLASH_CR, (1 << 1) | (1 << 6)); // PER | STRT
         while (core::ptr::read_volatile(FLASH_SR) & 1) != 0 {}
         core::ptr::write_volatile(FLASH_CR, 0);
 
         // Program halfwords
         core::ptr::write_volatile(FLASH_CR, 1 << 0); // PG
 
-        let halfword_count = core::mem::size_of::<RadioConfig>() / 2;
-        let src = config as *const RadioConfig as *const u16;
+        let halfword_count = core::mem::size_of::<RadioStorage>() / 2;
+        let src = storage as *const RadioStorage as *const u16;
         let dst = FLASH_STORAGE_ADDR as *mut u16;
 
         for i in 0..halfword_count {
@@ -146,10 +262,14 @@ pub fn save_config(config: &RadioConfig) {
     }
 }
 
-/// Convenience helper to update just the RX ID while preserving current calibration.
-#[allow(dead_code)]
-pub fn save_rx_id(rx_id: u32) {
-    let mut cfg = load_config();
-    cfg.rx_id = rx_id;
-    save_config(&cfg);
+/// Convenience helper to load current RadioConfig.
+pub fn load_config() -> RadioConfig {
+    load_storage().radio
+}
+
+/// Convenience helper to save current RadioConfig while preserving models.
+pub fn save_config(config: &RadioConfig) {
+    let mut storage = load_storage();
+    storage.radio = *config;
+    save_storage(&storage);
 }

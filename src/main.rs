@@ -18,6 +18,7 @@ mod boot;
 mod buzzer;
 mod calib;
 mod chip;
+mod curve;
 mod display;
 mod input;
 mod menu;
@@ -287,16 +288,24 @@ fn main() -> ! {
     let mut buzzer = buzzer::Buzzer::new();
     buzzer.init();
 
-    // 7. Load persistent radio configuration
-    let mut config = storage::load_config();
-    buzzer.enabled = config.audio_enabled != 0;
+    // 7. Load persistent radio storage and 20-model configuration
+    let mut storage = storage::load_storage();
+    buzzer.enabled = storage.radio.audio_enabled != 0;
     buzzer.click(); // Power-on audible confirmation
 
     let mut trims = trim::TrimController::new();
-    trims.throttle_enabled = config.throttle_trim != 0;
+    trims.throttle_enabled = storage.radio.throttle_trim != 0;
+
+    // Load active model trims and receiver ID
+    let active = storage.active_model();
+    trims.values.roll = active.trims[0];
+    trims.values.pitch = active.trims[1];
+    trims.values.throttle = active.trims[2];
+    trims.values.yaw = active.trims[3];
+    rf::set_rx_id(active.rx_id);
 
     // Apply saved backlight brightness level
-    lcd.set_backlight_level(config.backlight_brightness * 10);
+    lcd.set_backlight_level(storage.radio.backlight_brightness * 10);
 
     let mut calib_wizard = calib::CalibWizard::new();
     let mut menu_controller = menu::MenuController::new();
@@ -329,15 +338,15 @@ fn main() -> ! {
         prev_stick_sample = state.raw[0];
 
         if keys != 0 || stick_moved {
-            let timeout_ms: u32 = match config.backlight_timeout {
+            let timeout_ms: u32 = match storage.radio.backlight_timeout {
                 1 => 15_000,
                 2 => 30_000,
                 3 => 60_000,
                 _ => 0,
             };
             bl_timer_ms = timeout_ms;
-            lcd.set_backlight_level(config.backlight_brightness * 10);
-        } else if config.backlight_timeout != 0 {
+            lcd.set_backlight_level(storage.radio.backlight_brightness * 10);
+        } else if storage.radio.backlight_timeout != 0 {
             if bl_timer_ms > 20 {
                 bl_timer_ms -= 20;
             } else {
@@ -347,15 +356,25 @@ fn main() -> ! {
         }
 
         // Map inputs to 14 AFHDS 2A channels with digital trims (1000..2000 µs)
+        let active_model = storage.active_model();
         let mut rf_chs = [1500u16; 14];
         let ch1_raw = ((state.sticks.roll / 2) + 1500).clamp(1000, 2000) as u16;
         let ch2_raw = ((state.sticks.pitch / 2) + 1500).clamp(1000, 2000) as u16;
-        let ch3_raw = ((state.sticks.throttle / 2) + 1500).clamp(1000, 2000) as u16;
+
+        // Evaluate active model throttle curve (normalized 0..1000)
+        let thr_input = ((state.sticks.throttle + 1000) / 2).clamp(0, 1000) as u16;
+        let thr_curved = curve::evaluate_curve(
+            thr_input,
+            active_model.thr_curve_pts,
+            active_model.thr_curve_smooth != 0,
+            &active_model.thr_curve,
+        );
+        let ch3_raw = (1000 + thr_curved).clamp(1000, 2000);
         let ch4_raw = ((state.sticks.yaw / 2) + 1500).clamp(1000, 2000) as u16;
 
         rf_chs[0] = trim::TrimController::apply(ch1_raw, trims.values.roll);
         rf_chs[1] = trim::TrimController::apply(ch2_raw, trims.values.pitch);
-        rf_chs[2] = trim::TrimController::apply_throttle(ch3_raw, trims.values.throttle, config.throttle_trim);
+        rf_chs[2] = trim::TrimController::apply_throttle(ch3_raw, trims.values.throttle, storage.radio.throttle_trim);
         rf_chs[3] = trim::TrimController::apply(ch4_raw, trims.values.yaw);
         rf_chs[4] = if state.switches.sa == input::SwitchPos::Up { 1000 } else { 2000 };
         rf_chs[5] = match state.switches.sb {
@@ -371,6 +390,14 @@ fn main() -> ! {
             input::SwitchPos::Down => 2000,
         };
         rf_chs[9] = if state.switches.sd == input::SwitchPos::Up { 1000 } else { 2000 };
+
+        // Apply active model channel reversing bitmask
+        let rev_mask = active_model.channel_reverse;
+        for (ch, val) in rf_chs.iter_mut().enumerate() {
+            if (rev_mask & (1 << ch)) != 0 {
+                *val = 3000 - *val;
+            }
+        }
         rf::set_channels(&rf_chs);
 
         let telem = rf::get_telemetry();
@@ -395,9 +422,9 @@ fn main() -> ! {
 
         // Persist newly bound RX ID safely to Flash outside ISR
         if let Some(new_rx_id) = rf::take_pending_rx_save() {
-            if new_rx_id != 0 && new_rx_id != 0xFFFF_FFFF && config.rx_id != new_rx_id {
-                config.rx_id = new_rx_id;
-                storage::save_config(&config);
+            if new_rx_id != 0 && new_rx_id != 0xFFFF_FFFF && storage.active_model().rx_id != new_rx_id {
+                storage.active_model_mut().rx_id = new_rx_id;
+                storage::save_storage(&storage);
                 buzzer.play_tone_pattern(2400, 70, 50, 2);
             }
         }
@@ -420,7 +447,7 @@ fn main() -> ! {
             menu_controller.update(
                 &mut lcd,
                 keys,
-                &mut config,
+                &mut storage,
                 &mut trims,
                 &state.raw,
                 &rf_chs,
@@ -473,14 +500,19 @@ fn main() -> ! {
         lcd.clear(BinaryColor::Off).ok();
 
         // --- Top Status Bar (y = 0..10) ---
-        Text::new("FS-i6X", Point::new(2, 9), text_style)
+        let mut m_buf = *b"M00";
+        let act_idx = storage.radio.active_model as usize;
+        m_buf[1] = b'0' + ((act_idx + 1) / 10) as u8;
+        m_buf[2] = b'0' + ((act_idx + 1) % 10) as u8;
+        let m_str = core::str::from_utf8(&m_buf).unwrap_or("M01");
+        Text::new(m_str, Point::new(2, 9), text_style)
             .draw(&mut lcd)
             .ok();
 
         // Center RF status
         if !rf_ok {
             let id = rf::get_last_chip_id();
-            let mut err_buf = [b'E', b':', b'0', b'0'];
+            let mut err_buf = *b"E:00";
             err_buf[2] = HEX_CHARS[((id >> 4) & 0x0F) as usize];
             err_buf[3] = HEX_CHARS[(id & 0x0F) as usize];
             let err_str = core::str::from_utf8(&err_buf).unwrap_or("E:??");
@@ -492,7 +524,7 @@ fn main() -> ! {
                 .draw(&mut lcd)
                 .ok();
         } else if telem.connected {
-            let mut rssi_buf = [b'R', b':', b' ', b' ', b'%'];
+            let mut rssi_buf = *b"R:  %";
             let r = telem.rssi.min(100);
             if r >= 100 {
                 rssi_buf[2] = b'1';
@@ -547,7 +579,7 @@ fn main() -> ! {
 
         // CH3: Throttle
         Text::new("T", Point::new(2, 35), text_style).draw(&mut lcd).ok();
-        let thr_trim = if config.throttle_trim != 0 { trims.values.throttle } else { 0 };
+        let thr_trim = if storage.radio.throttle_trim != 0 { trims.values.throttle } else { 0 };
         draw_progress_bar(&mut lcd, 12, 29, 76, 7, state.sticks.throttle, thr_trim);
         let p3 = format_throttle_percent(state.sticks.throttle, &mut pct_buf);
         Text::new(p3, Point::new(92, 35), text_style).draw(&mut lcd).ok();
@@ -566,7 +598,7 @@ fn main() -> ! {
 
         // --- Switches & Pots Line (y = 48..54) ---
         // SA..SD states
-        let mut sw_buf = [b'A', b':', b'U', b' ', b'B', b':', b'U', b' ', b'C', b':', b'U', b' ', b'D', b':', b'U'];
+        let mut sw_buf = *b"A:U B:U C:U D:U";
         sw_buf[2] = state.switches.sa.as_char() as u8;
         sw_buf[6] = state.switches.sb.as_char() as u8;
         sw_buf[10] = state.switches.sc.as_char() as u8;
@@ -575,7 +607,7 @@ fn main() -> ! {
         Text::new(sw_str, Point::new(2, 54), text_style).draw(&mut lcd).ok();
 
         // Pots: V1 / V2 on right (scaled 0..9 across full turn)
-        let mut pot_buf = [b'V', b':', b'0', b'/', b'0'];
+        let mut pot_buf = *b"V:0/0";
         let p1 = (((state.pots.vr1 as i32 + 1000) * 9) / 2000).clamp(0, 9) as u8;
         let p2 = (((state.pots.vr2 as i32 + 1000) * 9) / 2000).clamp(0, 9) as u8;
         pot_buf[2] = b'0' + p1;

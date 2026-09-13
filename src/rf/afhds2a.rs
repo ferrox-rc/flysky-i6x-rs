@@ -65,9 +65,10 @@ impl TelemetryData {
 
 /// Read persisted receiver ID from Flash if previously bound.
 pub fn load_saved_rx_id() -> Option<u32> {
-    let cfg = crate::storage::load_config();
-    if cfg.rx_id != 0 && cfg.rx_id != 0xFFFF_FFFF {
-        Some(cfg.rx_id)
+    let storage = crate::storage::load_storage();
+    let rx_id = storage.active_model().rx_id;
+    if rx_id != 0 && rx_id != 0xFFFF_FFFF {
+        Some(rx_id)
     } else {
         None
     }
@@ -141,6 +142,14 @@ impl Afhds2a {
             }
             self.rx_id_needs_save = true;
         }
+    }
+
+    /// Dynamically update receiver ID (called when switching active model profile).
+    pub fn set_rx_id(&mut self, rx_id: u32) {
+        self.rx_id = if rx_id != 0 { rx_id } else { 0xFFFF_FFFF };
+        self.bind_done = rx_id != 0 && rx_id != 0xFFFF_FFFF;
+        self.loss_counter = 0;
+        self.telemetry.connected = false;
     }
 
     /// Periodic timer callback (called every 3.85 ms from TIM16 ISR).
@@ -459,13 +468,8 @@ pub fn calculate_hopping_table(tx_id: u32) -> [u8; NUM_FREQ] {
         let next_ch = band_no * 41 + 1 + (((rnd >> idx) % 41) as u8);
 
         let mut valid = true;
-        for i in 0..idx {
-            let diff = if next_ch > hopping[i] {
-                next_ch - hopping[i]
-            } else {
-                hopping[i] - next_ch
-            };
-            if diff < 5 {
+        for &h in hopping.iter().take(idx) {
+            if next_ch.abs_diff(h) < 5 {
                 valid = false;
                 break;
             }
