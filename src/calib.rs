@@ -191,8 +191,8 @@ impl CalibWizard {
 
                         for i in 0..4 {
                             let center = self.centers[i];
-                            let span_neg = ((center.saturating_sub(self.mins[i]) as u32 * 62) / 64) as u16;
-                            let span_pos = ((self.maxs[i].saturating_sub(center) as u32 * 62) / 64) as u16;
+                            let span_neg = ((center.saturating_sub(self.mins[i]) as u32 * 63) / 64) as u16;
+                            let span_pos = ((self.maxs[i].saturating_sub(center) as u32 * 63) / 64) as u16;
                             cfg.sticks[i] = ChannelCalib::new(
                                 center.saturating_sub(span_neg),
                                 center,
@@ -200,14 +200,14 @@ impl CalibWizard {
                             );
                         }
 
-                        // Pots: if moved by >= 500 counts total span, update; otherwise preserve
+                        // Pots: if moved by >= 400 counts total span, update; otherwise preserve
                         for i in 0..2 {
                             let p_idx = 4 + i;
                             let span = self.maxs[p_idx].saturating_sub(self.mins[p_idx]);
-                            if span >= 500 {
+                            if span >= 400 {
                                 let center = self.centers[p_idx];
-                                let span_neg = ((center.saturating_sub(self.mins[p_idx]) as u32 * 62) / 64) as u16;
-                                let span_pos = ((self.maxs[p_idx].saturating_sub(center) as u32 * 62) / 64) as u16;
+                                let span_neg = ((center.saturating_sub(self.mins[p_idx]) as u32 * 63) / 64) as u16;
+                                let span_pos = ((self.maxs[p_idx].saturating_sub(center) as u32 * 63) / 64) as u16;
                                 cfg.pots[i] = ChannelCalib::new(
                                     center.saturating_sub(span_neg),
                                     center,
@@ -239,13 +239,13 @@ impl CalibWizard {
                     let y = 13 + (i as i32 * 8);
                     Text::new(labels[i], Point::new(2, y + 6), text_style).draw(lcd).ok();
 
-                    // Outline gauge box (width = 62, from 10 to 72)
-                    Rectangle::new(Point::new(10, y), Size::new(62, 7))
+                    // Outline gauge box (width = 63, from 10 to 72; inner x = 11..71)
+                    Rectangle::new(Point::new(10, y), Size::new(63, 7))
                         .into_styled(border_style)
                         .draw(lcd)
                         .ok();
 
-                    // Center tick mark at 41 (center of 62 box: 10 + 31 = 41)
+                    // Center tick mark at 41 (left inner: 11..40 = 30px, right inner: 42..71 = 30px)
                     Line::new(Point::new(41, y), Point::new(41, y + 6))
                         .into_styled(border_style)
                         .draw(lcd)
@@ -256,8 +256,13 @@ impl CalibWizard {
                     let span_neg = center.saturating_sub(self.mins[i]);
                     let span_pos = self.maxs[i].saturating_sub(center);
 
-                    // Left fill: up to 29 pixels left
-                    let left_w = ((span_neg as u32 * 29) / 1600).min(29) as i32;
+                    // Target nominal span for full gauge travel:
+                    // Horizontal (A, R) travel is ~1600 counts; Vertical (E, T) is ~1450 counts.
+                    // Using 1350 (H) / 1250 (V) ensures every physical axis reaches 100% of the box edges.
+                    let stick_target = if i == 0 || i == 3 { 1350u32 } else { 1250u32 };
+
+                    // Left fill: up to 30 pixels left (reaches x = 11)
+                    let left_w = ((span_neg as u32 * 30) / stick_target).min(30) as i32;
                     if left_w > 0 {
                         Line::new(Point::new(41 - left_w, y + 3), Point::new(41, y + 3))
                             .into_styled(border_style)
@@ -265,8 +270,8 @@ impl CalibWizard {
                             .ok();
                     }
 
-                    // Right fill: up to 29 pixels right
-                    let right_w = ((span_pos as u32 * 29) / 1600).min(29) as i32;
+                    // Right fill: up to 30 pixels right (reaches x = 71)
+                    let right_w = ((span_pos as u32 * 30) / stick_target).min(30) as i32;
                     if right_w > 0 {
                         Line::new(Point::new(41, y + 3), Point::new(41 + right_w, y + 3))
                             .into_styled(border_style)
@@ -277,7 +282,11 @@ impl CalibWizard {
                     // Current stick position tick mark
                     let cur = current_raw[i];
                     let delta = cur as i32 - center as i32;
-                    let cur_x = (41 + ((delta * 29) / 1600)).clamp(11, 71);
+                    let cur_x = if delta < 0 {
+                        41 - ((delta.unsigned_abs() as u32 * 30) / stick_target).min(30) as i32
+                    } else {
+                        41 + ((delta as u32 * 30) / stick_target).min(30) as i32
+                    };
                     Line::new(Point::new(cur_x, y + 1), Point::new(cur_x, y + 5))
                         .into_styled(border_style)
                         .draw(lcd)
@@ -285,17 +294,22 @@ impl CalibWizard {
 
                     // Stick status text
                     if stick_ready[i] {
-                        Text::new("OK", Point::new(74, y + 6), text_style).draw(lcd).ok();
+                        Text::new("OK", Point::new(75, y + 6), text_style).draw(lcd).ok();
                     } else {
-                        Text::new("--", Point::new(74, y + 6), text_style).draw(lcd).ok();
+                        Text::new("--", Point::new(75, y + 6), text_style).draw(lcd).ok();
                     }
                 }
 
+                // Pot scaling: pots swing ~800..1300 counts around center. 900 counts fills 16 pixels.
+                let pot_target = 900u32;
+
                 // Render VRA (Pot 1) on upper right (x = 92..126)
-                let pot1_moved = self.maxs[4].saturating_sub(self.mins[4]) >= 500;
+                let pot1_span_neg = self.centers[4].saturating_sub(self.mins[4]);
+                let pot1_span_pos = self.maxs[4].saturating_sub(self.centers[4]);
+                let pot1_moved = (pot1_span_neg + pot1_span_pos) >= 400;
                 let pot1_txt = if pot1_moved { "V1 OK" } else { "V1 --" };
                 Text::new(pot1_txt, Point::new(92, 19), text_style).draw(lcd).ok();
-                Rectangle::new(Point::new(92, 21), Size::new(34, 7))
+                Rectangle::new(Point::new(92, 21), Size::new(35, 7))
                     .into_styled(border_style)
                     .draw(lcd)
                     .ok();
@@ -303,18 +317,41 @@ impl CalibWizard {
                     .into_styled(border_style)
                     .draw(lcd)
                     .ok();
+
+                // VRA extent fill lines
+                let p1_left_w = ((pot1_span_neg as u32 * 16) / pot_target).min(16) as i32;
+                if p1_left_w > 0 {
+                    Line::new(Point::new(109 - p1_left_w, 24), Point::new(109, 24))
+                        .into_styled(border_style)
+                        .draw(lcd)
+                        .ok();
+                }
+                let p1_right_w = ((pot1_span_pos as u32 * 16) / pot_target).min(16) as i32;
+                if p1_right_w > 0 {
+                    Line::new(Point::new(109, 24), Point::new(109 + p1_right_w, 24))
+                        .into_styled(border_style)
+                        .draw(lcd)
+                        .ok();
+                }
+
                 let p1_delta = current_raw[4] as i32 - self.centers[4] as i32;
-                let p1_x = (109 + ((p1_delta * 15) / 1900)).clamp(93, 125);
+                let p1_x = if p1_delta < 0 {
+                    109 - ((p1_delta.unsigned_abs() as u32 * 16) / pot_target).min(16) as i32
+                } else {
+                    109 + ((p1_delta as u32 * 16) / pot_target).min(16) as i32
+                };
                 Line::new(Point::new(p1_x, 22), Point::new(p1_x, 26))
                     .into_styled(border_style)
                     .draw(lcd)
                     .ok();
 
                 // Render VRB (Pot 2) on lower right (x = 92..126)
-                let pot2_moved = self.maxs[5].saturating_sub(self.mins[5]) >= 500;
+                let pot2_span_neg = self.centers[5].saturating_sub(self.mins[5]);
+                let pot2_span_pos = self.maxs[5].saturating_sub(self.centers[5]);
+                let pot2_moved = (pot2_span_neg + pot2_span_pos) >= 400;
                 let pot2_txt = if pot2_moved { "V2 OK" } else { "V2 --" };
                 Text::new(pot2_txt, Point::new(92, 35), text_style).draw(lcd).ok();
-                Rectangle::new(Point::new(92, 37), Size::new(34, 7))
+                Rectangle::new(Point::new(92, 37), Size::new(35, 7))
                     .into_styled(border_style)
                     .draw(lcd)
                     .ok();
@@ -322,8 +359,29 @@ impl CalibWizard {
                     .into_styled(border_style)
                     .draw(lcd)
                     .ok();
+
+                // VRB extent fill lines
+                let p2_left_w = ((pot2_span_neg as u32 * 16) / pot_target).min(16) as i32;
+                if p2_left_w > 0 {
+                    Line::new(Point::new(109 - p2_left_w, 40), Point::new(109, 40))
+                        .into_styled(border_style)
+                        .draw(lcd)
+                        .ok();
+                }
+                let p2_right_w = ((pot2_span_pos as u32 * 16) / pot_target).min(16) as i32;
+                if p2_right_w > 0 {
+                    Line::new(Point::new(109, 40), Point::new(109 + p2_right_w, 40))
+                        .into_styled(border_style)
+                        .draw(lcd)
+                        .ok();
+                }
+
                 let p2_delta = current_raw[5] as i32 - self.centers[5] as i32;
-                let p2_x = (109 + ((p2_delta * 15) / 1900)).clamp(93, 125);
+                let p2_x = if p2_delta < 0 {
+                    109 - ((p2_delta.unsigned_abs() as u32 * 16) / pot_target).min(16) as i32
+                } else {
+                    109 + ((p2_delta as u32 * 16) / pot_target).min(16) as i32
+                };
                 Line::new(Point::new(p2_x, 38), Point::new(p2_x, 42))
                     .into_styled(border_style)
                     .draw(lcd)

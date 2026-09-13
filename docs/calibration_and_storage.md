@@ -79,14 +79,19 @@ stateDiagram-v2
 ### Step 2 (Limits & Margins)
 1. **Dynamic Tracking**: The user moves both sticks in full circles touching all 4 corners, and rotates VRA & VRB from stop to stop.
 2. **Real-Time Display**:
-   - **Left side**: 4 stick gauges (`A`, `E`, `T`, `R`) show live position and covered travel from center. Once an axis has moved $\ge 250$ counts in both directions, its status changes from `--` to `OK`.
-   - **Right side**: Live gauges for `V1` (VRA) and `V2` (VRB) with `OK` status indicators.
-3. **Tolerance Margin Application**:
-   When `[OK]` is pressed, the wizard applies OpenTX standard ~2% margin (`STICK_TOLERANCE = 64`):
-   $$\text{effective\_min} = \text{center} - \frac{(\text{center} - \text{min}) \times 62}{64}$$
-   $$\text{effective\_max} = \text{center} + \frac{(\text{max} - \text{center}) \times 62}{64}$$
-   This ensures $\pm 100\%$ (and $0\% / 100\%$ for throttle) is reliably reached right at the gimbal bezel without straining the gimbal arms.
-4. **Commit**: Updates active runtime calibration in `input::apply_calibration`, writes `RadioConfig` to Flash, plays the 2-tone success chime, and displays `CALIBRATION SAVED!`.
+   - **Left side**: 4 stick gauges (`A`, `E`, `T`, `R`) with symmetric 30-pixel inner spans ($x = 11 \dots 41$ left, $x = 41 \dots 71$ right). Extent fill lines and live cursor ticks track the full throw. Once an axis has moved $\ge 250$ counts in both directions, its status changes from `--` to `OK`.
+   - **Right side**: Live gauges for `V1` (VRA) and `V2` (VRB) with 16-pixel extent fill lines and `OK` status indicators.
+3. **Potentiometer Physics & ADC Range**:
+   - The STM32 12-bit ADC spans $0 \dots 4095$ counts ($0\text{V} \dots 3.3\text{V}$).
+   - However, standard rotary potentiometers have an electrical rotation angle of $\sim 270^\circ$, whereas transmitter gimbals physically only tilt $\pm 25^\circ$ (a total travel of $\sim 50^\circ$).
+   - Consequently, the physical wiper only traverses $\sim 20\% \dots 25\%$ of the resistive element, producing raw ADC counts between $\sim 380$ and $\sim 3720$. The hardware physically cannot output 0 or 4095.
+   - The calibration gauges scale dynamically to this physical travel (rather than fixed full-rail 0..4095), allowing the fill and cursors to cleanly reach the outer edges of the screen boxes at physical stops.
+4. **Tolerance Margin Application**:
+   When `[OK]` is pressed, the wizard applies OpenTX standard margin (`STICK_TOLERANCE = 64`):
+   $$\text{effective\_min} = \text{center} - \frac{(\text{center} - \text{min}) \times 63}{64}$$
+   $$\text{effective\_max} = \text{center} + \frac{(\text{max} - \text{center}) \times 63}{64}$$
+   This ~1.6% margin ensures $\pm 100\%$ (and $0\% / 100\%$ for throttle) is reliably reached right at the gimbal bezel without straining the gimbal arms.
+5. **Commit**: Updates active runtime calibration in `input::apply_calibration`, writes `RadioConfig` to Flash, plays the 2-tone success chime, and displays `CALIBRATION SAVED!`.
 
 ---
 
