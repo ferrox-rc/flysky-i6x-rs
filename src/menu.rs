@@ -88,6 +88,9 @@ pub struct MenuController {
     pub request_bind: bool,
     prev_keys: u16,
     waiting_release: bool,
+    up_hold_ms: u16,
+    down_hold_ms: u16,
+    repeat_timer_ms: u16,
 }
 
 impl MenuController {
@@ -103,6 +106,9 @@ impl MenuController {
             request_bind: false,
             prev_keys: 0xFFFF,
             waiting_release: false,
+            up_hold_ms: 0,
+            down_hold_ms: 0,
+            repeat_timer_ms: 0,
         }
     }
 
@@ -118,6 +124,9 @@ impl MenuController {
         self.request_bind = false;
         self.waiting_release = true;
         self.prev_keys = 0xFFFF;
+        self.up_hold_ms = 0;
+        self.down_hold_ms = 0;
+        self.repeat_timer_ms = 0;
         buzzer.click();
     }
 
@@ -150,8 +159,43 @@ impl MenuController {
         };
         self.prev_keys = keys;
 
-        let down_pressed = (newly_pressed & (1 << 8)) != 0;
-        let up_pressed = (newly_pressed & (1 << 9)) != 0;
+        let raw_down = (keys & (1 << 8)) != 0 && !self.waiting_release;
+        let raw_up = (keys & (1 << 9)) != 0 && !self.waiting_release;
+
+        let mut down_pressed = (newly_pressed & (1 << 8)) != 0;
+        let mut up_pressed = (newly_pressed & (1 << 9)) != 0;
+
+        // Auto-repeat when UP or DOWN is held (quick traversal of lists, values, and characters)
+        if raw_down {
+            self.down_hold_ms = self.down_hold_ms.saturating_add(20);
+            if self.down_hold_ms >= 300 {
+                self.repeat_timer_ms = self.repeat_timer_ms.saturating_add(20);
+                if self.repeat_timer_ms >= 70 {
+                    down_pressed = true;
+                    self.repeat_timer_ms = 0;
+                }
+            }
+        } else {
+            self.down_hold_ms = 0;
+        }
+
+        if raw_up {
+            self.up_hold_ms = self.up_hold_ms.saturating_add(20);
+            if self.up_hold_ms >= 300 {
+                self.repeat_timer_ms = self.repeat_timer_ms.saturating_add(20);
+                if self.repeat_timer_ms >= 70 {
+                    up_pressed = true;
+                    self.repeat_timer_ms = 0;
+                }
+            }
+        } else {
+            self.up_hold_ms = 0;
+        }
+
+        if !raw_up && !raw_down {
+            self.repeat_timer_ms = 0;
+        }
+
         let ok_pressed = (newly_pressed & (1 << 10)) != 0;
         let cancel_pressed = (newly_pressed & (1 << 11)) != 0;
         let bind_pressed = (newly_pressed & (1 << 12)) != 0;
@@ -521,9 +565,9 @@ impl MenuController {
                 // Field 1: Type (y = 23)
                 let y1 = 23;
                 let type_str = match storage.models[active_idx].model_type {
-                    1 => "AIRPLANE",
+                    0 => "AIRPLANE",
+                    1 => "GLIDER",
                     2 => "HELICOPTER",
-                    3 => "GLIDER",
                     _ => "MULTI / QUAD",
                 };
                 if !self.editing && self.selected_item == 1 {

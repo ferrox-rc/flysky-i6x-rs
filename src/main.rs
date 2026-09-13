@@ -543,59 +543,61 @@ fn main() -> ! {
         lcd.clear(BinaryColor::Off).ok();
 
         // --- Top Status Bar (y = 0..10) ---
-        let mut m_buf = *b"M00";
         let act_idx = storage.radio.active_model as usize;
+        let raw_name = core::str::from_utf8(&storage.active_model().name).unwrap_or("").trim();
+        let mut m_buf = *b"M00";
         m_buf[1] = b'0' + ((act_idx + 1) / 10) as u8;
         m_buf[2] = b'0' + ((act_idx + 1) % 10) as u8;
-        let m_str = core::str::from_utf8(&m_buf).unwrap_or("M01");
-        Text::new(m_str, Point::new(2, 9), text_style)
+        let m_fallback = core::str::from_utf8(&m_buf).unwrap_or("M01");
+        let m_display = if raw_name.is_empty() { m_fallback } else { raw_name };
+        Text::new(m_display, Point::new(2, 9), text_style)
             .draw(&mut lcd)
             .ok();
 
-        // Center RF status
+        // RF status pushed over to x = 65..95
         if !rf_ok {
             let id = rf::get_last_chip_id();
             let mut err_buf = *b"E:00";
             err_buf[2] = HEX_CHARS[((id >> 4) & 0x0F) as usize];
             err_buf[3] = HEX_CHARS[(id & 0x0F) as usize];
             let err_str = core::str::from_utf8(&err_buf).unwrap_or("E:??");
-            Text::new(err_str, Point::new(48, 9), text_style)
+            Text::new(err_str, Point::new(68, 9), text_style)
                 .draw(&mut lcd)
                 .ok();
         } else if is_binding {
-            Text::new("BINDING", Point::new(46, 9), text_style)
+            Text::new("BIND", Point::new(68, 9), text_style)
                 .draw(&mut lcd)
                 .ok();
         } else if telem.connected {
             let mut rssi_buf = *b"R:  %";
             let r = telem.rssi.min(100);
             if r >= 100 {
-                rssi_buf[2] = b'1';
-                rssi_buf[3] = b'0';
-                rssi_buf[4] = b'0';
+                Text::new("R:100", Point::new(65, 9), text_style)
+                    .draw(&mut lcd)
+                    .ok();
             } else {
                 rssi_buf[2] = b'0' + (r / 10);
                 rssi_buf[3] = b'0' + (r % 10);
+                let r_str = core::str::from_utf8(&rssi_buf).unwrap_or("R:--%");
+                Text::new(r_str, Point::new(65, 9), text_style)
+                    .draw(&mut lcd)
+                    .ok();
             }
-            let r_str = core::str::from_utf8(&rssi_buf).unwrap_or("R:--%");
-            Text::new(r_str, Point::new(48, 9), text_style)
-                .draw(&mut lcd)
-                .ok();
         } else if rf::is_bound() {
-            Text::new("RF:OK", Point::new(50, 9), text_style)
+            Text::new("RF:OK", Point::new(65, 9), text_style)
                 .draw(&mut lcd)
                 .ok();
         } else {
-            Text::new("NO BIND", Point::new(44, 9), text_style)
+            Text::new("NO RF", Point::new(65, 9), text_style)
                 .draw(&mut lcd)
                 .ok();
         }
 
-        // Battery voltage
+        // Battery voltage (x = 98)
         let mut vbat_buf = [0u8; 6];
         let vbat_str = format_vbat(state.battery_mv, &mut vbat_buf);
 
-        Text::new(vbat_str, Point::new(94, 9), text_style)
+        Text::new(vbat_str, Point::new(98, 9), text_style)
             .draw(&mut lcd)
             .ok();
 
@@ -680,7 +682,7 @@ fn main() -> ! {
             }
 
             1 => {
-                // --- Page 1: 14-Channel Dual Column Monitor (y = 13..53) ---
+                // --- Page 1: 14-Channel Dual Column Monitor (y = 12..53) ---
                 let text_style_small = MonoTextStyle::new(&FONT_4X6, BinaryColor::On);
                 let border_style = PrimitiveStyle::with_stroke(BinaryColor::On, 1);
                 let fill_style = PrimitiveStyle::with_fill(BinaryColor::On);
@@ -692,7 +694,7 @@ fn main() -> ! {
 
                     for row in 0..7 {
                         let ch = start_ch + row;
-                        let y = 13 + (row as i32 * 6);
+                        let y = 12 + (row as i32 * 6);
 
                         // Label: " 1:" .. "14:"
                         let mut lbl_buf = *b"  :";
@@ -706,7 +708,7 @@ fn main() -> ! {
                         let lbl_str = core::str::from_utf8(&lbl_buf).unwrap_or("??:");
                         Text::new(lbl_str, Point::new(col_x, y + 5), text_style_small).draw(&mut lcd).ok();
 
-                        // Bar box: width 22, height 5
+                        // Bar box: width 22, height 5 (occupies y .. y+4)
                         let us = rf_chs[ch].clamp(1000, 2000);
                         Rectangle::new(Point::new(col_x + 13, y), Size::new(22, 5))
                             .into_styled(border_style)
@@ -734,18 +736,18 @@ fn main() -> ! {
                     .draw(&mut lcd)
                     .ok();
 
-                // Separator above footer
-                Line::new(Point::new(0, 54), Point::new(127, 54))
+                // Separator above footer (at y = 55, giving 2px clearance below row 6 which ends at y = 53)
+                Line::new(Point::new(0, 55), Point::new(127, 55))
                     .into_styled(sep_style)
                     .draw(&mut lcd)
                     .ok();
 
-                // Footer
+                // Footer (using FONT_4X6 at baseline 62, giving 2px clearance below line 55)
                 if is_binding {
-                    Text::new("[ESC] Finish Bind", Point::new(12, 63), text_style).draw(&mut lcd).ok();
+                    Text::new("[ESC] Finish Bind", Point::new(26, 62), text_style_small).draw(&mut lcd).ok();
                 } else {
-                    Text::new("P2/3", Point::new(2, 63), text_style).draw(&mut lcd).ok();
-                    Text::new("14-CH MONITOR", Point::new(36, 63), text_style).draw(&mut lcd).ok();
+                    Text::new("P2/3", Point::new(2, 62), text_style_small).draw(&mut lcd).ok();
+                    Text::new("14-CH MONITOR", Point::new(40, 62), text_style_small).draw(&mut lcd).ok();
                 }
             }
 
@@ -758,10 +760,10 @@ fn main() -> ! {
                 Text::new(m_name, Point::new(2, 21), text_style).draw(&mut lcd).ok();
 
                 let type_str = match active.model_type {
+                    0 => "AIRPLANE",
                     1 => "GLIDER",
                     2 => "HELI",
-                    3 => "QUAD",
-                    _ => "AIRPLANE",
+                    _ => "QUAD",
                 };
                 Text::new(type_str, Point::new(74, 21), text_style).draw(&mut lcd).ok();
 
