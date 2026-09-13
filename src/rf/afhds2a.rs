@@ -63,62 +63,19 @@ impl TelemetryData {
     }
 }
 
-// Flash persistence registers & parameters (STM32F072VB 128KB flash)
-const FLASH_STORAGE_ADDR: usize = 0x0801_F800; // Last 2 KB page
-const FLASH_MAGIC: u32 = 0x4653_4B59;          // "FSKY"
-const FLASH_KEYR: *mut u32 = 0x4002_2004 as *mut u32;
-const FLASH_SR: *mut u32 = 0x4002_200C as *mut u32;
-const FLASH_CR: *mut u32 = 0x4002_2010 as *mut u32;
-const FLASH_AR: *mut u32 = 0x4002_2014 as *mut u32;
-
 /// Read persisted receiver ID from Flash if previously bound.
 pub fn load_saved_rx_id() -> Option<u32> {
-    unsafe {
-        let magic = core::ptr::read_volatile(FLASH_STORAGE_ADDR as *const u32);
-        if magic == FLASH_MAGIC {
-            let id = core::ptr::read_volatile((FLASH_STORAGE_ADDR + 4) as *const u32);
-            if id != 0 && id != 0xFFFF_FFFF {
-                return Some(id);
-            }
-        }
+    let cfg = crate::storage::load_config();
+    if cfg.rx_id != 0 && cfg.rx_id != 0xFFFF_FFFF {
+        Some(cfg.rx_id)
+    } else {
         None
     }
 }
 
 /// Save bound receiver ID to Flash so it persists across power cycles.
 pub fn save_rx_id(rx_id: u32) {
-    unsafe {
-        // Unlock flash
-        core::ptr::write_volatile(FLASH_KEYR, 0x4567_0123);
-        core::ptr::write_volatile(FLASH_KEYR, 0xCDEF_89AB);
-
-        while (core::ptr::read_volatile(FLASH_SR) & 1) != 0 {}
-
-        // Erase page 0x0801_F800
-        core::ptr::write_volatile(FLASH_CR, 1 << 1); // PER
-        core::ptr::write_volatile(FLASH_AR, FLASH_STORAGE_ADDR as u32);
-        core::ptr::write_volatile(FLASH_CR, (1 << 1) | (1 << 6)); // PER | STRT
-
-        while (core::ptr::read_volatile(FLASH_SR) & 1) != 0 {}
-        core::ptr::write_volatile(FLASH_CR, 0);
-
-        // Program magic & rx_id as halfwords
-        core::ptr::write_volatile(FLASH_CR, 1 << 0); // PG
-
-        let words = [FLASH_MAGIC, rx_id];
-        for (i, &w) in words.iter().enumerate() {
-            let lo = (w & 0xFFFF) as u16;
-            let hi = (w >> 16) as u16;
-            let dst = (FLASH_STORAGE_ADDR + i * 4) as *mut u16;
-            core::ptr::write_volatile(dst, lo);
-            while (core::ptr::read_volatile(FLASH_SR) & 1) != 0 {}
-            core::ptr::write_volatile(dst.add(1), hi);
-            while (core::ptr::read_volatile(FLASH_SR) & 1) != 0 {}
-        }
-
-        // Lock flash
-        core::ptr::write_volatile(FLASH_CR, 1 << 7);
-    }
+    crate::storage::save_rx_id(rx_id);
 }
 
 pub struct Afhds2a {

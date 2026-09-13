@@ -16,10 +16,12 @@ use embedded_graphics::{
 mod adc;
 mod boot;
 mod buzzer;
+mod calib;
 mod chip;
 mod display;
 mod input;
 mod rf;
+mod storage;
 mod trim;
 
 use display::St7567;
@@ -269,11 +271,18 @@ fn main() -> ! {
     buzzer.click(); // Power-on audible confirmation
 
     let mut trims = trim::TrimController::new();
+    let mut calib_wizard = calib::CalibWizard::new();
+
+    // Check if OK button held at power-on to launch calibration directly
+    if (initial_keys & (1 << 10)) != 0 {
+        calib_wizard.start(&mut buzzer);
+    }
 
     let text_style = MonoTextStyle::new(&FONT_6X10, BinaryColor::On);
     let sep_style = PrimitiveStyle::with_stroke(BinaryColor::On, 1);
 
     let mut dfu_confirm_count = 0u8;
+    let mut ok_hold_ms = 0u16;
 
     loop {
         // Poll continuous DMA inputs
@@ -321,6 +330,30 @@ fn main() -> ! {
         // Check dedicated Bind key
         if (keys & (1 << 12)) != 0 {
             rf::set_bind_mode(true);
+        }
+
+        // Long-press OK (1.2s) from flight dashboard launches stick calibration
+        if !calib_wizard.is_active() {
+            if (keys & (1 << 10)) != 0 {
+                ok_hold_ms = ok_hold_ms.saturating_add(20);
+                if ok_hold_ms >= 1200 {
+                    calib_wizard.start(&mut buzzer);
+                    ok_hold_ms = 0;
+                }
+            } else {
+                ok_hold_ms = 0;
+            }
+        }
+
+        // If calibration wizard is active, update wizard, flush display, and loop
+        if calib_wizard.is_active() {
+            calib_wizard.update(&mut lcd, &state.raw, keys, 20, &mut buzzer);
+            lcd.flush();
+
+            for _ in 0..160_000 {
+                cortex_m::asm::nop();
+            }
+            continue;
         }
 
         if boot::is_dfu_requested(keys) {
@@ -482,7 +515,7 @@ fn main() -> ! {
         } else if (keys & (1 << 12)) != 0 {
             Text::new("BIND", Point::new(58, 63), text_style).draw(&mut lcd).ok();
         } else {
-            Text::new("DFU:Trims", Point::new(58, 63), text_style).draw(&mut lcd).ok();
+            Text::new("Hold OK:Cal", Point::new(56, 63), text_style).draw(&mut lcd).ok();
         }
 
         // Flush frame to ST7567 LCD

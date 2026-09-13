@@ -145,12 +145,53 @@ static mut YAW_CALIB: AxisCalib = AxisCalib::new(
     false,
 );
 
-/// Initialize input subsystem and measure resting center for spring-loaded gimbals.
+static mut VRA_CALIB: AxisCalib = AxisCalib::new(2048 - 1950, 2048, 2048 + 1950, false);
+static mut VRB_CALIB: AxisCalib = AxisCalib::new(2048 - 1950, 2048, 2048 + 1950, false);
+
+/// Apply a full set of stick and pot calibration endpoints.
+pub fn apply_calibration(config: &crate::storage::RadioConfig) {
+    unsafe {
+        // Roll: PA0 (RH)
+        (*core::ptr::addr_of_mut!(ROLL_CALIB)).min = config.sticks[0].min;
+        (*core::ptr::addr_of_mut!(ROLL_CALIB)).center = config.sticks[0].center;
+        (*core::ptr::addr_of_mut!(ROLL_CALIB)).max = config.sticks[0].max;
+
+        // Pitch: PA1 (RV)
+        (*core::ptr::addr_of_mut!(PITCH_CALIB)).min = config.sticks[1].min;
+        (*core::ptr::addr_of_mut!(PITCH_CALIB)).center = config.sticks[1].center;
+        (*core::ptr::addr_of_mut!(PITCH_CALIB)).max = config.sticks[1].max;
+
+        // Throttle: PA2 (LV)
+        (*core::ptr::addr_of_mut!(THROTTLE_CALIB)).min = config.sticks[2].min;
+        (*core::ptr::addr_of_mut!(THROTTLE_CALIB)).center = config.sticks[2].center;
+        (*core::ptr::addr_of_mut!(THROTTLE_CALIB)).max = config.sticks[2].max;
+
+        // Yaw: PA3 (LH)
+        (*core::ptr::addr_of_mut!(YAW_CALIB)).min = config.sticks[3].min;
+        (*core::ptr::addr_of_mut!(YAW_CALIB)).center = config.sticks[3].center;
+        (*core::ptr::addr_of_mut!(YAW_CALIB)).max = config.sticks[3].max;
+
+        // Pots: VRA (PA6), VRB (PA7)
+        (*core::ptr::addr_of_mut!(VRA_CALIB)).min = config.pots[0].min;
+        (*core::ptr::addr_of_mut!(VRA_CALIB)).center = config.pots[0].center;
+        (*core::ptr::addr_of_mut!(VRA_CALIB)).max = config.pots[0].max;
+
+        (*core::ptr::addr_of_mut!(VRB_CALIB)).min = config.pots[1].min;
+        (*core::ptr::addr_of_mut!(VRB_CALIB)).center = config.pots[1].center;
+        (*core::ptr::addr_of_mut!(VRB_CALIB)).max = config.pots[1].max;
+    }
+}
+
+/// Initialize input subsystem, load Flash calibration, and measure resting center for spring-loaded gimbals.
 pub fn init() {
     // Wait for continuous DMA scanner to complete its initial cycle
     adc::wait_first_conversion();
 
-    // Average 16 scans over ~4ms for rock-solid zero reference
+    // 1. Load persisted calibration from Flash
+    let cfg = crate::storage::load_config();
+    apply_calibration(&cfg);
+
+    // 2. Average 16 scans over ~4ms for rock-solid zero reference
     let mut sum_pitch = 0u32;
     let mut sum_roll = 0u32;
     let mut sum_yaw = 0u32;
@@ -171,31 +212,17 @@ pub fn init() {
     let avg_yaw = (sum_yaw / SAMPLES) as u16;
 
     unsafe {
-        // Roll: PA0 (RH - Horizontal)
+        // Slightly refine spring-loaded resting center if within reasonable range (1500..2500)
         if avg_roll >= 1500 && avg_roll <= 2500 {
             (*core::ptr::addr_of_mut!(ROLL_CALIB)).center = avg_roll;
-            (*core::ptr::addr_of_mut!(ROLL_CALIB)).min = avg_roll.saturating_sub(GIMBAL_H_HALF_SPAN);
-            (*core::ptr::addr_of_mut!(ROLL_CALIB)).max = avg_roll.saturating_add(GIMBAL_H_HALF_SPAN);
         }
-        // Pitch: PA1 (RV - Vertical)
         if avg_pitch >= 1500 && avg_pitch <= 2500 {
             (*core::ptr::addr_of_mut!(PITCH_CALIB)).center = avg_pitch;
-            (*core::ptr::addr_of_mut!(PITCH_CALIB)).min = avg_pitch.saturating_sub(GIMBAL_V_HALF_SPAN);
-            (*core::ptr::addr_of_mut!(PITCH_CALIB)).max = avg_pitch.saturating_add(GIMBAL_V_HALF_SPAN);
         }
-        // Yaw: PA3 (LH - Horizontal)
         if avg_yaw >= 1500 && avg_yaw <= 2500 {
             (*core::ptr::addr_of_mut!(YAW_CALIB)).center = avg_yaw;
-            (*core::ptr::addr_of_mut!(YAW_CALIB)).min = avg_yaw.saturating_sub(GIMBAL_H_HALF_SPAN);
-            (*core::ptr::addr_of_mut!(YAW_CALIB)).max = avg_yaw.saturating_add(GIMBAL_H_HALF_SPAN);
         }
     }
-}
-
-/// Normalize rotary dials (0..4095) to -1000..+1000.
-fn normalize_pot(raw: u16) -> i16 {
-    let delta = raw as i32 - 2048;
-    ((delta * 1000) / 1950).clamp(-1000, 1000) as i16
 }
 
 /// Decode resistor ladder analog switch voltage:
@@ -241,9 +268,11 @@ pub fn poll() -> InputState {
     };
 
     // Pots: VRA on PA6, VRB on PA7
-    let pots = Pots {
-        vr1: normalize_pot(raw[6]), // PA6 (VRA)
-        vr2: normalize_pot(raw[7]), // PA7 (VRB)
+    let pots = unsafe {
+        Pots {
+            vr1: (*core::ptr::addr_of_mut!(VRA_CALIB)).normalize(raw[6]), // PA6 (VRA)
+            vr2: (*core::ptr::addr_of_mut!(VRB_CALIB)).normalize(raw[7]), // PA7 (VRB)
+        }
     };
 
     // Switches:
