@@ -160,6 +160,7 @@ impl TrimController {
     /// Step a specific trim axis by delta (+1 or -1) and produce appropriate audio.
     fn step_trim(&mut self, axis: ActiveTrim, delta: i8, buzzer: &mut Buzzer) {
         if axis == ActiveTrim::Throttle && !self.throttle_enabled {
+            buzzer.trim_limit();
             return; // Throttle trim locked/disabled
         }
 
@@ -199,5 +200,25 @@ impl TrimController {
     pub fn apply(base_us: u16, trim: i8) -> u16 {
         let offset = trim as i16 * TRIM_STEP_US;
         (base_us as i16 + offset).clamp(1000, 2000) as u16
+    }
+
+    /// Apply throttle trim based on mode:
+    /// - 0: OFF (Lock) -> returns base_us unaltered
+    /// - 1: IDLE (T-Trim) -> trim authority maximum at idle (1000 µs), tapering to 0 at full stick (2000 µs)
+    /// - 2: LINEAR -> uniform trim offset across full range (±100 µs)
+    #[inline(always)]
+    pub fn apply_throttle(base_us: u16, trim: i8, mode: u8) -> u16 {
+        match mode {
+            1 => {
+                let max_offset = trim as i32 * TRIM_STEP_US as i32; // -100..+100 µs
+                let stick_travel = (base_us as i32 - 1000).clamp(0, 1000);
+                // At stick_travel = 0 (1000 µs), factor is 1000 / 1000 = 1.0 -> full offset
+                // At stick_travel = 1000 (2000 µs), factor is 0 / 1000 = 0.0 -> zero offset
+                let effective_offset = (max_offset * (1000 - stick_travel)) / 1000;
+                (base_us as i32 + effective_offset).clamp(900, 2100) as u16
+            }
+            2 => Self::apply(base_us, trim),
+            _ => base_us.clamp(1000, 2000),
+        }
     }
 }

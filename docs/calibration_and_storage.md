@@ -29,7 +29,7 @@ pub struct RadioConfig {
     pub rx_id: u32,                // Persisted bound receiver ID
     pub sticks: [ChannelCalib; 4], // 0: Roll, 1: Pitch, 2: Throttle, 3: Yaw (32 bytes)
     pub pots: [ChannelCalib; 2],   // 0: VRA, 1: VRB (16 bytes)
-    pub throttle_trim: u8,         // 0: Disabled (Option 2 safety lock), 1: Enabled
+    pub throttle_trim: u8,         // 0: OFF (Lock), 1: IDLE (T-Trim), 2: LINEAR
     pub audio_enabled: u8,         // 0: Muted, 1: Enabled
     pub backlight_timeout: u8,     // 0: Always On, 1: 15s, 2: 30s, 3: 60s
     pub backlight_brightness: u8,  // 1..10 (10%..100%, default 10)

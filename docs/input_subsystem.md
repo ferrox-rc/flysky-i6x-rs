@@ -48,14 +48,17 @@ The transmitter has 4 trim rocker switches (8 directional switches) connected to
 | :--- | :--- | :--- | :--- |
 | **Roll (A)** | Right (`TRM_RH_UP`) / Left (`TRM_RH_DWN`) | Bit 0 / Bit 1 | $\pm 25$ steps ($\pm 100\,\mu\text{s}$) |
 | **Pitch (E)**| Up (`TRM_RV_UP`) / Down (`TRM_RV_DWN`) | Bit 2 / Bit 3 | $\pm 25$ steps ($\pm 100\,\mu\text{s}$) |
-| **Throttle (T)**| Up (`TRM_LV_UP`) / Down (`TRM_LV_DWN`) | Bit 4 / Bit 5 | **Locked / Disabled (Option 2)** |
+| **Throttle (T)**| Up (`TRM_LV_UP`) / Down (`TRM_LV_DWN`) | Bit 4 / Bit 5 | **Selectable (Off / Idle / Linear)** |
 | **Yaw (R)** | Right (`TRM_LH_UP`) / Left (`TRM_LH_DWN`) | Bit 6 / Bit 7 | $\pm 25$ steps ($\pm 100\,\mu\text{s}$) |
 
 ### Behavior & Features
 - **Single-Click & Auto-Repeat**: Instant single step on press; automatically repeats every **90 ms** if held for $> 350\text{ ms}$.
 - **DFU Bootloader Lockout**: When the DFU inward trim combination is pressed (Roll Left + Yaw Right), trim adjustments are locked out to prevent accidental trim changes.
-- **Throttle Trim Safety (Option 2)**: Throttle trim is locked at 0 to prevent flight controller arming lockouts or accidental motor spool-up.
-- **Display Banner**: Adjusting any trim displays a real-time callout on the bottom bar (e.g. `TRM A:+04`), with visual tick marks drawn on the channel slider gauges.
+- **Selectable Throttle Trim Modes**: Configurable via the Radio Setup menu (`config.throttle_trim`):
+  1. **`OFF (Lock)` (Default)**: Throttle trim rockers are disabled; pressing them sounds a limit warning buzz (`1100 Hz`). Safe for Betaflight, INAV, and ArduPilot flight controllers to avoid accidental disarm or arming lockouts.
+  2. **`IDLE (T-Trim)`**: OpenTX-style throttle trim for glow/gas/IC aircraft. 100% trim authority at low stick ($1000\,\mu\text{s}$, adjustable between $900\dots 1100\,\mu\text{s}$ for engine idle and cutoff), tapering linearly to **0% authority at full throttle** ($2000\,\mu\text{s}$) so high throttle is never shifted or clipped.
+  3. **`LINEAR`**: Standard uniform trim ($\pm 100\,\mu\text{s}$) applied across the entire throttle stick throw.
+- **Display Banner & Gauge Indicator**: Adjusting any trim displays a real-time callout on the bottom bar (e.g. `TRM A:+04`), with visual tick marks drawn on the channel slider gauges. When throttle trim is enabled and active, a dynamic contrast tick mark appears on the throttle progress bar.
 
 ---
 

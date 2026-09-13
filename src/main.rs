@@ -188,6 +188,7 @@ fn draw_progress_bar(
     width: u32,
     height: u32,
     val: i16,
+    trim: i8,
 ) {
     let border_style = PrimitiveStyle::with_stroke(BinaryColor::On, 1);
     let fill_style = PrimitiveStyle::with_fill(BinaryColor::On);
@@ -206,6 +207,22 @@ fn draw_progress_bar(
     if fill_len > 0 {
         Rectangle::new(Point::new(x + 1, y + 1), Size::new(fill_len, height - 2))
             .into_styled(fill_style)
+            .draw(lcd)
+            .ok();
+    }
+
+    if trim != 0 {
+        // Trim tick: -25..+25 steps maps to ±10% (±100 µs) of full travel (2000 counts)
+        let trim_offset = (trim as i32 * max_fill) / 250;
+        let trim_x = (x + 1 + trim_offset.max(0)).min(x + max_fill);
+        let tick_color = if (trim_x - (x + 1)) < fill_len as i32 {
+            BinaryColor::Off
+        } else {
+            BinaryColor::On
+        };
+        let tick_style = PrimitiveStyle::with_stroke(tick_color, 1);
+        Line::new(Point::new(trim_x, y + 1), Point::new(trim_x, y + height as i32 - 2))
+            .into_styled(tick_style)
             .draw(lcd)
             .ok();
     }
@@ -337,11 +354,7 @@ fn main() -> ! {
 
         rf_chs[0] = trim::TrimController::apply(ch1_raw, trims.values.roll);
         rf_chs[1] = trim::TrimController::apply(ch2_raw, trims.values.pitch);
-        rf_chs[2] = if trims.throttle_enabled {
-            trim::TrimController::apply(ch3_raw, trims.values.throttle)
-        } else {
-            ch3_raw
-        };
+        rf_chs[2] = trim::TrimController::apply_throttle(ch3_raw, trims.values.throttle, config.throttle_trim);
         rf_chs[3] = trim::TrimController::apply(ch4_raw, trims.values.yaw);
         rf_chs[4] = if state.switches.sa == input::SwitchPos::Up { 1000 } else { 2000 };
         rf_chs[5] = match state.switches.sb {
@@ -521,7 +534,8 @@ fn main() -> ! {
 
         // CH3: Throttle
         Text::new("T", Point::new(2, 35), text_style).draw(&mut lcd).ok();
-        draw_progress_bar(&mut lcd, 12, 29, 76, 7, state.sticks.throttle);
+        let thr_trim = if config.throttle_trim != 0 { trims.values.throttle } else { 0 };
+        draw_progress_bar(&mut lcd, 12, 29, 76, 7, state.sticks.throttle, thr_trim);
         let p3 = format_throttle_percent(state.sticks.throttle, &mut pct_buf);
         Text::new(p3, Point::new(92, 35), text_style).draw(&mut lcd).ok();
 

@@ -257,8 +257,8 @@ impl MenuController {
                     buzzer.click();
                     match self.selected_item {
                         0 => {
-                            // Toggle Throttle Trim
-                            config.throttle_trim = if config.throttle_trim == 0 { 1 } else { 0 };
+                            // Cycle Throttle Trim Method: 0=OFF (Lock), 1=IDLE (T-Trim), 2=LINEAR
+                            config.throttle_trim = (config.throttle_trim + 1) % 3;
                             trims.throttle_enabled = config.throttle_trim != 0;
                             storage::save_config(config);
                         }
@@ -294,15 +294,18 @@ impl MenuController {
                 // Item 0: Throttle Trim
                 let y0 = 14;
                 let is_sel0 = self.selected_item == 0;
+                let val_str = match config.throttle_trim {
+                    1 => "IDLE",
+                    2 => "LINEAR",
+                    _ => "OFF (Lock)",
+                };
                 if is_sel0 {
                     Rectangle::new(Point::new(2, y0), Size::new(124, 9)).into_styled(fill_style).draw(lcd).ok();
                     let inv = MonoTextStyle::new(&FONT_6X10, BinaryColor::Off);
                     Text::new("Thr Trim:", Point::new(4, y0 + 7), inv).draw(lcd).ok();
-                    let val_str = if config.throttle_trim != 0 { "ENABLED" } else { "OFF (Lock)" };
                     Text::new(val_str, Point::new(62, y0 + 7), inv).draw(lcd).ok();
                 } else {
                     Text::new("Thr Trim:", Point::new(4, y0 + 7), text_style).draw(lcd).ok();
-                    let val_str = if config.throttle_trim != 0 { "ENABLED" } else { "OFF (Lock)" };
                     Text::new(val_str, Point::new(62, y0 + 7), text_style).draw(lcd).ok();
                 }
 
