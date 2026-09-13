@@ -83,6 +83,29 @@ pub fn is_binding() -> bool {
     })
 }
 
+/// Check if a newly captured/bound RX ID needs to be persisted to Flash, and return it.
+pub fn take_pending_rx_save() -> Option<u32> {
+    cortex_m::interrupt::free(|_| {
+        if let Some(ref mut driver) = unsafe { RF_DRIVER.as_mut() } {
+            if driver.rx_id_needs_save {
+                driver.rx_id_needs_save = false;
+                return Some(driver.rx_id);
+            }
+        }
+        None
+    })
+}
+
+/// Get currently active receiver ID.
+#[allow(dead_code)]
+pub fn get_rx_id() -> u32 {
+    cortex_m::interrupt::free(|_| {
+        unsafe {
+            RF_DRIVER.as_ref().map(|d| d.rx_id).unwrap_or(0xFFFF_FFFF)
+        }
+    })
+}
+
 /// Get latest downlink telemetry from the receiver.
 pub fn get_telemetry() -> TelemetryData {
     cortex_m::interrupt::free(|_| {

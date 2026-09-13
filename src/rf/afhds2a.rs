@@ -73,11 +73,6 @@ pub fn load_saved_rx_id() -> Option<u32> {
     }
 }
 
-/// Save bound receiver ID to Flash so it persists across power cycles.
-pub fn save_rx_id(rx_id: u32) {
-    crate::storage::save_rx_id(rx_id);
-}
-
 pub struct Afhds2a {
     pub tx_id: u32,
     pub rx_id: u32,
@@ -88,6 +83,7 @@ pub struct Afhds2a {
     bind_phase: u8,
     pub bind_confirm_count: u8,
     pub bind_done: bool,
+    pub rx_id_needs_save: bool,
     pub next_packet_type: PacketType,
     pub channels: [u16; NUM_CHANNELS],
     pub telemetry: TelemetryData,
@@ -98,6 +94,7 @@ impl Afhds2a {
     pub fn new(tx_id: u32) -> Self {
         let hopping_table = calculate_hopping_table(tx_id);
         let rx_id = load_saved_rx_id().unwrap_or(0xFFFF_FFFF);
+        let is_initially_bound = rx_id != 0xFFFF_FFFF && rx_id != 0;
         Self {
             tx_id,
             rx_id,
@@ -107,7 +104,8 @@ impl Afhds2a {
             sub_state: SubState::Idle,
             bind_phase: 0,
             bind_confirm_count: 0,
-            bind_done: true,
+            bind_done: is_initially_bound,
+            rx_id_needs_save: false,
             next_packet_type: PacketType::Sticks,
             channels: [1500; NUM_CHANNELS], // All centered 1500 µs
             telemetry: TelemetryData::new(),
@@ -169,13 +167,11 @@ impl Afhds2a {
                 if self.bind_phase == 4 {
                     self.bind_confirm_count = self.bind_confirm_count.saturating_add(1);
                     if self.bind_confirm_count >= 4 {
-                        // Persist bound RX ID to flash so bind survives reboots
-                        save_rx_id(self.rx_id);
-
                         self.mode = RadioMode::Normal;
                         self.bind_phase = 0;
                         self.bind_confirm_count = 0;
                         self.bind_done = true;
+                        self.rx_id_needs_save = true;
                         self.hopping_idx = 1;
                         self.next_packet_type = PacketType::Sticks;
                         a7105::set_power(a7105::HIGH_POWER);
@@ -319,10 +315,19 @@ impl Afhds2a {
                 out[11..27].copy_from_slice(&self.hopping_table);
                 out[27..37].fill(0xFF);
             }
-            2 | 3 => {
+            2 => {
                 out[0] = PACKET_BIND2; // 0xBC
                 out[5..9].fill(0xFF);
-                out[9] = self.bind_phase - 1; // 1 or 2
+                out[9] = 0x00;
+                out[11..27].copy_from_slice(&self.hopping_table);
+                out[27] = 0x01;
+                out[28] = 0x80;
+                out[29..37].fill(0xFF);
+            }
+            3 => {
+                out[0] = PACKET_BIND2; // 0xBC
+                out[5..9].fill(0xFF);
+                out[9] = 0x01;
                 out[11..27].copy_from_slice(&self.hopping_table);
                 out[27] = 0x01;
                 out[28] = 0x80;
@@ -371,7 +376,7 @@ impl Afhds2a {
             let rid = u32::from_le_bytes(rx_bytes);
             if self.rx_id == 0xFFFF_FFFF && rid != 0xFFFF_FFFF && rid != 0 {
                 self.rx_id = rid;
-                save_rx_id(rid);
+                self.rx_id_needs_save = true;
             } else if rid != self.rx_id && self.rx_id != 0xFFFF_FFFF {
                 return;
             }

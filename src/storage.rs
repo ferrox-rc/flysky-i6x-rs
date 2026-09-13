@@ -147,6 +147,7 @@ pub fn save_config(config: &RadioConfig) {
 }
 
 /// Convenience helper to update just the RX ID while preserving current calibration.
+#[allow(dead_code)]
 pub fn save_rx_id(rx_id: u32) {
     let mut cfg = load_config();
     cfg.rx_id = rx_id;

@@ -313,6 +313,7 @@ fn main() -> ! {
     let mut ok_hold_ms = 0u16;
     let mut bl_timer_ms: u32 = 30_000;
     let mut prev_stick_sample = 2048u16;
+    let mut prev_bind_key = bind_on_boot;
 
     loop {
         // Poll continuous DMA inputs
@@ -376,7 +377,10 @@ fn main() -> ! {
         let is_binding = rf::is_binding();
 
         // Check dedicated Bind key (PF2) and Cancel key (bit 11) for binding control
-        let bind_key = (keys & (1 << 12)) != 0;
+        let bind_key_raw = (keys & (1 << 12)) != 0;
+        let bind_pressed = bind_key_raw && !prev_bind_key;
+        prev_bind_key = bind_key_raw;
+
         let cancel_key = (keys & (1 << 11)) != 0;
 
         if is_binding {
@@ -384,9 +388,18 @@ fn main() -> ! {
                 rf::set_bind_mode(false);
                 buzzer.click();
             }
-        } else if bind_key {
+        } else if bind_pressed {
             rf::set_bind_mode(true);
             buzzer.click();
+        }
+
+        // Persist newly bound RX ID safely to Flash outside ISR
+        if let Some(new_rx_id) = rf::take_pending_rx_save() {
+            if new_rx_id != 0 && new_rx_id != 0xFFFF_FFFF && config.rx_id != new_rx_id {
+                config.rx_id = new_rx_id;
+                storage::save_config(&config);
+                buzzer.play_tone_pattern(2400, 70, 50, 2);
+            }
         }
 
         // Long-press OK (1.2s) from flight dashboard opens Settings Menu
