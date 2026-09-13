@@ -133,6 +133,13 @@ impl Afhds2a {
             self.bind_done = true;
             self.next_packet_type = PacketType::Sticks;
             a7105::set_power(a7105::HIGH_POWER);
+
+            // If an RX ID was not captured (one-way receiver like FS-A8S, Fli14, etc.),
+            // assign a deterministic non-zero ID derived from TX ID and mark for save!
+            if self.rx_id == 0 || self.rx_id == 0xFFFF_FFFF {
+                self.rx_id = 0x0001_0000 | (self.tx_id & 0xFFFF);
+            }
+            self.rx_id_needs_save = true;
         }
     }
 
@@ -220,14 +227,14 @@ impl Afhds2a {
                 // TX completed! Switch to RX mode to listen for downlink telemetry
                 self.sub_state = SubState::ListeningRx;
 
+                // Always enable RX LNA in both Binding and Normal modes for reliable reception
+                spi::set_tx_rx_mode(spi::RF_MODE_RX_EN);
+
                 if self.mode == RadioMode::Binding {
-                    spi::set_tx_rx_mode(spi::RF_MODE_OFF); // Prevent swamping at near range
                     // Cycle bind searching phases 1 -> 2 -> 3 -> 1
                     if self.bind_phase < 4 {
                         self.bind_phase = (self.bind_phase % 3) + 1;
                     }
-                } else {
-                    spi::set_tx_rx_mode(spi::RF_MODE_RX_EN);
                 }
 
                 a7105::strobe(a7105::STROBE_RX);
@@ -374,11 +381,17 @@ impl Afhds2a {
             let mut rx_bytes = [0u8; 4];
             rx_bytes.copy_from_slice(&rx[5..9]);
             let rid = u32::from_le_bytes(rx_bytes);
-            if self.rx_id == 0xFFFF_FFFF && rid != 0xFFFF_FFFF && rid != 0 {
+            let is_placeholder = self.rx_id == 0xFFFF_FFFF
+                || self.rx_id == 0
+                || (self.rx_id & 0xFFFF_0000) == 0x0001_0000;
+            if is_placeholder && rid != 0xFFFF_FFFF && rid != 0 {
                 self.rx_id = rid;
                 self.rx_id_needs_save = true;
-            } else if rid != self.rx_id && self.rx_id != 0xFFFF_FFFF {
+                self.bind_done = true;
+            } else if rid != self.rx_id && !is_placeholder {
                 return;
+            } else {
+                self.bind_done = true;
             }
 
             // Downlink requests from receiver

@@ -384,7 +384,7 @@ fn main() -> ! {
         let cancel_key = (keys & (1 << 11)) != 0;
 
         if is_binding {
-            if cancel_key {
+            if cancel_key || bind_pressed {
                 rf::set_bind_mode(false);
                 buzzer.click();
             }
@@ -585,7 +585,7 @@ fn main() -> ! {
 
         // --- Bottom Diagnostic / Key Line (y = 56..63) ---
         if is_binding {
-            Text::new("[ESC] Abort Bind", Point::new(16, 63), text_style)
+            Text::new("[ESC] Finish Bind", Point::new(12, 63), text_style)
                 .draw(&mut lcd)
                 .ok();
         } else {

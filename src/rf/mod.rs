@@ -69,7 +69,10 @@ pub fn set_bind_mode(enable: bool) {
 pub fn is_bound() -> bool {
     cortex_m::interrupt::free(|_| {
         unsafe {
-            RF_DRIVER.as_ref().map(|d| d.bind_done).unwrap_or(false)
+            RF_DRIVER
+                .as_ref()
+                .map(|d| d.bind_done || (d.rx_id != 0 && d.rx_id != 0xFFFF_FFFF))
+                .unwrap_or(false)
         }
     })
 }
