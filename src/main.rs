@@ -708,15 +708,15 @@ fn main() -> ! {
                         let lbl_str = core::str::from_utf8(&lbl_buf).unwrap_or("??:");
                         Text::new(lbl_str, Point::new(col_x, y + 5), text_style_small).draw(&mut lcd).ok();
 
-                        // Bar box: width 22, height 5 (occupies y .. y+4)
+                        // Bar box: width 22, height 5 (occupies y+1 .. y+5, aligned with text)
                         let us = rf_chs[ch].clamp(1000, 2000);
-                        Rectangle::new(Point::new(col_x + 13, y), Size::new(22, 5))
+                        Rectangle::new(Point::new(col_x + 13, y + 1), Size::new(22, 5))
                             .into_styled(border_style)
                             .draw(&mut lcd)
                             .ok();
                         let fill_w = (((us - 1000) as u32 * 20) / 1000).min(20);
                         if fill_w > 0 {
-                            Rectangle::new(Point::new(col_x + 14, y + 1), Size::new(fill_w, 3))
+                            Rectangle::new(Point::new(col_x + 14, y + 2), Size::new(fill_w, 3))
                                 .into_styled(fill_style)
                                 .draw(&mut lcd)
                                 .ok();
