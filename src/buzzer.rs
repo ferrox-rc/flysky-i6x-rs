@@ -30,6 +30,7 @@ pub const BEEP_CENTER_FREQ: u16 = 2800;
 pub const BEEP_LIMIT_FREQ: u16 = 1100;
 
 pub struct Buzzer {
+    pub enabled: bool,
     remaining_ms: u16,
     pause_ms: u16,
     repeat_count: u8,
@@ -42,6 +43,7 @@ pub struct Buzzer {
 impl Buzzer {
     pub const fn new() -> Self {
         Self {
+            enabled: true,
             remaining_ms: 0,
             pause_ms: 0,
             repeat_count: 0,
@@ -61,38 +63,34 @@ impl Buzzer {
             let apb2 = ptr::read_volatile(RCC_APB2ENR);
             ptr::write_volatile(RCC_APB2ENR, apb2 | (1 << 11));
 
-            // 2. Configure PA8:
-            // MODER bits [17:16] = 0b10 (Alternate function)
+            // 2. Configure PA8 as AF mode (MODER[17:16] = 10)
             let moder = ptr::read_volatile(GPIOA_MODER);
-            ptr::write_volatile(GPIOA_MODER, (moder & !(0b11 << 16)) | (0b10 << 16));
+            ptr::write_volatile(GPIOA_MODER, (moder & !(3 << 16)) | (2 << 16));
 
-            // AFRH bits [3:0] = 0x2 (AF2: TIM1_CH1)
+            // 3. Set PA8 Alternate Function to AF2 (TIM1_CH1)
+            // AFRH[3:0] corresponding to pin 8 = bits 3:0
             let afrh = ptr::read_volatile(GPIOA_AFRH);
             ptr::write_volatile(GPIOA_AFRH, (afrh & !0x0F) | 0x02);
 
-            // 3. Configure TIM1:
-            // PSC = 47 -> 48 MHz / (47 + 1) = 1.000 MHz (1 µs per tick)
+            // 4. Configure TIM1 for PWM generation:
+            // PSC = 47 -> 48 MHz / 48 = 1 MHz (1 µs resolution)
             ptr::write_volatile(TIM1_PSC, 47);
 
-            // CCMR1: PWM Mode 1 (0b110 << 4) + Preload Enable (1 << 3)
-            ptr::write_volatile(TIM1_CCMR1, (0b110 << 4) | (1 << 3));
+            // Output Compare 1 Mode: PWM mode 1 (active while CNT < CCR1)
+            // Bits 6:4 of CCMR1 (OC1M) = 0b110 (PWM Mode 1), Bit 3 (OC1PE) = 1 (Preload)
+            ptr::write_volatile(TIM1_CCMR1, (6 << 4) | (1 << 3));
 
-            // CCER: CC1E = 1 (Channel 1 output enable) | CC1P = 1 (Low polarity matching OpenI6X)
+            // Enable Channel 1 output with active low polarity in CCER (CC1E | CC1P)
             ptr::write_volatile(TIM1_CCER, (1 << 1) | (1 << 0));
 
-            // BDTR: MOE = 1 (Main Output Enable for TIM1 advanced timer)
+            // Main Output Enable (MOE) in BDTR (bit 15: MOE) - required for advanced timers like TIM1
             ptr::write_volatile(TIM1_BDTR, 1 << 15);
-
-            // Ensure timer starts stopped
-            ptr::write_volatile(TIM1_CR1, 0);
-            ptr::write_volatile(TIM1_CNT, 0);
-            ptr::write_volatile(TIM1_SR, 0);
         }
     }
 
     /// Turn on the hardware PWM generator at the specified frequency (50% duty cycle).
     fn hardware_on(&self, freq_hz: u16) {
-        if freq_hz < 100 {
+        if !self.enabled || freq_hz < 100 {
             return;
         }
 

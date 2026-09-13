@@ -4,7 +4,7 @@
 
 pub const FLASH_STORAGE_ADDR: usize = 0x0801_F800;
 pub const FLASH_MAGIC: u32 = 0x4653_4B59; // "FSKY"
-pub const CONFIG_VERSION: u32 = 1;
+pub const CONFIG_VERSION: u32 = 2;
 
 const FLASH_KEYR: *mut u32 = 0x4002_2004 as *mut u32;
 const FLASH_SR: *mut u32 = 0x4002_200C as *mut u32;
@@ -32,15 +32,19 @@ impl ChannelCalib {
     }
 }
 
-/// Persistent radio settings and calibration data.
+/// Persistent radio settings and calibration data (64 bytes).
 #[repr(C)]
 #[derive(Copy, Clone, Debug)]
 pub struct RadioConfig {
     pub magic: u32,
     pub version: u32,
     pub rx_id: u32,
-    pub sticks: [ChannelCalib; 4], // 0: Roll, 1: Pitch, 2: Throttle, 3: Yaw
-    pub pots: [ChannelCalib; 2],   // 0: VRA, 1: VRB
+    pub sticks: [ChannelCalib; 4], // 0: Roll, 1: Pitch, 2: Throttle, 3: Yaw (32 bytes)
+    pub pots: [ChannelCalib; 2],   // 0: VRA, 1: VRB (16 bytes)
+    pub throttle_trim: u8,         // 0: Disabled (safety lock), 1: Enabled
+    pub audio_enabled: u8,         // 0: Muted, 1: Enabled
+    pub backlight_timeout: u8,     // 0: Always On, 1: 15s, 2: 30s, 3: 60s
+    pub backlight_brightness: u8,  // 1..10 (10%..100%, default 10)
 }
 
 impl RadioConfig {
@@ -59,6 +63,10 @@ impl RadioConfig {
                 ChannelCalib::new(2048 - 1950, 2048, 2048 + 1950), // VRA
                 ChannelCalib::new(2048 - 1950, 2048, 2048 + 1950), // VRB
             ],
+            throttle_trim: 0,        // Default disabled for FC arming safety
+            audio_enabled: 1,        // Default audible buzzer enabled
+            backlight_timeout: 0,    // Default Always On
+            backlight_brightness: 10, // Default 100%
         }
     }
 }
@@ -73,7 +81,7 @@ pub fn load_config() -> RadioConfig {
 
         let word1 = core::ptr::read_volatile((FLASH_STORAGE_ADDR + 4) as *const u32);
         if word1 == CONFIG_VERSION {
-            // Full RadioConfig is saved
+            // Full RadioConfig v2 is saved
             let mut cfg = RadioConfig::default_factory();
             let src = FLASH_STORAGE_ADDR as *const u32;
             let dst = &mut cfg as *mut RadioConfig as *mut u32;
@@ -81,6 +89,16 @@ pub fn load_config() -> RadioConfig {
             for i in 0..word_count {
                 *dst.add(i) = core::ptr::read_volatile(src.add(i));
             }
+            cfg
+        } else if word1 == 1 {
+            // Version 1 had sticks and pots but no settings tail (15 words = 60 bytes)
+            let mut cfg = RadioConfig::default_factory();
+            let src = FLASH_STORAGE_ADDR as *const u32;
+            let dst = &mut cfg as *mut RadioConfig as *mut u32;
+            for i in 0..15 {
+                *dst.add(i) = core::ptr::read_volatile(src.add(i));
+            }
+            cfg.version = CONFIG_VERSION;
             cfg
         } else {
             // Legacy layout: [magic, rx_id]

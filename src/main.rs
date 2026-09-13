@@ -20,6 +20,7 @@ mod calib;
 mod chip;
 mod display;
 mod input;
+mod menu;
 mod rf;
 mod storage;
 mod trim;
@@ -268,10 +269,20 @@ fn main() -> ! {
     // 6. Initialize Buzzer & Digital Trims
     let mut buzzer = buzzer::Buzzer::new();
     buzzer.init();
+
+    // 7. Load persistent radio configuration
+    let mut config = storage::load_config();
+    buzzer.enabled = config.audio_enabled != 0;
     buzzer.click(); // Power-on audible confirmation
 
     let mut trims = trim::TrimController::new();
+    trims.throttle_enabled = config.throttle_trim != 0;
+
+    // Apply saved backlight brightness level
+    lcd.set_backlight_level(config.backlight_brightness * 10);
+
     let mut calib_wizard = calib::CalibWizard::new();
+    let mut menu_controller = menu::MenuController::new();
 
     // Check if OK button held at power-on to launch calibration directly
     if (initial_keys & (1 << 10)) != 0 {
@@ -283,6 +294,8 @@ fn main() -> ! {
 
     let mut dfu_confirm_count = 0u8;
     let mut ok_hold_ms = 0u16;
+    let mut bl_timer_ms: u32 = 30_000;
+    let mut prev_stick_sample = 2048u16;
 
     loop {
         // Poll continuous DMA inputs
@@ -292,6 +305,28 @@ fn main() -> ! {
         let keys = boot::scan_keys();
         buzzer.tick(20);
         trims.update(keys, 20, &mut buzzer);
+
+        // Backlight activity reset (keys pressed or stick moved > 30 counts)
+        let stick_moved = (state.raw[0] as i32 - prev_stick_sample as i32).abs() > 30;
+        prev_stick_sample = state.raw[0];
+
+        if keys != 0 || stick_moved {
+            let timeout_ms: u32 = match config.backlight_timeout {
+                1 => 15_000,
+                2 => 30_000,
+                3 => 60_000,
+                _ => 0,
+            };
+            bl_timer_ms = timeout_ms;
+            lcd.set_backlight_level(config.backlight_brightness * 10);
+        } else if config.backlight_timeout != 0 {
+            if bl_timer_ms > 20 {
+                bl_timer_ms -= 20;
+            } else {
+                bl_timer_ms = 0;
+                lcd.set_backlight_level(0);
+            }
+        }
 
         // Map inputs to 14 AFHDS 2A channels with digital trims (1000..2000 µs)
         let mut rf_chs = [1500u16; 14];
@@ -341,17 +376,41 @@ fn main() -> ! {
             buzzer.click();
         }
 
-        // Long-press OK (1.2s) from flight dashboard launches stick calibration
-        if !calib_wizard.is_active() {
+        // Long-press OK (1.2s) from flight dashboard opens Settings Menu
+        if !menu_controller.is_active() && !calib_wizard.is_active() {
             if (keys & (1 << 10)) != 0 {
                 ok_hold_ms = ok_hold_ms.saturating_add(20);
                 if ok_hold_ms >= 1200 {
-                    calib_wizard.start(&mut buzzer);
+                    menu_controller.open(&mut buzzer);
                     ok_hold_ms = 0;
                 }
             } else {
                 ok_hold_ms = 0;
             }
+        }
+
+        // If Settings Menu is active, update menu and loop
+        if menu_controller.is_active() {
+            menu_controller.update(
+                &mut lcd,
+                keys,
+                &mut config,
+                &mut trims,
+                &state.raw,
+                &rf_chs,
+                &mut buzzer,
+            );
+
+            if menu_controller.request_calibration {
+                calib_wizard.start(&mut buzzer);
+                menu_controller.request_calibration = false;
+            }
+
+            lcd.flush();
+            for _ in 0..160_000 {
+                cortex_m::asm::nop();
+            }
+            continue;
         }
 
         // If calibration wizard is active, update wizard, flush display, and loop
@@ -531,7 +590,7 @@ fn main() -> ! {
             } else if (keys & (1 << 12)) != 0 {
                 Text::new("BIND", Point::new(58, 63), text_style).draw(&mut lcd).ok();
             } else {
-                Text::new("Hold OK:Cal", Point::new(56, 63), text_style).draw(&mut lcd).ok();
+                Text::new("Hold OK:Menu", Point::new(54, 63), text_style).draw(&mut lcd).ok();
             }
         }
 

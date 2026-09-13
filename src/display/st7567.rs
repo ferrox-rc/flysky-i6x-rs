@@ -16,6 +16,7 @@ const GPIOB_MODER: *mut u32 = 0x4800_0400 as *mut u32;
 const GPIOB_BSRR: *mut u32 = 0x4800_0418 as *mut u32;
 
 const GPIOC_MODER: *mut u32 = 0x4800_0800 as *mut u32;
+#[allow(dead_code)]
 const GPIOC_BSRR: *mut u32 = 0x4800_0818 as *mut u32;
 
 const GPIOD_MODER: *mut u32 = 0x4800_0C00 as *mut u32;
@@ -42,10 +43,10 @@ impl St7567 {
         let display = Self {
             framebuffer: [0u8; BUFFER_SIZE],
         };
-
         display.init_hardware();
         display.init_controller();
-        display.set_backlight(true);
+        display.init_backlight_pwm();
+        display.set_backlight_level(100);
 
         display
     }
@@ -65,13 +66,14 @@ impl St7567 {
             let e_moder = ptr::read_volatile(GPIOE_MODER);
             ptr::write_volatile(GPIOE_MODER, (e_moder & !0x0000_FFFF) | 0x0000_5555);
 
-            // Configure PB3 (RS), PB4 (RST), PB5 (RW) as outputs (MODER = 01)
+            // Configure Control pins as outputs (MODER = 01):
+            // PB3 (RS), PB4 (RST), PB5 (RW)
             let b_moder = ptr::read_volatile(GPIOB_MODER);
             let b_mask = (3 << 6) | (3 << 8) | (3 << 10);
             let b_val = (1 << 6) | (1 << 8) | (1 << 10);
             ptr::write_volatile(GPIOB_MODER, (b_moder & !b_mask) | b_val);
 
-            // Configure PD2 (CS), PD7 (RD / E-strobe) as outputs (MODER = 01)
+            // PD2 (CS), PD7 (RD / Strobe)
             let d_moder = ptr::read_volatile(GPIOD_MODER);
             let d_mask = (3 << 4) | (3 << 14);
             let d_val = (1 << 4) | (1 << 14);
@@ -80,10 +82,6 @@ impl St7567 {
             // Standard Backlight is on PF3 (Active HIGH). Configure PF3 as output.
             let f_moder = ptr::read_volatile(GPIOF_MODER);
             ptr::write_volatile(GPIOF_MODER, (f_moder & !(3 << 6)) | (1 << 6));
-
-            // Modded Backlight pad on PC9. Configure as output too.
-            let c_moder = ptr::read_volatile(GPIOC_MODER);
-            ptr::write_volatile(GPIOC_MODER, (c_moder & !(3 << 18)) | (1 << 18));
 
             // Default LCD states matching OpenI6X:
             // CS (PD2) = Low (chip enabled)
@@ -96,19 +94,73 @@ impl St7567 {
         }
     }
 
-    /// Set Backlight state (Standard PF3 active HIGH, and PC9 active HIGH).
-    pub fn set_backlight(&self, on: bool) {
+    /// Initialize TIM3_CH4 PWM on PC9 (AF0) for optional hardware backlight dimming mod.
+    fn init_backlight_pwm(&self) {
         unsafe {
-            if on {
-                // Stock FS-i6X factory backlight: PF3 HIGH turns it ON (OpenTX GPIO_SetBits)
-                ptr::write_volatile(GPIOF_BSRR, 1 << 3);
-                // Also drive PC9 HIGH for any modded backlights
-                ptr::write_volatile(GPIOC_BSRR, 1 << 9);
-            } else {
+            // Enable TIM3 peripheral clock (RCC_APB1ENR bit 1)
+            let apb1enr = ptr::read_volatile(0x4002_101C as *mut u32);
+            ptr::write_volatile(0x4002_101C as *mut u32, apb1enr | (1 << 1));
+
+            // Configure PC9 as Alternate Function (MODER = 10, AF0 = TIM3_CH4)
+            let c_moder = ptr::read_volatile(GPIOC_MODER);
+            ptr::write_volatile(GPIOC_MODER, (c_moder & !(3 << 18)) | (2 << 18));
+
+            // AFRH: PC9 is pin 9 -> bits 7:4. AF0 is 0b0000
+            let c_afrh = ptr::read_volatile(0x4800_0824 as *mut u32);
+            ptr::write_volatile(0x4800_0824 as *mut u32, c_afrh & !(0xF << 4));
+
+            // Configure TIM3 for 1 kHz PWM on Channel 4:
+            // 48 MHz clock: PSC = 47 -> 1 MHz tick. ARR = 999 -> 1000 ticks = 1 kHz.
+            let tim3_cr1 = 0x4000_0400 as *mut u32;
+            let tim3_ccmr2 = 0x4000_041C as *mut u32;
+            let tim3_ccer = 0x4000_0420 as *mut u32;
+            let tim3_psc = 0x4000_0428 as *mut u32;
+            let tim3_arr = 0x4000_042C as *mut u32;
+            let tim3_ccr4 = 0x4000_0440 as *mut u32;
+            let tim3_egr = 0x4000_0414 as *mut u32;
+
+            ptr::write_volatile(tim3_psc, 47);
+            ptr::write_volatile(tim3_arr, 999);
+            ptr::write_volatile(tim3_ccr4, 999); // Start at 100% duty
+
+            // CCMR2: OC4M = 0b110 (PWM Mode 1), OC4PE = 1 (Preload enable)
+            ptr::write_volatile(tim3_ccmr2, (6 << 12) | (1 << 11));
+
+            // CCER: CC4E = 1 (Enable CH4 output)
+            let ccer = ptr::read_volatile(tim3_ccer);
+            ptr::write_volatile(tim3_ccer, ccer | (1 << 12));
+
+            // Re-initialize registers
+            ptr::write_volatile(tim3_egr, 1);
+
+            // CR1: ARPE = 1, CEN = 1 (Enable counter)
+            ptr::write_volatile(tim3_cr1, (1 << 7) | (1 << 0));
+        }
+    }
+
+    /// Set Backlight brightness level (0..100%).
+    /// Supports both stock factory backlight (PF3 on/off) and modded hardware (PC9 PWM dimming).
+    pub fn set_backlight_level(&self, pct: u8) {
+        unsafe {
+            if pct == 0 {
+                // Stock backlight OFF
                 ptr::write_volatile(GPIOF_BSRR, 1 << (3 + 16));
-                ptr::write_volatile(GPIOC_BSRR, 1 << (9 + 16));
+                // PC9 PWM duty 0
+                ptr::write_volatile(0x4000_0440 as *mut u32, 0);
+            } else {
+                // Stock backlight ON
+                ptr::write_volatile(GPIOF_BSRR, 1 << 3);
+                // PC9 PWM duty (0..999)
+                let duty = ((pct.min(100) as u32 * 999) / 100) as u32;
+                ptr::write_volatile(0x4000_0440 as *mut u32, duty);
             }
         }
+    }
+
+    /// Convenience helper for binary ON/OFF control.
+    #[allow(dead_code)]
+    pub fn set_backlight(&self, on: bool) {
+        self.set_backlight_level(if on { 100 } else { 0 });
     }
 
     #[inline(always)]

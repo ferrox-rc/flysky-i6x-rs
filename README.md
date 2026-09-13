@@ -157,8 +157,16 @@ Comprehensive technical documentation is maintained in the [`docs/`](docs/) dire
 - [x] Throttle trim safety lock (Option 2) for flight controller arming protection.
 - [x] Interactive 2-step gimbal & pot endpoint calibration wizard with Flash persistence.
 
+### Phase 6: Settings Menu, Diagnostics, & Backlight Dimming (COMPLETED)
+- [x] Hierarchical Settings Menu (`src/menu.rs`) navigated via `UP`, `DOWN`, `OK`, and `ESC`.
+- [x] Radio Setup: Throttle Trim toggle (Option 2 safety lock), Beeper audio toggle, Backlight timeout (15s/30s/60s/Off), and Brightness level (10%..100%).
+- [x] Hardware PWM backlight dimming driver on `PC9` (`TIM3_CH4`, 1 kHz PWM) supporting the popular backlight hardware mod while keeping stock `PF3` supported.
+- [x] 14-channel live pulse width monitor with graphical bars and microsecond readouts (`1000..2000 µs`).
+- [x] Real-time 12-bit Analog Diagnostics (`Diag Anas`) displaying raw counts ($0 \dots 4095$) for all 11 ADC channels.
+- [x] System Information screen displaying MCU profile, 96-bit silicon UID, clock speed, and memory usage.
+
 ### Current Firmware Footprint
-- **Flash ROM**: **23.0 KB** used out of **128 KB** available (**~82% Flash free**).
+- **Flash ROM**: **30.4 KB** used out of **128 KB** available (**~76% Flash free**).
 - **Static RAM**: **2.4 KB** used (including 1024-byte framebuffer) out of **16 KB** available (**~85% SRAM free**).
 
 ---
@@ -167,7 +175,8 @@ Comprehensive technical documentation is maintained in the [`docs/`](docs/) dire
 
 | Action | Control | Notes |
 | :--- | :--- | :--- |
-| **Launch Stick Calibration** | **Hold `OK` for 1.2s** (or hold on boot) | Guides through center and limit capture, saves to Flash |
+| **Open Settings Menu** | **Hold `OK` for 1.2s** | Opens Radio Setup, Calibration, RX Setup, Monitors, & Diagnostics |
+| **Direct Calibration (Boot)**| **Hold `OK` during Power-On** | Launches 2-step calibration wizard immediately on boot |
 | **Abort / Cancel Binding** | **Press `Cancel` (`ESC`)** | Exits binding mode immediately and restores normal RF |
 | **Enter DFU Bootloader** | **Inward Trims + Power ON** | Push Roll Left & Yaw Right inward while turning on |
 | **Fast DFU Jump (Runtime)**| **Hold Inward Trims for 100 ms** | Re-enters ST factory ROM bootloader from main screen |

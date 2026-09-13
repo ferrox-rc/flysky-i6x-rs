@@ -25,15 +25,19 @@ pub struct ChannelCalib {
 #[repr(C)]
 pub struct RadioConfig {
     pub magic: u32,                // 0x4653_4B59 ("FSKY")
-    pub version: u32,              // Config structure version (1)
+    pub version: u32,              // Config structure version (2)
     pub rx_id: u32,                // Persisted bound receiver ID
-    pub sticks: [ChannelCalib; 4], // 0: Roll, 1: Pitch, 2: Throttle, 3: Yaw
-    pub pots: [ChannelCalib; 2],   // 0: VRA, 1: VRB
+    pub sticks: [ChannelCalib; 4], // 0: Roll, 1: Pitch, 2: Throttle, 3: Yaw (32 bytes)
+    pub pots: [ChannelCalib; 2],   // 0: VRA, 1: VRB (16 bytes)
+    pub throttle_trim: u8,         // 0: Disabled (Option 2 safety lock), 1: Enabled
+    pub audio_enabled: u8,         // 0: Muted, 1: Enabled
+    pub backlight_timeout: u8,     // 0: Always On, 1: 15s, 2: 30s, 3: 60s
+    pub backlight_brightness: u8,  // 1..10 (10%..100%, default 10)
 }
 ```
 
-- **Backward Compatibility**: If Flash contains a legacy 8-byte bind entry (`[magic, rx_id]`), the loader preserves the receiver ID and applies factory default stick spans.
-- **Preservation on Save**: Updating stick calibrations preserves the currently bound `rx_id`, and binding a new receiver preserves existing stick calibrations.
+- **Backward Compatibility**: If Flash contains version 1 or a legacy 8-byte bind entry (`[magic, rx_id]`), the loader preserves the receiver ID, restores calibrations, and initializes new settings with safe defaults.
+- **Preservation on Save**: Updating stick calibrations preserves the currently bound `rx_id` and preferences, and modifying preferences preserves existing stick calibrations.
 
 ---
 
