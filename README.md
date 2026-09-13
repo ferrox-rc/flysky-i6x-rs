@@ -122,6 +122,7 @@ Comprehensive technical documentation is maintained in the [`docs/`](docs/) dire
 - **[AFHDS 2A Protocol & A7105 RF Driver](docs/rf_protocol.md)**: SPI1 hardware driver, 16-channel FHSS hopping table, 38-byte packet structure, 4-phase bind sequence, and telemetry downlink.
 - **[Flight Inputs & Digital Trims](docs/input_subsystem.md)**: 11-channel continuous ADC DMA scanner, MMA jitter filtering, physical gimbal geometry, 4-axis digital trims, and TIM1 hardware PWM buzzer driver.
 - **[Stick Calibration & Flash Persistence](docs/calibration_and_storage.md)**: 2-step interactive calibration wizard, tolerance margin calculation, and non-volatile Flash storage layout at `0x0801_F800`.
+- **[Architecture & Performance Comparison](docs/firmware_comparison.md)**: Deep-dive comparative analysis vs OpenI6X and stock firmware (Flash headroom, <4ms latency, safety locks, backlight PWM mod).
 - **[Hardware Reference & Pinout](docs/hardware_reference.md)**: Detailed schematics, pin mappings, ST7567 LCD 6800-bus timings, and dual-MCU (STM32 / APM32) profiles.
 
 ---
