@@ -114,63 +114,76 @@ The ST7567 parallel LCD driver maintains a **1024-byte framebuffer** in SRAM (`1
 
 ---
 
-## 6. Implementation Roadmap
+## 6. Project Documentation
 
-### Phase 1: Board Bring-Up & Display (COMPLETED)
-- [x] Configure `cortex-m-rt`, linker script (`memory.x`), and target `thumbv6m-none-eabi`.
-- [x] Dual MCU support for both `STM32F072VB` and `APM32F072VB` (UID & DFU mapping).
-- [x] Implement parallel 8-bit ST7567 driver for `GPIOE` (ODR write) + control lines.
-- [x] Connect `embedded-graphics` `DrawTarget` to 1024-byte SRAM buffer.
-- [x] Fix screen orientation (`0xA1`/`0xC0`), column 4 offset, and factory backlight on `PF3`.
-- [x] Safe DFU bootloader software jump on startup/runtime via inward trims or Bind key.
-- [x] Fast power-on boot (< 30 ms).
-- **Footprint:** **8.9 KB Flash** (leaves > 119 KB free / ~93% headroom), **0 B static data**, **> 14 KB free SRAM**.
+Comprehensive technical documentation is maintained in the [`docs/`](docs/) directory:
 
-### Phase 2: Analog & Digital Inputs (COMPLETED)
-- [x] Configure ADC1 + DMA1 Channel 1 for continuous 11-channel circular scanning.
-- [x] Piecewise calibration with dynamic endpoint tracking (`-1000 .. +1000`) and boot auto-centering.
-- [x] Adaptive zero-latency EMA filter for pot / gimbal noise suppression.
-- [x] Decode 2-pos/3-pos switches (`SA..SD`), rotary pots (`VRA`, `VRB`), and battery voltage (`PC0`).
-- [x] Live flight dashboard UI with 3-pixel cursor gauges for AER, unipolar progress bar for Throttle, battery voltage, and switch states.
-- [x] Key matrix scanner (inward trims for safe DFU bootloader jump).
-- **Footprint:** **12.4 KB Flash** (leaves > 115 KB free / ~90% headroom), **64 B static RAM**, **> 14 KB free SRAM**.
-
-### Phase 3: A7105 SPI Driver & Hopping Table
-- [ ] Implement A7105 SPI1 driver and verify register read/write (confirm chip ID `0x00` / `0x01`).
-- [ ] Configure RF power levels and antenna switch control (`PE10`/`PE11`).
-- [ ] Generate 16-channel pseudo-random hopping table from STM32 Unique Device ID.
-- [ ] Configure `TIM16` for microsecond-accurate packet interval timing.
-
-### Phase 4: AFHDS2A Over-the-Air Link
-- [ ] Implement AFHDS2A 4-phase bind sequence (`0xBB`/`0xBC`).
-- [ ] Verify successful binding with a physical FlySky receiver (e.g., FS-iA6B).
-- [ ] Implement normal data packet transmission (`0x58`) with live gimbal channel data.
-- [ ] Verify servo / flight controller response over PWM / i-BUS receiver pins.
-
-### Phase 5: i-BUS Telemetry, UI & Storage
-- [ ] Implement A7105 RX window and parse incoming i-BUS telemetry packets.
-- [ ] Display RSSI and receiver battery voltage on the main flight screen.
-- [ ] Implement I2C EEPROM driver (`24C64`) to persist model configs and trims.
-- [ ] Finalize clean menu navigation and telemetry screens.
+- **[System Architecture & Timing Model](docs/architecture.md)**: 48 MHz clock tree, real-time concurrency model, TIM16 260 Hz packet loop, and zero-heap memory layout.
+- **[AFHDS 2A Protocol & A7105 RF Driver](docs/rf_protocol.md)**: SPI1 hardware driver, 16-channel FHSS hopping table, 38-byte packet structure, 4-phase bind sequence, and telemetry downlink.
+- **[Flight Inputs & Digital Trims](docs/input_subsystem.md)**: 11-channel continuous ADC DMA scanner, MMA jitter filtering, physical gimbal geometry, 4-axis digital trims, and TIM1 hardware PWM buzzer driver.
+- **[Stick Calibration & Flash Persistence](docs/calibration_and_storage.md)**: 2-step interactive calibration wizard, tolerance margin calculation, and non-volatile Flash storage layout at `0x0801_F800`.
+- **[Hardware Reference & Pinout](docs/hardware_reference.md)**: Detailed schematics, pin mappings, ST7567 LCD 6800-bus timings, and dual-MCU (STM32 / APM32) profiles.
 
 ---
 
-## 7. Toolchain, Flashing & Reversion
+## 7. Implementation Roadmap & Current Status
 
-- **Rust Target:** `thumbv6m-none-eabi`
-- **Compiler:** `stable` or `nightly` (edition 2021)
-- **DFU Flashing (USB):**
-  1. Push both horizontal trims inward toward the power switch (or hold the Bind key) and turn ON.
-  2. The MCU jumps directly into the factory ST ROM bootloader (`0483:df11`).
-  3. Flash firmware via `dfu-util`:
-     ```bash
-     dfu-util -a0 -s 0x08000000:leave -d 0483:df11 -D target/flysky-i6x-rs.bin
-     ```
-- **Reverting to OpenTX / OpenI6X:**
+### Phase 1: Board Bring-Up & Display (COMPLETED)
+- [x] Dual MCU support for both `STM32F072VB` and `APM32F072VB` (UID & DFU mapping).
+- [x] Parallel 8-bit ST7567 driver for `GPIOE` (ODR write) + control lines with `embedded-graphics`.
+- [x] Screen orientation correction, column 4 offset, and factory backlight driver (`PF3`).
+- [x] Fast power-on boot (< 30 ms) and reliable DFU bootloader invocation.
+
+### Phase 2: Analog & Digital Inputs (COMPLETED)
+- [x] Continuous 11-channel DMA1 ADC1 scanner ($0.23\text{ ms}$ complete scan).
+- [x] OpenTX Modified Moving Average (MMA) micro-jitter filter (0 latency on stick movement).
+- [x] Decode 2-pos / 3-pos switches (`SA..SD`), rotary pots (`VRA`, `VRB`), and battery voltage (`PC0`).
+- [x] Correct physical Mode 2 channel mapping (`PA0` Roll, `PA1` Pitch, `PA2` Throttle, `PA3` Yaw).
+
+### Phase 3: A7105 SPI Driver & Protocol Timing (COMPLETED)
+- [x] Amiccom A7105 hardware SPI1 driver with antenna diversity TR switching (`PE10`/`PE11`/`PE12`).
+- [x] Deterministic 16-channel FHSS hopping table generated from 96-bit silicon UID.
+- [x] External HSE crystal (48.000 MHz) and calibrated `TIM16` timer (`PSC = 47`, `ARR = 3849`) for exact 3850.0 µs (259.74 Hz) frame sync.
+
+### Phase 4: AFHDS 2A Over-the-Air Link & Telemetry (COMPLETED)
+- [x] 14-channel 38-byte stick frame generation ($1000 \dots 2000\,\mu\text{s}$).
+- [x] 4-phase bidirectional bind sequence with persistent RX ID Flash storage.
+- [x] Cancel / Abort binding mode via `[ESC]` (Cancel key).
+- [x] Downlink telemetry reception window: live RSSI and RX battery voltage.
+
+### Phase 5: Trims, Audio, & Calibration (COMPLETED)
+- [x] Hardware PWM piezo buzzer driver on `PA8` (`TIM1_CH1`, 48 MHz / PSC 47) with distinct audio tones.
+- [x] Digital trim controller with single-click, 90ms auto-repeat, audio feedback, and DFU lockout.
+- [x] Throttle trim safety lock (Option 2) for flight controller arming protection.
+- [x] Interactive 2-step gimbal & pot endpoint calibration wizard with Flash persistence.
+
+### Current Firmware Footprint
+- **Flash ROM**: **23.0 KB** used out of **128 KB** available (**~82% Flash free**).
+- **Static RAM**: **2.4 KB** used (including 1024-byte framebuffer) out of **16 KB** available (**~85% SRAM free**).
+
+---
+
+## 8. Controls & Shortcuts
+
+| Action | Control | Notes |
+| :--- | :--- | :--- |
+| **Launch Stick Calibration** | **Hold `OK` for 1.2s** (or hold on boot) | Guides through center and limit capture, saves to Flash |
+| **Abort / Cancel Binding** | **Press `Cancel` (`ESC`)** | Exits binding mode immediately and restores normal RF |
+| **Enter DFU Bootloader** | **Inward Trims + Power ON** | Push Roll Left & Yaw Right inward while turning on |
+| **Fast DFU Jump (Runtime)**| **Hold Inward Trims for 100 ms** | Re-enters ST factory ROM bootloader from main screen |
+| **Digital Trims** | **4 Trim Rockers** | Single click + 90ms auto-repeat with audio pitch scaling |
+
+---
+
+## 9. Flashing & Reversion
+
+- **Flash via USB DFU (`dfu-util`):**
+  ```bash
+  dfu-util -a0 -s 0x08000000:leave -d 0483:df11 -D target/flysky-i6x-rs.bin
+  ```
+- **Revert to OpenTX / OpenI6X:**
   Because the factory bootloader resides in permanent ROM, you can restore your original firmware anytime:
   ```bash
   dfu-util -a0 -s 0x08000000:leave -d 0483:df11 -D opentx_backup.bin
   ```
-- **Hardware Recovery Override:**
-  If custom code ever hangs before key polling, short the `R53` pads (BOOT0 to 3.3V) with tweezers while plugging in USB to force hardware DFU mode.
 
