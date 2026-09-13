@@ -33,47 +33,79 @@ A comprehensive guide to operating the `flysky-i6x-rs` firmware on the FlySky FS
 
 ### Keypad & Navigation Buttons
 - **`[UP]`** / **`[DOWN]`**: Navigate menu items, cycle characters, increment/decrement values.
-- **`[OK]`**: Enter submenu, toggle setting, advance character cursor in naming editor.
-  - **Hold `[OK]` for 1.2 seconds** on the main flight screen: Opens the **Settings Menu**.
+- **`[OK]`**: Enter submenu, toggle setting, confirm values, advance character cursor in naming editor.
+  - **Hold `[OK]` for 1.2 seconds** on any flight dashboard page: Opens the **Settings Menu**.
   - **Hold `[OK]` during Power-On**: Launches **Stick Calibration** immediately.
-- **`[CANCEL]` (`[ESC]`)**: Return to previous screen, abort calibration, or complete one-way receiver binding.
-- **`[BIND]` (Dedicated Button)**: Tap at any time on the main screen to initiate AFHDS 2A binding.
+- **`[CANCEL]` (`[ESC]`)**: Return to previous screen, exit edit mode, abort calibration, or complete one-way receiver binding.
+- **`[BIND]` (Dedicated Button with Clean Separation Logic)**:
+  - **Tap (`< 1.0s`) on Flight Screen**: Cycles through the 3 flight dashboard pages (`1/3` $\rightarrow$ `2/3` $\rightarrow$ `3/3` $\rightarrow$ `1/3`).
+  - **Hold (`\ge 1.0s`) on Flight Screen**: Initiates AFHDS 2A receiver binding.
+  - **Hold during Power-On**: Launches AFHDS 2A binding subprogram immediately at boot.
+  - **In Menus & Editors**: Functions as **`[TAB]` / Cursor Advance** (advances name characters or curve points) without triggering RF binding.
 
 ---
 
-## 2. Flight Dashboard Display
+## 2. Multi-Page Flight Dashboard
 
+The main flight screen features 3 switchable display pages cycled by tapping **`[BIND]`**:
+
+### Page 1/3: Primary Gimbals & Trims
 ```
 +-------------------------------------------------------------+
-| M01                 R: 98%                          5.2V    | <- Status Bar
+| M01                 RF:OK                           5.2V    | <- Status Bar
 |-------------------------------------------------------------|
-|  CH1 [   |   .   ]   1520us  |  CH3 [   . |      ]   1240us |
-|  CH2 [       | . ]   1680us  |  CH4 [     . |    ]   1490us |
+| A [====|==.======]  +15%   | E [========.=|==]   -22%       |
+| T [========.     ]   45%   | R [====|==.======]    0%       |
 |-------------------------------------------------------------|
 | A:U  B:M  C:D  D:U                             V: 5/ 8      | <- Switches & Pots
-| TRM A:+04                                                   | <- Bottom Diagnostic
+| P1/3                                      Hold OK:Menu      | <- Bottom Banner
 +-------------------------------------------------------------+
 ```
+- **Top Status Bar (y = 0..10)**:
+  - **Left (`M01`..`M20`)**: Active model memory slot.
+  - **Center (`RF:OK` / `R: XX%` / `BINDING` / `NO BIND` / `E:XX`)**: RF link and telemetry RSSI indicator.
+  - **Right (`X.XV`)**: Internal 4×AA battery voltage.
+- **Gimbal Gauges (y = 12..46)**: Live channel sliders for Roll (`A`), Pitch (`E`), Throttle (`T`), Yaw (`R`) with center ticks, trim position ticks (`.`), and percentage readouts.
+- **Switches & Pots Line (y = 48..54)**: Position of switches SA..SD (`U`=Up, `M`=Middle, `D`=Down) and rotary pots VRA/VRB (`0`..`9`).
+- **Bottom Banner (y = 56..63)**: Displays active trim adjustment (`TRM A:+04`) or `Hold OK:Menu`.
 
-### Display Elements
-1. **Top Status Bar (y = 0..10)**:
-   - **Left (`M01`..`M20`)**: Active model memory slot.
-   - **Center (`R: XX%` / `BINDING` / `E:XX`)**:
-     - `R: XX%`: Telemetry downlink RSSI (Signal Strength $0\% \dots 100\%$).
-     - `BINDING`: Transmitter is broadcasting bind frames.
-     - `E:XX`: RF transceiver initialization error code (e.g. `E:00` indicates A7105 communication failure).
-   - **Right (`X.XV`)**: Internal 4×AA battery pack voltage.
-2. **Main Gimbal Gauges (y = 12..46)**:
-   - Live visual sliders for CH1 (Roll), CH2 (Pitch), CH3 (Throttle), CH4 (Yaw).
-   - Solid vertical bar indicates current stick deflection.
-   - **Dotted tick mark (`.`)** indicates the active digital trim offset.
-   - Real-time pulse width readout in microseconds ($1000 \dots 2000\,\mu\text{s}$).
-3. **Switches & Pots Line (y = 48..54)**:
-   - **Switches (`A:U B:M C:D D:U`)**: Real-time position of switches SA through SD (`U`=Up, `M`=Middle, `D`=Down).
-   - **Pots (`V: X/ Y`)**: Position of rotary dials VRA (`X`) and VRB (`Y`) scaled $0 \dots 9$.
-4. **Bottom Banner (y = 56..63)**:
-   - Displays momentary trim feedback (e.g. `TRM A:+04`) when any trim switch is pressed.
-   - Prompts for shortcuts (e.g. `Hold OK:Menu`, `[ESC] Finish Bind`).
+### Page 2/3: 14-Channel Dual Column Monitor
+```
++-------------------------------------------------------------+
+| M01                 RF:OK                           5.2V    | <- Status Bar
+|-------------------------------------------------------------|
+|  1: [==========] 1500  |   8: [==========] 1500             |
+|  2: [==========] 1500  |   9: [==========] 1500             |
+|  3: [====      ] 1200  |  10: [==========] 1500             |
+|  4: [==========] 1500  |  11: [==========] 1500             |
+|  5: [          ] 1000  |  12: [==========] 1500             |
+|  6: [==========] 1500  |  13: [==========] 1500             |
+|  7: [==========] 1500  |  14: [==========] 1500             |
+|-------------------------------------------------------------|
+| P2/3                           14-CH MONITOR                | <- Bottom Banner
++-------------------------------------------------------------+
+```
+- Real-time graphic bars and microsecond pulse readouts ($1000 \dots 2000\,\mu\text{s}$) across all 14 AFHDS 2A channels simultaneously.
+- Left column: CH 1..7 (Gimbals, SwA, SwB, VR1).
+- Right column: CH 8..14 (VR2, SwC, SwD, Aux channels).
+
+### Page 3/3: Model & Telemetry Dashboard
+```
++-------------------------------------------------------------+
+| M01                 RF:OK                           5.2V    | <- Status Bar
+|-------------------------------------------------------------|
+| MODEL 01                                   AIRPLANE         |
+| RxID: 1A2B3C4D                                              |
+| TCrv: 9-PT                                 SMOOTH           |
+| RX: 5.12V                                  RSSI: 98%        |
+|-------------------------------------------------------------|
+| P3/3                         MODEL DASHBOARD                | <- Bottom Banner
++-------------------------------------------------------------+
+```
+- Full 10-character model name and model type (`AIRPLANE`, `GLIDER`, `HELI`, `QUAD`).
+- Bound receiver 32-bit hex ID (`RxID`).
+- Active throttle curve configuration (`5-PT` / `9-PT`, `LINEAR` / `SMOOTH`).
+- Telemetry telemetry readouts: Downlink RSSI percentage and receiver pack voltage (`RX: X.XXV`).
 
 ---
 
@@ -130,11 +162,19 @@ Hold **`[OK]` for 1.2 seconds** from the main flight screen to open the Settings
 - **Real-Time Switching**: Switching models immediately applies the selected model's trims, channel reversing mask, throttle curve, and receiver ID.
 
 ### Submenu 2: Model Setup (`MODEL SETUP`)
-- **Name Editor**: 10-character ASCII model name (e.g. `QUAD 5IN  `, `TRAINER   `, `FOAMY 3D `).
-  - Use **`[UP]`** / **`[DOWN]`** to cycle through characters (`A-Z`, `0-9`, `-`, `_`, space).
-  - Press **`[OK]`** to advance to the next character.
-- **Model Type**: Cycle between `AIRPLANE`, `HELI`, `MULTIROTOR`, and `GLIDER`.
-- **Reset Model**: Restores default trims, linear curves, and standard channel directions for this model.
+- **Field 0: Name Editor**: 10-character ASCII model name (e.g. `QUAD 5IN  `, `TRAINER   `, `FOAMY 3D `).
+  - Press **`[OK]`** to enter editing mode.
+  - Use **`[UP]`** / **`[DOWN]`** to cycle characters (`A-Z`, `0-9`, `-`, `_`, space).
+  - Press **`[OK]`** or **`[BIND]`** to confirm current character and advance cursor to next character.
+  - Advancing past character 10 confirms the entire name and moves focus to Field 1 (`Type`).
+  - Press **`[CANCEL]` (`[ESC]`)** at any time to finish editing name and return to field selection.
+- **Field 1: Model Type**:
+  - Press **`[OK]`** to cycle between `AIRPLANE`, `GLIDER`, `HELI`, and `QUAD`.
+- **Field 2: Bind RX**:
+  - Displays currently bound receiver ID (`Rx: XXXXXXXX`).
+  - Press **`[OK]`** on `[OK Bind]` to initiate AFHDS 2A receiver binding directly from Model Setup.
+- **Field 3: Reset Defaults**:
+  - Press **`[OK]`** on `[OK Defaults]` to restore default trims, standard channel directions, and linear curves for this model slot.
 
 ### Submenu 3: Channel Reverse (`CH REVERSE`)
 - Lists all 14 channels (CH1:ROL, CH2:PIT, CH3:THR, CH4:YAW, SwA..SwD, VR1, VR2).
@@ -143,29 +183,33 @@ Hold **`[OK]` for 1.2 seconds** from the main flight screen to open the Settings
 - Automatically saved to non-volatile Flash upon exit.
 
 ### Submenu 4: Throttle Curve Editor (`THR CURVE`)
-Interactive curve engine with real-time on-screen curve visualization ($44 \times 36$ pixel plot):
+Interactive curve engine with real-time on-screen curve visualization ($49 \times 37$ pixel plot) and selected-point indicator dot:
 
 ```
 +------------------------------------+
 | THROTTLE CURVE                     |
 |------------------------------------+
-| > Pts: 5 POINTS    +--------------+|
+|   Pts: 9-PT        +--------------+|
 |   Crv: SMOOTH      |     .---*    ||
-|   P1:  0%          |    /         ||
-|   P2: 25%          |   /          ||
-|   P3: 50%          |  *           ||
-|   P4: 75%          | *            ||
-|   P5:100%          +--------------+|
+| > P3: 50% <        |    /         ||
+|                    |   /  *       ||
+|                    |  /           ||
+|                    +--------------+|
 |------------------------------------+
-| [UP/DN] Value  [OK] Next  [ESC] End|
+| [OK] Next Pt   [ESC] Done          |
 +------------------------------------+
 ```
 
-- **`Pts:`**: Toggle between **`5 POINTS`** ($0\%, 25\%, 50\%, 75\%, 100\%$) and **`9 POINTS`** ($0\%, 12.5\%, \dots, 100\%$).
-- **`Crv:`**: Toggle between **`LINEAR`** (piecewise linear interpolation) and **`SMOOTH`** (**Catmull-Rom cubic Hermite spline** smoothing).
-- **Point Values (`P1` .. `P9`)**:
-  - Select any point and use **`[UP]`** / **`[DOWN]`** to adjust from $0\%$ to $100\%$.
-  - The live graph instantly reflects changes, drawing a continuous curve line and placing a marker at the current physical throttle stick position.
+- **Field 0 (`Pts:`)**: Toggle between **`5-PT`** and **`9-PT`**. Switching from 5-point to 9-point mode automatically **resamples** midpoint values between existing points (e.g. `[0, 25, 50, 75, 100]` $\rightarrow$ `[0, 12, 25, 37, 50, 62, 75, 87, 100]`), preventing flat-zero dropoffs.
+- **Field 1 (`Crv:`)**: Toggle between **`LINEAR`** (piecewise linear interpolation) and **`SMOOTH`** (**Catmull-Rom cubic Hermite spline** smoothing).
+- **Field 2.. (`P1` .. `Pn`)**:
+  - While navigating (`!editing`), scroll with **`[UP]`** / **`[DOWN]`** and press **`[OK]`** to enter point-editing mode (`> Pn: XX% <`).
+  - While editing:
+    - **`[UP]`** / **`[DOWN]`**: Adjust point value between $0\%$ and $100\%$.
+    - **`[OK]`**: Confirm current point and advance to next point (`P1` $\rightarrow$ `P2` $\rightarrow$ `...`). On the last point, exits edit mode.
+    - **`[BIND]`**: Tabs to the next point (wraps to `P1`).
+    - **`[CANCEL]` (`[ESC]`)**: Exits point-editing mode.
+  - A real-time $3 \times 3$ pixel dot indicator is plotted directly on the curve graph at the coordinates of the actively selected point.
 
 ### Submenu 5: Radio Setup (`RADIO SETUP`)
 - **`Thr Trim:`**: Toggle between `OFF (Lock)`, `IDLE`, and `LINEAR`.
@@ -178,12 +222,12 @@ Launches the interactive 2-step calibration wizard (see Section 5 below).
 
 ### Submenu 7: RX Setup & Bind (`RX SETUP & BIND`)
 - Displays current RF protocol (`AFHDS 2A`).
-- Displays active model index and bound receiver ID (e.g. `Bound RX: 0x2A3B4C5D`).
-- Press **`[OK]`** to enter binding mode.
+- Displays active model index and bound receiver ID (e.g. `Rx ID: 1A2B3C4D`).
+- Press **`[OK]`** to trigger receiver binding mode directly.
 
 ### Submenu 8: Channel Monitor (`CHANNEL MONITOR`)
 - Displays live pulse widths ($1000 \dots 2000\,\mu\text{s}$) across all 14 channels with horizontal graphic bar indicators.
-- Press **`[OK]`** to toggle between Page 1 (CH1..CH7) and Page 2 (CH8..CH14).
+- Press **`[UP]`** / **`[DOWN]`** to toggle between Page 1 (CH1..CH7) and Page 2 (CH8..CH14).
 
 ### Submenu 9: Analog Diagnostics (`DIAG ANAS`)
 - Displays raw 12-bit ADC counts ($0 \dots 4095$) for all 11 physical inputs in real time:
@@ -221,9 +265,15 @@ Calibration ensures gimbals reach full travel without clipping or deadzones:
 
 ## 6. Receiver Binding Instructions
 
+The firmware provides 4 convenient ways to initiate AFHDS 2A binding with clean separation logic:
+1. **Hold `[BIND]` during Power-On**: Boots directly into RF bind mode.
+2. **Hold `[BIND]` ($\ge 1.0\text{s}$) on Flight Screen**: Initiates binding from any flight dashboard page.
+3. **`MODEL SETUP` Menu**: Select Field 2 (`Bind RX`) and press **`[OK]`**.
+4. **`RX SETUP & BIND` Menu**: Press **`[OK]`**.
+
 ### Method A: Two-Way Telemetry Receivers (FS-iA6B, FS-iA10B)
 1. Power on the receiver with a bind plug inserted into the `B/VCC` port (LED flashes rapidly).
-2. Tap the dedicated **`[BIND]`** button on the transmitter faceplate (or select `RX SETUP & BIND` in the menu).
+2. Initiate binding on the transmitter using any of the 4 methods above.
 3. The transmitter broadcasts bind packets and prompts `BINDING`.
 4. Once the receiver receives the hopping table, it sends its unique ID back.
 5. The transmitter automatically captures the ID, plays a rising 2-tone chime, saves to the active model profile in Flash, and switches to normal transmission. The top status bar shows `RF:OK` and live RSSI.
@@ -231,8 +281,8 @@ Calibration ensures gimbals reach full travel without clipping or deadzones:
 
 ### Method B: One-Way Receivers (FS-A8S, Fli14, FS-iA6)
 1. Hold the receiver's bind button while powering on (LED flashes rapidly).
-2. Tap **`[BIND]`** on the transmitter faceplate.
-3. Once the receiver's LED turns solid (indicating it has locked onto the transmitter's frequency hopping table), press **`[CANCEL]` (`[ESC]`)** or tap **`[BIND]`** again.
+2. Initiate binding on the transmitter.
+3. Once the receiver's LED turns solid (indicating it has locked onto the transmitter's frequency hopping table), press **`[CANCEL]` (`[ESC]`)**.
 4. The transmitter saves the bind state to Flash, double-beeps, and begins transmitting regular channel data.
 
 ---

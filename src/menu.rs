@@ -83,7 +83,9 @@ pub struct MenuController {
     pub scroll_offset: usize,
     pub page_idx: usize,
     pub sub_idx: usize,
+    pub editing: bool,
     pub request_calibration: bool,
+    pub request_bind: bool,
     prev_keys: u16,
     waiting_release: bool,
 }
@@ -96,7 +98,9 @@ impl MenuController {
             scroll_offset: 0,
             page_idx: 0,
             sub_idx: 0,
+            editing: false,
             request_calibration: false,
+            request_bind: false,
             prev_keys: 0xFFFF,
             waiting_release: false,
         }
@@ -109,7 +113,9 @@ impl MenuController {
         self.scroll_offset = 0;
         self.page_idx = 0;
         self.sub_idx = 0;
+        self.editing = false;
         self.request_calibration = false;
+        self.request_bind = false;
         self.waiting_release = true;
         self.prev_keys = 0xFFFF;
         buzzer.click();
@@ -132,8 +138,8 @@ impl MenuController {
         rf_chs: &[u16; 14],
         buzzer: &mut Buzzer,
     ) {
-        // Key release tracking (bit 10: OK, bit 11: Cancel, bit 9: Up, bit 8: Down)
-        if self.waiting_release && (keys & ((1 << 8) | (1 << 9) | (1 << 10) | (1 << 11))) == 0 {
+        // Key release tracking (bit 10: OK, bit 11: Cancel, bit 9: Up, bit 8: Down, bit 12: Bind)
+        if self.waiting_release && (keys & ((1 << 8) | (1 << 9) | (1 << 10) | (1 << 11) | (1 << 12))) == 0 {
             self.waiting_release = false;
         }
 
@@ -148,6 +154,7 @@ impl MenuController {
         let up_pressed = (newly_pressed & (1 << 9)) != 0;
         let ok_pressed = (newly_pressed & (1 << 10)) != 0;
         let cancel_pressed = (newly_pressed & (1 << 11)) != 0;
+        let bind_pressed = (newly_pressed & (1 << 12)) != 0;
 
         let text_style = MonoTextStyle::new(&FONT_6X10, BinaryColor::On);
         let border_style = PrimitiveStyle::with_stroke(BinaryColor::On, 1);
@@ -392,96 +399,187 @@ impl MenuController {
 
             MenuState::ModelSetup => {
                 let active_idx = storage.radio.active_model as usize;
+                const FIELD_COUNT: usize = 4;
 
-                if cancel_pressed {
-                    storage::save_storage(storage);
-                    self.state = MenuState::MainMenu;
-                    self.selected_item = 1;
-                    self.waiting_release = true;
-                    buzzer.click();
-                    return;
-                }
+                if !self.editing {
+                    if cancel_pressed {
+                        storage::save_storage(storage);
+                        self.state = MenuState::MainMenu;
+                        self.selected_item = 1;
+                        self.waiting_release = true;
+                        buzzer.click();
+                        return;
+                    }
 
-                // 3 fields: 0 = Name, 1 = Type, 2 = Reset
-                if self.selected_item == 0 {
-                    // Editing Name
+                    if down_pressed {
+                        self.selected_item = (self.selected_item + 1) % FIELD_COUNT;
+                        buzzer.play_tone(2200, 20);
+                    }
+
+                    if up_pressed {
+                        self.selected_item = if self.selected_item == 0 { FIELD_COUNT - 1 } else { self.selected_item - 1 };
+                        buzzer.play_tone(2200, 20);
+                    }
+
+                    if bind_pressed {
+                        self.selected_item = (self.selected_item + 1) % FIELD_COUNT;
+                        buzzer.play_tone(2200, 20);
+                    }
+
                     if ok_pressed {
+                        match self.selected_item {
+                            0 => {
+                                // Enter Name editing mode
+                                self.editing = true;
+                                self.sub_idx = 0;
+                                buzzer.click();
+                            }
+                            1 => {
+                                // Toggle Model Type
+                                storage.models[active_idx].model_type = (storage.models[active_idx].model_type + 1) % 4;
+                                storage::save_storage(storage);
+                                buzzer.click();
+                            }
+                            2 => {
+                                // Bind RX for this model!
+                                self.request_bind = true;
+                                self.state = MenuState::Closed;
+                                buzzer.click();
+                                return;
+                            }
+                            3 => {
+                                // Reset to default
+                                storage.models[active_idx] = ModelConfig::default_for_index(active_idx);
+                                storage::save_storage(storage);
+                                buzzer.play_tone_pattern(2200, 80, 50, 2);
+                                self.waiting_release = true;
+                            }
+                            _ => {}
+                        }
+                    }
+                } else {
+                    // In Name editing mode (editing character at self.sub_idx)
+                    if cancel_pressed {
+                        // Exit edit mode, save name
+                        self.editing = false;
+                        storage::save_storage(storage);
+                        buzzer.click();
+                    } else if bind_pressed {
+                        // BIND advances to next character
                         self.sub_idx = (self.sub_idx + 1) % 10;
                         buzzer.click();
-                    }
-                    if down_pressed {
+                    } else if ok_pressed {
+                        // OK advances character; on char 9, confirms name and moves to Type field!
+                        if self.sub_idx + 1 < 10 {
+                            self.sub_idx += 1;
+                            buzzer.click();
+                        } else {
+                            self.editing = false;
+                            self.selected_item = 1; // Advance to Type
+                            storage::save_storage(storage);
+                            buzzer.play_tone(2600, 40);
+                        }
+                    } else if up_pressed {
                         let c = storage.models[active_idx].name[self.sub_idx];
                         storage.models[active_idx].name[self.sub_idx] = next_ascii(c);
                         buzzer.play_tone(2200, 20);
-                    }
-                    if up_pressed {
+                    } else if down_pressed {
                         let c = storage.models[active_idx].name[self.sub_idx];
                         storage.models[active_idx].name[self.sub_idx] = prev_ascii(c);
                         buzzer.play_tone(2200, 20);
                     }
-                } else if self.selected_item == 1 {
-                    // Model Type
-                    if ok_pressed || down_pressed {
-                        storage.models[active_idx].model_type = (storage.models[active_idx].model_type + 1) % 4;
-                        buzzer.click();
-                    }
-                    if up_pressed {
-                        storage.models[active_idx].model_type = if storage.models[active_idx].model_type == 0 { 3 } else { storage.models[active_idx].model_type - 1 };
-                        buzzer.click();
-                    }
-                } else if self.selected_item == 2 {
-                    // Reset to Default
-                    if ok_pressed {
-                        storage.models[active_idx] = ModelConfig::default_for_index(active_idx);
-                        storage::save_storage(storage);
-                        buzzer.play_tone_pattern(2200, 80, 50, 2);
-                        self.waiting_release = true;
-                    }
                 }
 
-                // Hold down to jump between fields
-                // Right now, user can cycle fields or we add a cursor
-                // For simplicity: Header, Name, Type, Reset
+                // Render Header
                 Text::new("MODEL SETUP", Point::new(30, 9), text_style).draw(lcd).ok();
                 Line::new(Point::new(0, 11), Point::new(127, 11)).into_styled(border_style).draw(lcd).ok();
 
-                // Field 0: Name
-                Text::new("Name:", Point::new(4, 23), text_style).draw(lcd).ok();
-                let name_str = core::str::from_utf8(&storage.models[active_idx].name).unwrap_or("----------");
-                Text::new(name_str, Point::new(46, 23), text_style).draw(lcd).ok();
+                // Field 0: Name (y = 13)
+                let y0 = 13;
+                if !self.editing && self.selected_item == 0 {
+                    Rectangle::new(Point::new(2, y0), Size::new(124, 9)).into_styled(fill_style).draw(lcd).ok();
+                    let inv_style = MonoTextStyle::new(&FONT_6X10, BinaryColor::Off);
+                    Text::new("Name:", Point::new(4, y0 + 7), inv_style).draw(lcd).ok();
+                    let name_str = core::str::from_utf8(&storage.models[active_idx].name).unwrap_or("----------");
+                    Text::new(name_str, Point::new(40, y0 + 7), inv_style).draw(lcd).ok();
+                } else {
+                    Text::new("Name:", Point::new(4, y0 + 7), text_style).draw(lcd).ok();
+                    let name_str = core::str::from_utf8(&storage.models[active_idx].name).unwrap_or("----------");
+                    Text::new(name_str, Point::new(40, y0 + 7), text_style).draw(lcd).ok();
+                }
 
-                // Draw underline under currently edited character
-                let char_x = 46 + (self.sub_idx as i32 * 6);
-                Line::new(Point::new(char_x, 25), Point::new(char_x + 5, 25))
-                    .into_styled(border_style)
-                    .draw(lcd)
-                    .ok();
+                if self.editing {
+                    // Draw inverted box over currently edited character
+                    let char_x = 40 + (self.sub_idx as i32 * 6);
+                    Rectangle::new(Point::new(char_x - 1, y0), Size::new(8, 9)).into_styled(fill_style).draw(lcd).ok();
+                    let inv_style = MonoTextStyle::new(&FONT_6X10, BinaryColor::Off);
+                    let single_char = [storage.models[active_idx].name[self.sub_idx]];
+                    let c_str = core::str::from_utf8(&single_char).unwrap_or("?");
+                    Text::new(c_str, Point::new(char_x, y0 + 7), inv_style).draw(lcd).ok();
+                }
 
-                // Field 1: Type
-                Text::new("Type:", Point::new(4, 35), text_style).draw(lcd).ok();
+                // Field 1: Type (y = 23)
+                let y1 = 23;
                 let type_str = match storage.models[active_idx].model_type {
                     1 => "AIRPLANE",
                     2 => "HELICOPTER",
                     3 => "GLIDER",
                     _ => "MULTI / QUAD",
                 };
-                Text::new(type_str, Point::new(46, 35), text_style).draw(lcd).ok();
+                if !self.editing && self.selected_item == 1 {
+                    Rectangle::new(Point::new(2, y1), Size::new(124, 9)).into_styled(fill_style).draw(lcd).ok();
+                    let inv_style = MonoTextStyle::new(&FONT_6X10, BinaryColor::Off);
+                    Text::new("Type:", Point::new(4, y1 + 7), inv_style).draw(lcd).ok();
+                    Text::new(type_str, Point::new(40, y1 + 7), inv_style).draw(lcd).ok();
+                } else {
+                    Text::new("Type:", Point::new(4, y1 + 7), text_style).draw(lcd).ok();
+                    Text::new(type_str, Point::new(40, y1 + 7), text_style).draw(lcd).ok();
+                }
 
-                // Field 2: Reset
-                Text::new("Reset: [OK Defaults]", Point::new(4, 47), text_style).draw(lcd).ok();
+                // Field 2: Bind RX (y = 33)
+                let y2 = 33;
+                let mut rx_buf = [b'0'; 8];
+                u32_to_hex(storage.models[active_idx].rx_id, &mut rx_buf);
+                let rx_hex_str = core::str::from_utf8(&rx_buf).unwrap_or("00000000");
+                if !self.editing && self.selected_item == 2 {
+                    Rectangle::new(Point::new(2, y2), Size::new(124, 9)).into_styled(fill_style).draw(lcd).ok();
+                    let inv_style = MonoTextStyle::new(&FONT_6X10, BinaryColor::Off);
+                    Text::new("Rx:", Point::new(4, y2 + 7), inv_style).draw(lcd).ok();
+                    Text::new(rx_hex_str, Point::new(24, y2 + 7), inv_style).draw(lcd).ok();
+                    Text::new("[OK Bind]", Point::new(74, y2 + 7), inv_style).draw(lcd).ok();
+                } else {
+                    Text::new("Rx:", Point::new(4, y2 + 7), text_style).draw(lcd).ok();
+                    Text::new(rx_hex_str, Point::new(24, y2 + 7), text_style).draw(lcd).ok();
+                    Text::new("[OK Bind]", Point::new(74, y2 + 7), text_style).draw(lcd).ok();
+                }
+
+                // Field 3: Reset Defaults (y = 43)
+                let y3 = 43;
+                if !self.editing && self.selected_item == 3 {
+                    Rectangle::new(Point::new(2, y3), Size::new(124, 9)).into_styled(fill_style).draw(lcd).ok();
+                    let inv_style = MonoTextStyle::new(&FONT_6X10, BinaryColor::Off);
+                    Text::new("Reset: [OK Defaults]", Point::new(4, y3 + 7), inv_style).draw(lcd).ok();
+                } else {
+                    Text::new("Reset: [OK Defaults]", Point::new(4, y3 + 7), text_style).draw(lcd).ok();
+                }
 
                 Line::new(Point::new(0, 52), Point::new(127, 52)).into_styled(border_style).draw(lcd).ok();
-                Text::new("[UP/DN] Char  [OK] Next", Point::new(2, 62), text_style).draw(lcd).ok();
+                if self.editing {
+                    Text::new("[OK] Next Char [ESC] Done", Point::new(2, 62), text_style).draw(lcd).ok();
+                } else {
+                    Text::new("[OK] Select    [ESC] Back", Point::new(2, 62), text_style).draw(lcd).ok();
+                }
             }
 
             MenuState::ChannelReverse => {
-                let active_idx = storage.radio.active_model as usize;
                 const CH_COUNT: usize = 14;
+                let active_idx = storage.radio.active_model as usize;
 
                 if cancel_pressed {
                     storage::save_storage(storage);
                     self.state = MenuState::MainMenu;
                     self.selected_item = 2;
+                    self.scroll_offset = 0;
                     self.waiting_release = true;
                     buzzer.click();
                     return;
@@ -558,51 +656,130 @@ impl MenuController {
             MenuState::ThrottleCurve => {
                 let active_idx = storage.radio.active_model as usize;
                 let pts_count = if storage.models[active_idx].thr_curve_pts == 9 { 9 } else { 5 };
-                let max_items = 2 + pts_count; // Item 0: Pts mode, Item 1: Smooth, Item 2..: Points
+                let max_items = 2 + pts_count; // Item 0: Pts mode, Item 1: Smooth, Item 2..(2+pts_count-1): Points
 
-                if cancel_pressed {
-                    storage::save_storage(storage);
-                    self.state = MenuState::MainMenu;
-                    self.selected_item = 3;
-                    self.waiting_release = true;
-                    buzzer.click();
-                    return;
-                }
+                if self.editing {
+                    // Editing active curve point (selected_item >= 2)
+                    let pt_idx = self.selected_item.saturating_sub(2).min(pts_count - 1);
 
-                if ok_pressed {
-                    if self.selected_item == 0 {
-                        // Toggle 5-PT <-> 9-PT
-                        storage.models[active_idx].thr_curve_pts = if storage.models[active_idx].thr_curve_pts == 9 { 5 } else { 9 };
+                    if cancel_pressed {
+                        self.editing = false;
+                        storage::save_storage(storage);
                         buzzer.click();
-                    } else if self.selected_item == 1 {
-                        // Toggle Linear <-> Smooth (Catmull-Rom spline)
-                        storage.models[active_idx].thr_curve_smooth = if storage.models[active_idx].thr_curve_smooth == 0 { 1 } else { 0 };
-                        buzzer.click();
+                        return;
                     }
-                }
 
-                if self.selected_item >= 2 {
-                    let pt_idx = self.selected_item - 2;
                     if up_pressed {
                         if storage.models[active_idx].thr_curve[pt_idx] < 100 {
                             storage.models[active_idx].thr_curve[pt_idx] += 1;
                         }
                         buzzer.play_tone(2200, 20);
                     }
+
                     if down_pressed {
                         if storage.models[active_idx].thr_curve[pt_idx] > 0 {
                             storage.models[active_idx].thr_curve[pt_idx] -= 1;
                         }
                         buzzer.play_tone(2200, 20);
                     }
+
+                    if ok_pressed {
+                        // Confirm point and move to next point
+                        if self.selected_item + 1 < max_items {
+                            self.selected_item += 1;
+                        } else {
+                            self.editing = false;
+                        }
+                        storage::save_storage(storage);
+                        buzzer.click();
+                    } else if bind_pressed {
+                        // BIND key tabs to next point
+                        if self.selected_item + 1 < max_items {
+                            self.selected_item += 1;
+                        } else {
+                            self.selected_item = 2; // Wrap back to P1
+                        }
+                        storage::save_storage(storage);
+                        buzzer.click();
+                    }
                 } else {
+                    // Navigating fields
+                    if cancel_pressed {
+                        storage::save_storage(storage);
+                        self.state = MenuState::MainMenu;
+                        self.selected_item = 3;
+                        self.waiting_release = true;
+                        buzzer.click();
+                        return;
+                    }
+
                     if down_pressed {
                         self.selected_item = (self.selected_item + 1) % max_items;
                         buzzer.play_tone(2200, 20);
                     }
+
                     if up_pressed {
-                        self.selected_item = if self.selected_item == 0 { max_items - 1 } else { self.selected_item - 1 };
+                        self.selected_item = if self.selected_item == 0 {
+                            max_items - 1
+                        } else {
+                            self.selected_item - 1
+                        };
                         buzzer.play_tone(2200, 20);
+                    }
+
+                    if bind_pressed {
+                        // Jump into points or cycle through points
+                        if self.selected_item < 2 {
+                            self.selected_item = 2;
+                        } else {
+                            self.selected_item = (self.selected_item + 1) % max_items;
+                            if self.selected_item < 2 {
+                                self.selected_item = 2;
+                            }
+                        }
+                        buzzer.click();
+                    }
+
+                    if ok_pressed {
+                        if self.selected_item == 0 {
+                            // Toggle 5-PT <-> 9-PT with resampling so 9-PT is never flat zero
+                            if storage.models[active_idx].thr_curve_pts == 5 {
+                                let c = storage.models[active_idx].thr_curve;
+                                storage.models[active_idx].thr_curve = [
+                                    c[0],
+                                    ((c[0] as u16 + c[1] as u16) / 2) as u8,
+                                    c[1],
+                                    ((c[1] as u16 + c[2] as u16) / 2) as u8,
+                                    c[2],
+                                    ((c[2] as u16 + c[3] as u16) / 2) as u8,
+                                    c[3],
+                                    ((c[3] as u16 + c[4] as u16) / 2) as u8,
+                                    c[4],
+                                ];
+                                storage.models[active_idx].thr_curve_pts = 9;
+                            } else {
+                                let c = storage.models[active_idx].thr_curve;
+                                storage.models[active_idx].thr_curve = [
+                                    c[0], c[2], c[4], c[6], c[8], 0, 0, 0, 0,
+                                ];
+                                storage.models[active_idx].thr_curve_pts = 5;
+                            }
+                            storage::save_storage(storage);
+                            buzzer.click();
+                        } else if self.selected_item == 1 {
+                            // Toggle Linear <-> Smooth (Catmull-Rom spline)
+                            storage.models[active_idx].thr_curve_smooth = if storage.models[active_idx].thr_curve_smooth == 0 {
+                                1
+                            } else {
+                                0
+                            };
+                            storage::save_storage(storage);
+                            buzzer.click();
+                        } else {
+                            // Enter edit mode for selected point
+                            self.editing = true;
+                            buzzer.click();
+                        }
                     }
                 }
 
@@ -612,24 +789,55 @@ impl MenuController {
 
                 // Left side: Mode & active point info
                 let mode_str = if storage.models[active_idx].thr_curve_pts == 9 { "9-PT" } else { "5-PT" };
-                Text::new("Pts:", Point::new(2, 21), text_style).draw(lcd).ok();
-                Text::new(mode_str, Point::new(32, 21), text_style).draw(lcd).ok();
+                let is_sel_pts = !self.editing && self.selected_item == 0;
+                if is_sel_pts {
+                    Rectangle::new(Point::new(2, 13), Size::new(70, 9)).into_styled(fill_style).draw(lcd).ok();
+                    let inv_style = MonoTextStyle::new(&FONT_6X10, BinaryColor::Off);
+                    Text::new("Pts:", Point::new(4, 20), inv_style).draw(lcd).ok();
+                    Text::new(mode_str, Point::new(32, 20), inv_style).draw(lcd).ok();
+                } else {
+                    Text::new("Pts:", Point::new(4, 20), text_style).draw(lcd).ok();
+                    Text::new(mode_str, Point::new(32, 20), text_style).draw(lcd).ok();
+                }
 
                 let smooth_str = if storage.models[active_idx].thr_curve_smooth != 0 { "SMOOTH" } else { "LINEAR" };
-                Text::new("Crv:", Point::new(2, 31), text_style).draw(lcd).ok();
-                Text::new(smooth_str, Point::new(32, 31), text_style).draw(lcd).ok();
+                let is_sel_crv = !self.editing && self.selected_item == 1;
+                if is_sel_crv {
+                    Rectangle::new(Point::new(2, 23), Size::new(70, 9)).into_styled(fill_style).draw(lcd).ok();
+                    let inv_style = MonoTextStyle::new(&FONT_6X10, BinaryColor::Off);
+                    Text::new("Crv:", Point::new(4, 30), inv_style).draw(lcd).ok();
+                    Text::new(smooth_str, Point::new(32, 30), inv_style).draw(lcd).ok();
+                } else {
+                    Text::new("Crv:", Point::new(4, 30), text_style).draw(lcd).ok();
+                    Text::new(smooth_str, Point::new(32, 30), text_style).draw(lcd).ok();
+                }
 
                 if self.selected_item >= 2 {
                     let pt_idx = self.selected_item - 2;
                     let val = storage.models[active_idx].thr_curve[pt_idx];
-                    let mut p_buf = *b"P1:  %";
+                    let mut p_buf = *b"P1:  0%";
                     p_buf[1] = b'1' + pt_idx as u8;
-                    p_buf[3] = b'0' + (val / 10);
-                    p_buf[4] = b'0' + (val % 10);
-                    let p_str = core::str::from_utf8(&p_buf).unwrap_or("P?:--%");
-                    Text::new(p_str, Point::new(2, 45), text_style).draw(lcd).ok();
+                    if val >= 100 {
+                        p_buf[3] = b'1';
+                        p_buf[4] = b'0';
+                        p_buf[5] = b'0';
+                    } else {
+                        p_buf[3] = b' ';
+                        p_buf[4] = b'0' + (val / 10);
+                        p_buf[5] = b'0' + (val % 10);
+                    }
+                    let p_str = core::str::from_utf8(&p_buf).unwrap_or("P?:---%");
+
+                    if self.editing {
+                        Rectangle::new(Point::new(2, 35), Size::new(70, 11)).into_styled(fill_style).draw(lcd).ok();
+                        let inv_style = MonoTextStyle::new(&FONT_6X10, BinaryColor::Off);
+                        Text::new(p_str, Point::new(4, 44), inv_style).draw(lcd).ok();
+                    } else {
+                        Rectangle::new(Point::new(2, 35), Size::new(70, 11)).into_styled(border_style).draw(lcd).ok();
+                        Text::new(p_str, Point::new(4, 44), text_style).draw(lcd).ok();
+                    }
                 } else {
-                    Text::new("Select Pt", Point::new(2, 45), text_style).draw(lcd).ok();
+                    Text::new("Pts: 1..5", Point::new(4, 44), text_style).draw(lcd).ok();
                 }
 
                 // Right side: Graph box (x = 76..124, y = 13..49)
@@ -647,8 +855,29 @@ impl MenuController {
                     Pixel(Point::new(77 + px, py), BinaryColor::On).draw(lcd).ok();
                 }
 
+                // Draw point indicator dot on graph for selected point
+                if self.selected_item >= 2 {
+                    let pt_idx = self.selected_item - 2;
+                    let input_pct = (pt_idx as u32 * 1000) / (pts_count as u32 - 1);
+                    let val = storage.models[active_idx].thr_curve[pt_idx];
+                    let dot_x = 77 + ((input_pct * 46) / 1000) as i32;
+                    let dot_y = 48 - (((val as i32 * 10) * 34) / 1000);
+
+                    for dy in -1..=1 {
+                        for dx in -1..=1 {
+                            Pixel(Point::new(dot_x + dx, dot_y + dy), BinaryColor::On).draw(lcd).ok();
+                        }
+                    }
+                }
+
                 Line::new(Point::new(0, 52), Point::new(127, 52)).into_styled(border_style).draw(lcd).ok();
-                Text::new("[OK] Mode     [ESC] Back", Point::new(2, 62), text_style).draw(lcd).ok();
+                if self.editing {
+                    Text::new("[OK] Next Pt   [ESC] Done", Point::new(2, 62), text_style).draw(lcd).ok();
+                } else if self.selected_item >= 2 {
+                    Text::new("[OK] Edit Pt   [ESC] Back", Point::new(2, 62), text_style).draw(lcd).ok();
+                } else {
+                    Text::new("[OK] Toggle    [ESC] Back", Point::new(2, 62), text_style).draw(lcd).ok();
+                }
             }
 
             MenuState::RadioSetup => {
@@ -804,7 +1033,7 @@ impl MenuController {
                 }
 
                 if ok_pressed {
-                    rf::set_bind_mode(true);
+                    self.request_bind = true;
                     self.state = MenuState::Closed; // Exit to main view to observe binding banner & cancel
                     buzzer.click();
                     return;
@@ -831,7 +1060,7 @@ impl MenuController {
                 Text::new(rx_str, Point::new(46, 42), text_style).draw(lcd).ok();
 
                 Line::new(Point::new(0, 52), Point::new(127, 52)).into_styled(border_style).draw(lcd).ok();
-                Text::new("[ESC] Back", Point::new(38, 62), text_style).draw(lcd).ok();
+                Text::new("[OK] Bind RX  [ESC] Back", Point::new(2, 62), text_style).draw(lcd).ok();
             }
 
             MenuState::ChannelMonitor => {

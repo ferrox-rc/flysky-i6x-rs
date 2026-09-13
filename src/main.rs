@@ -6,7 +6,7 @@ use stm32f0xx_hal as _;
 
 use cortex_m_rt::entry;
 use embedded_graphics::{
-    mono_font::{ascii::FONT_6X10, MonoTextStyle},
+    mono_font::{ascii::FONT_4X6, ascii::FONT_6X10, MonoTextStyle},
     pixelcolor::BinaryColor,
     prelude::*,
     primitives::{Line, PrimitiveStyle, Rectangle},
@@ -30,11 +30,25 @@ use display::St7567;
 
 const HEX_CHARS: &[u8; 16] = b"0123456789ABCDEF";
 
+#[allow(dead_code)]
 fn u16_to_hex(val: u16, buf: &mut [u8; 4]) {
     buf[0] = HEX_CHARS[((val >> 12) & 0x0F) as usize];
     buf[1] = HEX_CHARS[((val >> 8) & 0x0F) as usize];
     buf[2] = HEX_CHARS[((val >> 4) & 0x0F) as usize];
     buf[3] = HEX_CHARS[(val & 0x0F) as usize];
+}
+
+fn u32_to_hex(val: u32, buf: &mut [u8; 8]) {
+    for i in 0..8 {
+        buf[7 - i] = HEX_CHARS[((val >> (i * 4)) & 0x0F) as usize];
+    }
+}
+
+fn u16_to_dec_4(val: u16, buf: &mut [u8; 4]) {
+    buf[0] = b'0' + ((val / 1000) % 10) as u8;
+    buf[1] = b'0' + ((val / 100) % 10) as u8;
+    buf[2] = b'0' + ((val / 10) % 10) as u8;
+    buf[3] = b'0' + (val % 10) as u8;
 }
 
 /// Format voltage in mV to "X.YYV" or "XX.YYV"
@@ -323,6 +337,9 @@ fn main() -> ! {
     let mut bl_timer_ms: u32 = 30_000;
     let mut prev_stick_sample = 2048u16;
     let mut prev_bind_key = bind_on_boot;
+    let mut flight_page: usize = 0;
+    let mut bind_hold_ms: u32 = 0;
+    let mut bind_was_held: bool = false;
 
     loop {
         // Poll continuous DMA inputs
@@ -403,7 +420,7 @@ fn main() -> ! {
         let telem = rf::get_telemetry();
         let is_binding = rf::is_binding();
 
-        // Check dedicated Bind key (PF2) and Cancel key (bit 11) for binding control
+        // Check dedicated Bind key (PF2) and Cancel key (bit 11) for binding and page navigation
         let bind_key_raw = (keys & (1 << 12)) != 0;
         let bind_pressed = bind_key_raw && !prev_bind_key;
         prev_bind_key = bind_key_raw;
@@ -415,9 +432,29 @@ fn main() -> ! {
                 rf::set_bind_mode(false);
                 buzzer.click();
             }
-        } else if bind_pressed {
-            rf::set_bind_mode(true);
-            buzzer.click();
+        } else if menu_controller.is_active() || calib_wizard.is_active() {
+            // Inside menus: bind key is handled by the menu without side effects
+            bind_hold_ms = 0;
+            bind_was_held = false;
+        } else {
+            // Flight dashboard active:
+            // - Hold BIND (PF2) >= 1000ms: trigger AFHDS 2A binding mode
+            // - Tap BIND (release 40..1000ms): cycle flight display page (0 -> 1 -> 2 -> 0)
+            if bind_key_raw {
+                bind_hold_ms = bind_hold_ms.saturating_add(20);
+                if bind_hold_ms >= 1000 && !bind_was_held {
+                    rf::set_bind_mode(true);
+                    buzzer.play_tone(2400, 150);
+                    bind_was_held = true;
+                }
+            } else {
+                if !bind_was_held && bind_hold_ms >= 40 {
+                    flight_page = (flight_page + 1) % 3;
+                    buzzer.play_tone(2200, 30);
+                }
+                bind_hold_ms = 0;
+                bind_was_held = false;
+            }
         }
 
         // Persist newly bound RX ID safely to Flash outside ISR
@@ -457,6 +494,12 @@ fn main() -> ! {
             if menu_controller.request_calibration {
                 calib_wizard.start(&mut buzzer);
                 menu_controller.request_calibration = false;
+            }
+
+            if menu_controller.request_bind {
+                rf::set_bind_mode(true);
+                menu_controller.request_bind = false;
+                buzzer.play_tone(2400, 150);
             }
 
             lcd.flush();
@@ -562,94 +605,210 @@ fn main() -> ! {
             .draw(&mut lcd)
             .ok();
 
-        // --- Stick Channel Bar Graphs (y = 13..44) ---
-        let mut pct_buf = [0u8; 5];
+        match flight_page {
+            0 => {
+                // --- Page 0: Primary Gimbals & Trims (y = 13..44) ---
+                let mut pct_buf = [0u8; 5];
 
-        // CH1: Roll / Aileron
-        Text::new("A", Point::new(2, 19), text_style).draw(&mut lcd).ok();
-        draw_channel_gauge(&mut lcd, 12, 13, 76, 7, state.sticks.roll, trims.values.roll);
-        let p1 = format_percent(state.sticks.roll, &mut pct_buf);
-        Text::new(p1, Point::new(92, 19), text_style).draw(&mut lcd).ok();
+                // CH1: Roll / Aileron
+                Text::new("A", Point::new(2, 19), text_style).draw(&mut lcd).ok();
+                draw_channel_gauge(&mut lcd, 12, 13, 76, 7, state.sticks.roll, trims.values.roll);
+                let p1 = format_percent(state.sticks.roll, &mut pct_buf);
+                Text::new(p1, Point::new(92, 19), text_style).draw(&mut lcd).ok();
 
-        // CH2: Pitch / Elevator
-        Text::new("E", Point::new(2, 27), text_style).draw(&mut lcd).ok();
-        draw_channel_gauge(&mut lcd, 12, 21, 76, 7, state.sticks.pitch, trims.values.pitch);
-        let p2 = format_percent(state.sticks.pitch, &mut pct_buf);
-        Text::new(p2, Point::new(92, 27), text_style).draw(&mut lcd).ok();
+                // CH2: Pitch / Elevator
+                Text::new("E", Point::new(2, 27), text_style).draw(&mut lcd).ok();
+                draw_channel_gauge(&mut lcd, 12, 21, 76, 7, state.sticks.pitch, trims.values.pitch);
+                let p2 = format_percent(state.sticks.pitch, &mut pct_buf);
+                Text::new(p2, Point::new(92, 27), text_style).draw(&mut lcd).ok();
 
-        // CH3: Throttle
-        Text::new("T", Point::new(2, 35), text_style).draw(&mut lcd).ok();
-        let thr_trim = if storage.radio.throttle_trim != 0 { trims.values.throttle } else { 0 };
-        draw_progress_bar(&mut lcd, 12, 29, 76, 7, state.sticks.throttle, thr_trim);
-        let p3 = format_throttle_percent(state.sticks.throttle, &mut pct_buf);
-        Text::new(p3, Point::new(92, 35), text_style).draw(&mut lcd).ok();
+                // CH3: Throttle
+                Text::new("T", Point::new(2, 35), text_style).draw(&mut lcd).ok();
+                let thr_trim = if storage.radio.throttle_trim != 0 { trims.values.throttle } else { 0 };
+                draw_progress_bar(&mut lcd, 12, 29, 76, 7, state.sticks.throttle, thr_trim);
+                let p3 = format_throttle_percent(state.sticks.throttle, &mut pct_buf);
+                Text::new(p3, Point::new(92, 35), text_style).draw(&mut lcd).ok();
 
-        // CH4: Yaw / Rudder
-        Text::new("R", Point::new(2, 43), text_style).draw(&mut lcd).ok();
-        draw_channel_gauge(&mut lcd, 12, 37, 76, 7, state.sticks.yaw, trims.values.yaw);
-        let p4 = format_percent(state.sticks.yaw, &mut pct_buf);
-        Text::new(p4, Point::new(92, 43), text_style).draw(&mut lcd).ok();
+                // CH4: Yaw / Rudder
+                Text::new("R", Point::new(2, 43), text_style).draw(&mut lcd).ok();
+                draw_channel_gauge(&mut lcd, 12, 37, 76, 7, state.sticks.yaw, trims.values.yaw);
+                let p4 = format_percent(state.sticks.yaw, &mut pct_buf);
+                Text::new(p4, Point::new(92, 43), text_style).draw(&mut lcd).ok();
 
-        // Separator above lower status
-        Line::new(Point::new(0, 46), Point::new(127, 46))
-            .into_styled(sep_style)
-            .draw(&mut lcd)
-            .ok();
+                // Separator above lower status
+                Line::new(Point::new(0, 46), Point::new(127, 46))
+                    .into_styled(sep_style)
+                    .draw(&mut lcd)
+                    .ok();
 
-        // --- Switches & Pots Line (y = 48..54) ---
-        // SA..SD states
-        let mut sw_buf = *b"A:U B:U C:U D:U";
-        sw_buf[2] = state.switches.sa.as_char() as u8;
-        sw_buf[6] = state.switches.sb.as_char() as u8;
-        sw_buf[10] = state.switches.sc.as_char() as u8;
-        sw_buf[14] = state.switches.sd.as_char() as u8;
-        let sw_str = core::str::from_utf8(&sw_buf).unwrap_or("SW");
-        Text::new(sw_str, Point::new(2, 54), text_style).draw(&mut lcd).ok();
+                // Switches & Pots Line (y = 48..54)
+                let mut sw_buf = *b"A:U B:U C:U D:U";
+                sw_buf[2] = state.switches.sa.as_char() as u8;
+                sw_buf[6] = state.switches.sb.as_char() as u8;
+                sw_buf[10] = state.switches.sc.as_char() as u8;
+                sw_buf[14] = state.switches.sd.as_char() as u8;
+                let sw_str = core::str::from_utf8(&sw_buf).unwrap_or("SW");
+                Text::new(sw_str, Point::new(2, 54), text_style).draw(&mut lcd).ok();
 
-        // Pots: V1 / V2 on right (scaled 0..9 across full turn)
-        let mut pot_buf = *b"V:0/0";
-        let p1 = (((state.pots.vr1 as i32 + 1000) * 9) / 2000).clamp(0, 9) as u8;
-        let p2 = (((state.pots.vr2 as i32 + 1000) * 9) / 2000).clamp(0, 9) as u8;
-        pot_buf[2] = b'0' + p1;
-        pot_buf[4] = b'0' + p2;
-        let pot_str = core::str::from_utf8(&pot_buf).unwrap_or("V:0/0");
-        Text::new(pot_str, Point::new(96, 54), text_style).draw(&mut lcd).ok();
+                // Pots: V1 / V2 on right (scaled 0..9 across full turn)
+                let mut pot_buf = *b"V:0/0";
+                let p1 = (((state.pots.vr1 as i32 + 1000) * 9) / 2000).clamp(0, 9) as u8;
+                let p2 = (((state.pots.vr2 as i32 + 1000) * 9) / 2000).clamp(0, 9) as u8;
+                pot_buf[2] = b'0' + p1;
+                pot_buf[4] = b'0' + p2;
+                let pot_str = core::str::from_utf8(&pot_buf).unwrap_or("V:0/0");
+                Text::new(pot_str, Point::new(96, 54), text_style).draw(&mut lcd).ok();
 
-        // --- Bottom Diagnostic / Key Line (y = 56..63) ---
-        if is_binding {
-            Text::new("[ESC] Finish Bind", Point::new(12, 63), text_style)
-                .draw(&mut lcd)
-                .ok();
-        } else {
-            if trims.last_active != trim::ActiveTrim::None {
-                let mut trm_buf = [0u8; 9];
-                let val = match trims.last_active {
-                    trim::ActiveTrim::Roll => trims.values.roll,
-                    trim::ActiveTrim::Pitch => trims.values.pitch,
-                    trim::ActiveTrim::Throttle => trims.values.throttle,
-                    trim::ActiveTrim::Yaw => trims.values.yaw,
-                    trim::ActiveTrim::None => 0,
-                };
-                let trm_str = format_trim(trims.last_active, val, &mut trm_buf);
-                Text::new(trm_str, Point::new(2, 63), text_style).draw(&mut lcd).ok();
-            } else {
-                let mut key_buf = [b'0'; 4];
-                u16_to_hex(keys, &mut key_buf);
-                let key_str = core::str::from_utf8(&key_buf).unwrap_or("0000");
-
-                Text::new("KEY:", Point::new(2, 63), text_style).draw(&mut lcd).ok();
-                Text::new(key_str, Point::new(28, 63), text_style).draw(&mut lcd).ok();
+                // Bottom Diagnostic / Key Line (y = 56..63)
+                if is_binding {
+                    Text::new("[ESC] Finish Bind", Point::new(12, 63), text_style).draw(&mut lcd).ok();
+                } else if trims.last_active != trim::ActiveTrim::None {
+                    let mut trm_buf = [0u8; 9];
+                    let val = match trims.last_active {
+                        trim::ActiveTrim::Roll => trims.values.roll,
+                        trim::ActiveTrim::Pitch => trims.values.pitch,
+                        trim::ActiveTrim::Throttle => trims.values.throttle,
+                        trim::ActiveTrim::Yaw => trims.values.yaw,
+                        trim::ActiveTrim::None => 0,
+                    };
+                    let trm_str = format_trim(trims.last_active, val, &mut trm_buf);
+                    Text::new(trm_str, Point::new(2, 63), text_style).draw(&mut lcd).ok();
+                } else {
+                    Text::new("P1/3", Point::new(2, 63), text_style).draw(&mut lcd).ok();
+                    Text::new("Hold OK:Menu", Point::new(46, 63), text_style).draw(&mut lcd).ok();
+                }
             }
 
-            if telem.connected && telem.rx_voltage_mv > 0 {
-                let mut rxv_buf = [0u8; 6];
-                let rxv_str = format_vbat(telem.rx_voltage_mv, &mut rxv_buf);
-                Text::new("RX:", Point::new(58, 63), text_style).draw(&mut lcd).ok();
-                Text::new(rxv_str, Point::new(76, 63), text_style).draw(&mut lcd).ok();
-            } else if (keys & (1 << 12)) != 0 {
-                Text::new("BIND", Point::new(58, 63), text_style).draw(&mut lcd).ok();
-            } else {
-                Text::new("Hold OK:Menu", Point::new(54, 63), text_style).draw(&mut lcd).ok();
+            1 => {
+                // --- Page 1: 14-Channel Dual Column Monitor (y = 13..53) ---
+                let text_style_small = MonoTextStyle::new(&FONT_4X6, BinaryColor::On);
+                let border_style = PrimitiveStyle::with_stroke(BinaryColor::On, 1);
+                let fill_style = PrimitiveStyle::with_fill(BinaryColor::On);
+
+                // Col 0 (CH 1..7) at x = 2..62, Col 1 (CH 8..14) at x = 66..126
+                for col in 0..2 {
+                    let col_x = if col == 0 { 2 } else { 66 };
+                    let start_ch = col * 7;
+
+                    for row in 0..7 {
+                        let ch = start_ch + row;
+                        let y = 13 + (row as i32 * 6);
+
+                        // Label: " 1:" .. "14:"
+                        let mut lbl_buf = *b"  :";
+                        if ch + 1 >= 10 {
+                            lbl_buf[0] = b'1';
+                            lbl_buf[1] = b'0' + ((ch + 1) % 10) as u8;
+                        } else {
+                            lbl_buf[0] = b' ';
+                            lbl_buf[1] = b'1' + ch as u8;
+                        }
+                        let lbl_str = core::str::from_utf8(&lbl_buf).unwrap_or("??:");
+                        Text::new(lbl_str, Point::new(col_x, y + 5), text_style_small).draw(&mut lcd).ok();
+
+                        // Bar box: width 22, height 5
+                        let us = rf_chs[ch].clamp(1000, 2000);
+                        Rectangle::new(Point::new(col_x + 13, y), Size::new(22, 5))
+                            .into_styled(border_style)
+                            .draw(&mut lcd)
+                            .ok();
+                        let fill_w = (((us - 1000) as u32 * 20) / 1000).min(20);
+                        if fill_w > 0 {
+                            Rectangle::new(Point::new(col_x + 14, y + 1), Size::new(fill_w, 3))
+                                .into_styled(fill_style)
+                                .draw(&mut lcd)
+                                .ok();
+                        }
+
+                        // Value: "1500"
+                        let mut val_buf = [0u8; 4];
+                        u16_to_dec_4(us, &mut val_buf);
+                        let val_str = core::str::from_utf8(&val_buf).unwrap_or("1500");
+                        Text::new(val_str, Point::new(col_x + 37, y + 5), text_style_small).draw(&mut lcd).ok();
+                    }
+                }
+
+                // Vertical divider line between columns
+                Line::new(Point::new(64, 12), Point::new(64, 53))
+                    .into_styled(sep_style)
+                    .draw(&mut lcd)
+                    .ok();
+
+                // Separator above footer
+                Line::new(Point::new(0, 54), Point::new(127, 54))
+                    .into_styled(sep_style)
+                    .draw(&mut lcd)
+                    .ok();
+
+                // Footer
+                if is_binding {
+                    Text::new("[ESC] Finish Bind", Point::new(12, 63), text_style).draw(&mut lcd).ok();
+                } else {
+                    Text::new("P2/3", Point::new(2, 63), text_style).draw(&mut lcd).ok();
+                    Text::new("14-CH MONITOR", Point::new(36, 63), text_style).draw(&mut lcd).ok();
+                }
+            }
+
+            _ => {
+                // --- Page 2: Model & Telemetry Dashboard (y = 13..53) ---
+                let active = storage.active_model();
+
+                // Line 1 (y = 21): Model Name & Type
+                let m_name = core::str::from_utf8(&active.name).unwrap_or("MODEL");
+                Text::new(m_name, Point::new(2, 21), text_style).draw(&mut lcd).ok();
+
+                let type_str = match active.model_type {
+                    1 => "GLIDER",
+                    2 => "HELI",
+                    3 => "QUAD",
+                    _ => "AIRPLANE",
+                };
+                Text::new(type_str, Point::new(74, 21), text_style).draw(&mut lcd).ok();
+
+                // Line 2 (y = 31): Receiver ID & AFHDS 2A
+                let mut rx_buf = [b'0'; 8];
+                u32_to_hex(active.rx_id, &mut rx_buf);
+                let rx_str = core::str::from_utf8(&rx_buf).unwrap_or("00000000");
+                Text::new("RxID:", Point::new(2, 31), text_style).draw(&mut lcd).ok();
+                Text::new(rx_str, Point::new(36, 31), text_style).draw(&mut lcd).ok();
+
+                // Line 3 (y = 41): Throttle Curve info
+                let c_pts = if active.thr_curve_pts == 9 { "9-PT" } else { "5-PT" };
+                let c_sm = if active.thr_curve_smooth != 0 { "SMOOTH" } else { "LINEAR" };
+                Text::new("TCrv:", Point::new(2, 41), text_style).draw(&mut lcd).ok();
+                Text::new(c_pts, Point::new(36, 41), text_style).draw(&mut lcd).ok();
+                Text::new(c_sm, Point::new(74, 41), text_style).draw(&mut lcd).ok();
+
+                // Line 4 (y = 51): Telemetry Voltage & RSSI
+                if telem.connected {
+                    let mut rxv_buf = [0u8; 6];
+                    let rxv_str = format_vbat(telem.rx_voltage_mv, &mut rxv_buf);
+                    Text::new("RX:", Point::new(2, 51), text_style).draw(&mut lcd).ok();
+                    Text::new(rxv_str, Point::new(22, 51), text_style).draw(&mut lcd).ok();
+
+                    let mut r_buf = *b"RSSI:   %";
+                    let r = telem.rssi.min(100);
+                    r_buf[5] = b'0' + (r / 10);
+                    r_buf[6] = b'0' + (r % 10);
+                    let r_str = core::str::from_utf8(&r_buf).unwrap_or("RSSI:--%");
+                    Text::new(r_str, Point::new(64, 51), text_style).draw(&mut lcd).ok();
+                } else {
+                    Text::new("AFHDS 2A: DISCONNECTED", Point::new(2, 51), text_style).draw(&mut lcd).ok();
+                }
+
+                // Separator above footer
+                Line::new(Point::new(0, 54), Point::new(127, 54))
+                    .into_styled(sep_style)
+                    .draw(&mut lcd)
+                    .ok();
+
+                // Footer
+                if is_binding {
+                    Text::new("[ESC] Finish Bind", Point::new(12, 63), text_style).draw(&mut lcd).ok();
+                } else {
+                    Text::new("P3/3", Point::new(2, 63), text_style).draw(&mut lcd).ok();
+                    Text::new("MODEL DASHBOARD", Point::new(28, 63), text_style).draw(&mut lcd).ok();
+                }
             }
         }
 
