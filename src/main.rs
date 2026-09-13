@@ -498,37 +498,41 @@ fn main() -> ! {
         Text::new(pot_str, Point::new(96, 54), text_style).draw(&mut lcd).ok();
 
         // --- Bottom Diagnostic / Key Line (y = 56..63) ---
-        if trims.last_active != trim::ActiveTrim::None {
-            let mut trm_buf = [0u8; 9];
-            let val = match trims.last_active {
-                trim::ActiveTrim::Roll => trims.values.roll,
-                trim::ActiveTrim::Pitch => trims.values.pitch,
-                trim::ActiveTrim::Throttle => trims.values.throttle,
-                trim::ActiveTrim::Yaw => trims.values.yaw,
-                trim::ActiveTrim::None => 0,
-            };
-            let trm_str = format_trim(trims.last_active, val, &mut trm_buf);
-            Text::new(trm_str, Point::new(2, 63), text_style).draw(&mut lcd).ok();
-        } else {
-            let mut key_buf = [b'0'; 4];
-            u16_to_hex(keys, &mut key_buf);
-            let key_str = core::str::from_utf8(&key_buf).unwrap_or("0000");
-
-            Text::new("KEY:", Point::new(2, 63), text_style).draw(&mut lcd).ok();
-            Text::new(key_str, Point::new(28, 63), text_style).draw(&mut lcd).ok();
-        }
-
         if is_binding {
-            Text::new("[ESC] Abort Bind", Point::new(22, 63), text_style).draw(&mut lcd).ok();
-        } else if telem.connected && telem.rx_voltage_mv > 0 {
-            let mut rxv_buf = [0u8; 6];
-            let rxv_str = format_vbat(telem.rx_voltage_mv, &mut rxv_buf);
-            Text::new("RX:", Point::new(58, 63), text_style).draw(&mut lcd).ok();
-            Text::new(rxv_str, Point::new(76, 63), text_style).draw(&mut lcd).ok();
-        } else if (keys & (1 << 12)) != 0 {
-            Text::new("BIND", Point::new(58, 63), text_style).draw(&mut lcd).ok();
+            Text::new("[ESC] Abort Bind", Point::new(16, 63), text_style)
+                .draw(&mut lcd)
+                .ok();
         } else {
-            Text::new("Hold OK:Cal", Point::new(56, 63), text_style).draw(&mut lcd).ok();
+            if trims.last_active != trim::ActiveTrim::None {
+                let mut trm_buf = [0u8; 9];
+                let val = match trims.last_active {
+                    trim::ActiveTrim::Roll => trims.values.roll,
+                    trim::ActiveTrim::Pitch => trims.values.pitch,
+                    trim::ActiveTrim::Throttle => trims.values.throttle,
+                    trim::ActiveTrim::Yaw => trims.values.yaw,
+                    trim::ActiveTrim::None => 0,
+                };
+                let trm_str = format_trim(trims.last_active, val, &mut trm_buf);
+                Text::new(trm_str, Point::new(2, 63), text_style).draw(&mut lcd).ok();
+            } else {
+                let mut key_buf = [b'0'; 4];
+                u16_to_hex(keys, &mut key_buf);
+                let key_str = core::str::from_utf8(&key_buf).unwrap_or("0000");
+
+                Text::new("KEY:", Point::new(2, 63), text_style).draw(&mut lcd).ok();
+                Text::new(key_str, Point::new(28, 63), text_style).draw(&mut lcd).ok();
+            }
+
+            if telem.connected && telem.rx_voltage_mv > 0 {
+                let mut rxv_buf = [0u8; 6];
+                let rxv_str = format_vbat(telem.rx_voltage_mv, &mut rxv_buf);
+                Text::new("RX:", Point::new(58, 63), text_style).draw(&mut lcd).ok();
+                Text::new(rxv_str, Point::new(76, 63), text_style).draw(&mut lcd).ok();
+            } else if (keys & (1 << 12)) != 0 {
+                Text::new("BIND", Point::new(58, 63), text_style).draw(&mut lcd).ok();
+            } else {
+                Text::new("Hold OK:Cal", Point::new(56, 63), text_style).draw(&mut lcd).ok();
+            }
         }
 
         // Flush frame to ST7567 LCD
