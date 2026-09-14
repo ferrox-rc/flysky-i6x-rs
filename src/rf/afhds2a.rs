@@ -195,12 +195,18 @@ impl Afhds2a {
                 }
             }
             RadioMode::Normal => {
-                channel = self.hopping_table[self.hopping_idx as usize];
-                self.hopping_idx = (self.hopping_idx + 1) % (NUM_FREQ as u8);
+                channel = self.hopping_table[(self.hopping_idx as usize) & 0x0F];
+                self.hopping_idx = (self.hopping_idx + 1) & 0x0F;
 
                 // Alternate antenna on each frequency hop for spatial diversity
                 if self.hopping_idx != 0 {
                     spi::switch_antenna();
+                }
+
+                // Autonomous periodic failsafe broadcast: every 1,569 packets (~6.0s at 260 Hz),
+                // refresh receiver failsafe register memory even if downlink frames were dropped.
+                if self.next_packet_type == PacketType::Sticks && (self.telemetry.packets_sent % 1569 == 0) {
+                    self.next_packet_type = PacketType::Failsafe;
                 }
 
                 match self.next_packet_type {
@@ -236,14 +242,16 @@ impl Afhds2a {
                 // TX completed! Switch to RX mode to listen for downlink telemetry
                 self.sub_state = SubState::ListeningRx;
 
-                // Always enable RX LNA in both Binding and Normal modes for reliable reception
-                spi::set_tx_rx_mode(spi::RF_MODE_RX_EN);
-
                 if self.mode == RadioMode::Binding {
+                    // Turn LNA off during bind RX to prevent front-end swamping at near range (< 20 cm)
+                    spi::set_tx_rx_mode(spi::RF_MODE_OFF);
                     // Cycle bind searching phases 1 -> 2 -> 3 -> 1
                     if self.bind_phase < 4 {
                         self.bind_phase = (self.bind_phase % 3) + 1;
                     }
+                } else {
+                    // Normal mode: enable RX LNA for maximum downlink sensitivity
+                    spi::set_tx_rx_mode(spi::RF_MODE_RX_EN);
                 }
 
                 a7105::strobe(a7105::STROBE_RX);
@@ -460,16 +468,21 @@ pub fn calculate_hopping_table(tx_id: u32) -> [u8; NUM_FREQ] {
     let mut idx = 0;
     let mut rnd = tx_id;
     let tx_byte3 = ((tx_id >> 24) & 0xFF) as u8;
+    let mut attempts = 0u32;
 
     while idx < NUM_FREQ {
+        attempts += 1;
         let band_no = (((idx << 1) | ((idx >> 1) & 0x01)) as u8 + tx_byte3) & 0x03;
         rnd = rnd.wrapping_mul(0x0019_660D).wrapping_add(0x3C6E_F35F);
 
         let next_ch = band_no * 41 + 1 + (((rnd >> idx) % 41) as u8);
 
+        // Relax channel separation if excessive collisions occur on pathological UIDs
+        let min_sep = if attempts > 500 { 1 } else if attempts > 200 { 3 } else { 5 };
+
         let mut valid = true;
         for &h in hopping.iter().take(idx) {
-            if next_ch.abs_diff(h) < 5 {
+            if next_ch.abs_diff(h) < min_sep {
                 valid = false;
                 break;
             }

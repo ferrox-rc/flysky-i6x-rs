@@ -14,7 +14,7 @@ The standard OpenTX/EdgeTX port for the FS-i6X ([OpenI6X](https://github.com/Ope
 - **Zero-cost abstractions:** Microcontroller-native, static allocation, no heap allocations (`no_std`).
 - **Hard Real-Time Concurrency:** Priority-driven hardware interrupt scheduling (`TIM16` 260 Hz packet sync, `EXTI2` RF ready) paired with a high-rate decoupled flight pipeline and throttled 30 Hz display loop.
 - **Strict Scope:** Dedicated support for the built-in hardware (A7105 AFHDS2A + i-BUS), 4-axis gimbals, switches, trims, 20-model storage, 14-channel matrix mixer, and a 128×64 monochrome UI.
-- **Measured Footprint:** **51.7 KB Flash** (52,964 bytes, leaving >76 KB free / ~60% headroom) and **236 bytes static RAM** + 1 KB LCD framebuffer (leaving >90% SRAM free).
+- **Measured Footprint:** **52.9 KB Flash** (54,204 bytes, leaving >73 KB free / ~58% headroom) and **236 bytes static RAM** + 1 KB LCD framebuffer (leaving >90% SRAM free).
 
 ---
 
@@ -226,7 +226,7 @@ Comprehensive technical documentation is maintained in the [`docs/`](docs/) dire
 - [x] Dynamic compile-time firmware versioning (`CARGO_PKG_VERSION`) displayed in `System Info` menu.
 
 ### Current Firmware Footprint
-- **Flash ROM**: **51.7 KB** (52,964 bytes) used out of **128 KB** available (~60% / >76 KB free headroom).
+- **Flash ROM**: **52.9 KB** (54,204 bytes) used out of **128 KB** available (~58% / >73 KB free headroom).
 - **Static RAM**: **236 bytes** (`.data` 200B + `.bss` 36B) out of **16 KB** available (**>90% SRAM free**).
 - **Non-Volatile Storage**: **2,688 bytes** allocated across Pages 62 & 63 (1,408 bytes free headroom).
 

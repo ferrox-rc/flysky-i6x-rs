@@ -65,8 +65,8 @@ flowchart TD
 ## 4. Memory Footprint
 
 Measured on release builds (`thumbv6m-none-eabi`, opt-level = "z", LTO = "fat"):
-- **Firmware Binary**: **51.7 KB** (52,972 bytes) out of **128 KB** available.
-- **Free Program Space**: **~76.3 KB** (~60% Flash free headroom) remaining for future extensions.
+- **Firmware Binary**: **52.9 KB** (54,204 bytes) out of **128 KB** available.
+- **Free Program Space**: **~73.8 KB** (~58% Flash free headroom) remaining for future extensions.
 - **Non-Volatile Storage (Flash Pages 62–63)**: **2,688 bytes** allocated for global radio configuration and 20 full model profiles (1,408 bytes free headroom).
 - **SRAM**: **236 bytes** static allocation (`.data` 200 bytes + `.bss` 36 bytes) + 1024-byte framebuffer in RAM. **Over 90% of SRAM remains free**.
 - **Zero Heap**: Entirely static allocation; no dynamic heap allocations, no `alloc` crate, no risk of heap fragmentation.

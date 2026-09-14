@@ -204,7 +204,10 @@ pub fn init() {
     // 3. Calibrations recommended by A7105 datasheet:
     // IF Filter Bank Calibration
     write_reg(REG_CALC, 1);
-    while (read_reg(REG_CALC) & 1) != 0 {}
+    let mut timeout = 10_000u32;
+    while (read_reg(REG_CALC) & 1) != 0 && timeout > 0 {
+        timeout -= 1;
+    }
 
     // VCO Current Calibration
     write_reg(REG_VCO_CURCAL, 0x13);
@@ -215,12 +218,18 @@ pub fn init() {
     // Calibrate channel 0
     write_reg(REG_PLL_I, 0);
     write_reg(REG_CALC, 2);
-    while (read_reg(REG_CALC) & 2) != 0 {}
+    timeout = 10_000;
+    while (read_reg(REG_CALC) & 2) != 0 && timeout > 0 {
+        timeout -= 1;
+    }
 
     // Calibrate channel 0xA0 (160)
     write_reg(REG_PLL_I, 0xA0);
     write_reg(REG_CALC, 2);
-    while (read_reg(REG_CALC) & 2) != 0 {}
+    timeout = 10_000;
+    while (read_reg(REG_CALC) & 2) != 0 && timeout > 0 {
+        timeout -= 1;
+    }
 
     // Reset VCO Band Calibration to default center
     write_reg(REG_VCO_SBCAL_I, 0x0A);
@@ -237,9 +246,14 @@ pub fn set_power(power: u8) {
 }
 
 /// Write packet payload into TX FIFO, set RF channel, and strobe transmission.
-/// Matches OpenI6X A7105_WriteData sequence.
+/// Forces STANDBY mode before writing FIFO to prevent pointer corruption during RX.
 pub fn write_fifo(data: &[u8], channel: u8) {
-    // 1. Load packet payload into TX FIFO with write pointer reset
+    // 1. Force standby mode and switch front-end to TX before touching FIFO,
+    // aborting any active RX demodulation to prevent FIFO pointer corruption.
+    strobe(STROBE_STANDBY);
+    spi::set_tx_rx_mode(spi::RF_MODE_TX_EN);
+
+    // 2. Reset write pointer and load packet payload into TX FIFO
     spi::csn_low();
     spi::write_byte(STROBE_RST_WRPTR);
     spi::write_byte(REG_FIFO_DATA);
@@ -248,9 +262,7 @@ pub fn write_fifo(data: &[u8], channel: u8) {
     }
     spi::csn_high();
 
-    // 2. Force standby mode, switch front-end to TX, set PLL channel, strobe TX
-    strobe(STROBE_STANDBY);
-    spi::set_tx_rx_mode(spi::RF_MODE_TX_EN);
+    // 3. Set PLL channel and strobe transmission
     write_reg(REG_PLL_I, channel);
     strobe(STROBE_TX);
 }

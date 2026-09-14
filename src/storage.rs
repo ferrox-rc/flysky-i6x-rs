@@ -342,24 +342,34 @@ pub fn load_storage() -> RadioStorage {
 }
 
 /// Save complete storage to Flash (Pages 62 and 63).
+/// Wrapped in a critical section to prevent CPU bus stalls and ISR preemption during Flash programming.
 pub fn save_storage(storage: &RadioStorage) {
-    unsafe {
+    cortex_m::interrupt::free(|_| unsafe {
         // Unlock flash
         core::ptr::write_volatile(FLASH_KEYR, 0x4567_0123);
         core::ptr::write_volatile(FLASH_KEYR, 0xCDEF_89AB);
 
-        while (core::ptr::read_volatile(FLASH_SR) & 1) != 0 {}
+        let mut timeout = 1_000_000u32;
+        while (core::ptr::read_volatile(FLASH_SR) & 1) != 0 && timeout > 0 {
+            timeout -= 1;
+        }
 
         // Erase Page 62 (0x0801_F000)
         core::ptr::write_volatile(FLASH_CR, 1 << 1); // PER
         core::ptr::write_volatile(FLASH_AR, FLASH_STORAGE_ADDR as u32);
         core::ptr::write_volatile(FLASH_CR, (1 << 1) | (1 << 6)); // PER | STRT
-        while (core::ptr::read_volatile(FLASH_SR) & 1) != 0 {}
+        timeout = 1_000_000;
+        while (core::ptr::read_volatile(FLASH_SR) & 1) != 0 && timeout > 0 {
+            timeout -= 1;
+        }
 
         // Erase Page 63 (0x0801_F800)
         core::ptr::write_volatile(FLASH_AR, (FLASH_STORAGE_ADDR + 2048) as u32);
         core::ptr::write_volatile(FLASH_CR, (1 << 1) | (1 << 6)); // PER | STRT
-        while (core::ptr::read_volatile(FLASH_SR) & 1) != 0 {}
+        timeout = 1_000_000;
+        while (core::ptr::read_volatile(FLASH_SR) & 1) != 0 && timeout > 0 {
+            timeout -= 1;
+        }
         core::ptr::write_volatile(FLASH_CR, 0);
 
         // Program halfwords
@@ -372,12 +382,15 @@ pub fn save_storage(storage: &RadioStorage) {
         for i in 0..halfword_count {
             let hw = *src.add(i);
             core::ptr::write_volatile(dst.add(i), hw);
-            while (core::ptr::read_volatile(FLASH_SR) & 1) != 0 {}
+            timeout = 100_000;
+            while (core::ptr::read_volatile(FLASH_SR) & 1) != 0 && timeout > 0 {
+                timeout -= 1;
+            }
         }
 
         // Lock flash
         core::ptr::write_volatile(FLASH_CR, 1 << 7);
-    }
+    });
 }
 
 /// Convenience helper to load current RadioConfig.

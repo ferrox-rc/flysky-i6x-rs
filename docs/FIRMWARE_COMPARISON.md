@@ -12,7 +12,7 @@ The FlySky FS-i6X is an entry-level radio driven by an **ARM Cortex-M0 microcont
 
 - **The Stock Firmware** is closed-source, limited to 6–10 channels, offers minimal customization, and uses a non-deterministic polling loop with ~15–25 ms latency.
 - **OpenI6X** is an ambitious community port of OpenTX 2.3/2.4. OpenTX is a desktop-class, monolithic C++ operating system designed for 32-bit Cortex-M3/M4 radios with 512 KB–2 MB Flash (e.g. FrSky Taranis, RadioMaster TX16S). Porting it to the Cortex-M0 required aggressively stripping features (removing voice prompts, SD cards, Lua scripting, and model memory slots). Despite this, **OpenI6X consumes ~121 KB of the 128 KB Flash (&gt;94.5% capacity)**, leaving less than 7 KB of headroom.
-- **`flysky-i6x-rs`** is a clean-slate, bare-metal rewrite in **`no_std` Rust**. Rather than shoehorning a heavy OS into a small chip, it was built specifically for the FS-i6X hardware. It delivers hard real-time determinism, sub-4ms stick-to-air latency, modern hardware safety locks, 20 full model memories, 14-channel matrix mixer with aircraft templates, D/R & Expo, LCD contrast adjustment, dedicated 4-page telemetry dashboard, and comprehensive diagnostics while consuming **only ~51.7 KB of Flash (~40.4%)**, leaving **over 76 KB of Flash (>59%) free**.
+- **`flysky-i6x-rs`** is a clean-slate, bare-metal rewrite in **`no_std` Rust**. Rather than shoehorning a heavy OS into a small chip, it was built specifically for the FS-i6X hardware. It delivers hard real-time determinism, sub-4ms stick-to-air latency, modern hardware safety locks, 20 full model memories, 14-channel matrix mixer with aircraft templates, D/R & Expo, LCD contrast adjustment, dedicated 4-page telemetry dashboard, and comprehensive diagnostics while consuming **only ~52.9 KB of Flash (~41.3%)**, leaving **over 75 KB of Flash (>58%) free**.
 
 ---
 
@@ -21,8 +21,8 @@ The FlySky FS-i6X is an entry-level radio driven by an **ARM Cortex-M0 microcont
 | Technical Feature | Stock FlySky Firmware | OpenI6X (OpenTX 2.3/2.4 Port) | `flysky-i6x-rs` (Bare-Metal Rust) |
 | :--- | :--- | :--- | :--- |
 | **Language & Safety** | Proprietary C (Closed) | C++ (er9x/OpenTX lineage, raw pointers) | **100% `no_std` Rust (Memory-safe, 0 heap)** |
-| **Flash Memory Usage** | ~65 KB / 128 KB (~50%) | **~121 KB / 128 KB (94.5%)** | **51.7 KB / 128 KB (40.4%)** |
-| **Free Flash Headroom** | ~63 KB | **< 7 KB (< 5.5% free)** | **> 76 KB (> 59% free)** |
+| **Flash Memory Usage** | ~65 KB / 128 KB (~50%) | **~121 KB / 128 KB (94.5%)** | **52.9 KB / 128 KB (41.3%)** |
+| **Free Flash Headroom** | ~63 KB | **< 7 KB (< 5.5% free)** | **> 75 KB (> 58% free)** |
 | **SRAM Consumption** | ~6 KB / 16 KB | ~12.5–13.5 KB / 16 KB | **236 bytes static + 1 KB LCD (>90% free)** |
 | **Boot Time to RF Link** | ~1.5 seconds | ~2.5–3.5 seconds (Splash screen) | **< 30 milliseconds (Instantaneous)** |
 | **Stick-to-Antenna Latency** | 15–25 ms | 9–14 ms (Multi-layer mixer pipeline) | **< 3.85 ms (Direct DMA-to-RF pass-through)** |
@@ -56,11 +56,11 @@ OpenI6X is an impressive feat of optimization, but it is fundamentally limited b
 
 | Firmware | Flash Used | Flash Free | Status |
 | :--- | :--- | :--- | :--- |
-| **`flysky-i6x-rs`** | **51.7 KB (40.4%)** | **~76.3 KB (59.6%)** | **Massive Headroom for Features** |
+| **`flysky-i6x-rs`** | **52.9 KB (41.3%)** | **~75.1 KB (58.7%)** | **Massive Headroom for Features** |
 | **Stock Firmware** | ~65 KB (50.8%) | ~63 KB (49.2%) | Closed Source / No Expansion |
 | **OpenI6X** | **121 KB (94.5%)** | **< 7 KB (< 5.5%)** | **Flash Starvation (Near Limit)** |
 
-- **Over 76 KB of Free Flash Headroom** allows massive future expansion:
+- **Over 75 KB of Free Flash Headroom** allows massive future expansion:
   - Multi-model storage profiles (20 slots supported).
   - Dual Rates, Expo, and 8-rule freeform matrix mixing with templates.
   - Native CRSF / ELRS serial transmitter support via USART2 (`PD5`/`PA15`).

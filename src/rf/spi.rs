@@ -160,8 +160,10 @@ pub fn init() {
         // Enable SPI1
         ptr::write_volatile(SPI1_CR1, cr1 | (1 << 6)); // SPE = bit 6
 
-        // Drain any stale data in RX FIFO
-        while (ptr::read_volatile(SPI1_SR) & (1 << 0)) != 0 {
+        // Drain any stale data in RX FIFO (max 16 bytes)
+        let mut drain = 16;
+        while (ptr::read_volatile(SPI1_SR) & (1 << 0)) != 0 && drain > 0 {
+            drain -= 1;
             let _ = ptr::read_volatile(SPI1_DR as *const u8);
         }
     }
@@ -171,7 +173,10 @@ pub fn init() {
 #[inline(always)]
 pub fn csn_low() {
     unsafe {
-        while (ptr::read_volatile(SPI1_SR) & (1 << 7)) != 0 {}
+        let mut timeout = 10_000u32;
+        while (ptr::read_volatile(SPI1_SR) & (1 << 7)) != 0 && timeout > 0 {
+            timeout -= 1;
+        }
         ptr::write_volatile(GPIOE_BSRR, 1 << (12 + 16));
         cortex_m::asm::nop();
         cortex_m::asm::nop();
@@ -182,7 +187,10 @@ pub fn csn_low() {
 #[inline(always)]
 pub fn csn_high() {
     unsafe {
-        while (ptr::read_volatile(SPI1_SR) & (1 << 7)) != 0 {}
+        let mut timeout = 10_000u32;
+        while (ptr::read_volatile(SPI1_SR) & (1 << 7)) != 0 && timeout > 0 {
+            timeout -= 1;
+        }
         cortex_m::asm::nop();
         cortex_m::asm::nop();
         ptr::write_volatile(GPIOE_BSRR, 1 << 12);
@@ -195,10 +203,19 @@ pub fn csn_high() {
 #[inline(always)]
 pub fn transfer_byte(data: u8) -> u8 {
     unsafe {
-        while (ptr::read_volatile(SPI1_SR) & (1 << 7)) != 0 {} // Wait while BSY
-        while (ptr::read_volatile(SPI1_SR) & (1 << 1)) == 0 {} // Wait until TXE
+        let mut timeout = 10_000u32;
+        while (ptr::read_volatile(SPI1_SR) & (1 << 7)) != 0 && timeout > 0 {
+            timeout -= 1;
+        }
+        timeout = 10_000;
+        while (ptr::read_volatile(SPI1_SR) & (1 << 1)) == 0 && timeout > 0 {
+            timeout -= 1;
+        }
         ptr::write_volatile(SPI1_DR as *mut u8, data);
-        while (ptr::read_volatile(SPI1_SR) & (1 << 0)) == 0 {} // Wait until RXNE
+        timeout = 10_000;
+        while (ptr::read_volatile(SPI1_SR) & (1 << 0)) == 0 && timeout > 0 {
+            timeout -= 1;
+        }
         ptr::read_volatile(SPI1_DR as *const u8)
     }
 }
