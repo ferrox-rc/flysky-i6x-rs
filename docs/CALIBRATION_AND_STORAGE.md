@@ -41,7 +41,7 @@ pub struct RadioConfig {
     pub backlight_brightness: u8,  // 1..10 (10%..100%, default 10)
     pub vbat_warn_deci: u8,        // 40..50 (4.0V..5.0V, default 44 = 4.4V)
     pub lcd_contrast: u8,          // 15..55 (default 37 / 0x25)
-    pub _pad0: u8,                 // Alignment padding
+    pub usb_mode: u8,              // 0: Joystick, 1: Serial, 2: Composite, 3: Off
     pub sticks: [ChannelCalib; 4], // 0: Roll, 1: Pitch, 2: Throttle, 3: Yaw (32 bytes)
     pub pots: [ChannelCalib; 2],   // 0: VRA, 1: VRB (16 bytes)
     pub _reserved: [u8; 64],       // Reserved expansion space (Total: 128 bytes)
@@ -85,7 +85,8 @@ pub struct ModelConfig {
     pub mixes: [MixLine; 8],       // 8 freeform mix rules (8 * 6 = 48 bytes)
     pub failsafe_mode: u8,         // 0: Hold last, 1: Custom pulses
     pub failsafe_timeout: u8,      // 10..50 (1.0s..5.0s)
-    pub _reserved: [u8; 14],       // Reserved expansion space (Total: 128 bytes)
+    pub rf_protocol: u8,           // 0: AFHDS 2A, 1: CRSF / ELRS
+    pub _reserved: [u8; 13],       // Reserved expansion space (Total: 128 bytes)
 }
 
 /// Unified Flash image layout (exactly 2,688 bytes)

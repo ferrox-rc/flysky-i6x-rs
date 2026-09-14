@@ -69,7 +69,7 @@ The main flight screen features 4 switchable display pages cycled by tapping **`
 ```
 - **Top Status Bar (y = 0..10)**:
   - **Left**: Active model name (up to 10 characters, e.g. `MODEL 01`).
-  - **Center (`RF:OK` / `R: XX%` / `BIND` / `NO RF` / `E:XX`)**: RF link state, binding status, or downlink telemetry RSSI.
+  - **Center (`RF:OK` / `R: XX%` / `BIND` / `U:SIM` / `NO RF` / `E:XX`)**: RF link state, binding status, downlink telemetry RSSI, or **`U:SIM`** indicating active USB Simulator mode with silent RF standby.
   - **Right (`X.YYV`)**: Internal battery voltage stabilized by an exponential moving average (EMA) filter to eliminate switching jitter on the hundredths digit.
 - **Gimbal Gauges (y = 12..43)**: Live channel sliders for Roll (`A`), Pitch (`E`), Throttle (`T`), Yaw (`R`) with center ticks, trim position ticks (`.`), and percentage readouts.
 - **Switches & Pots Line (y = 44..53)**: Position of switches SA..SD (`U`=Up, `M`=Middle, `D`=Down) and rotary pots VRA/VRB (`0`..`9`), positioned cleanly above the line 55 divider.
@@ -99,13 +99,6 @@ The main flight screen features 4 switchable display pages cycled by tapping **`
 ### Page 3/4: Model Dashboard
 ```
 +-------------------------------------------------------------+
-| MODEL 01                  RF:OK                     5.18V   | <- Status Bar (y=0..10)
-|-------------------------------------------------------------| <- Top Line (y=11)
-| MODEL 01                                   AIRPLANE         |
-| RxID: 1A2B3C4D                                              |
-| TCrv: 9-PT                                 SMOOTH           |
-| RX: 5.12V                                  RSSI: 98%        |
-|-------------------------------------------------------------| <- Bottom Line (y=55)
 | P3/4                         MODEL DASHBOARD                | <- Footer Bar (y=57..62)
 +-------------------------------------------------------------+
 ```
@@ -265,18 +258,23 @@ Assigns physical controls (switches `SA..SD`, pots `VRA/VRB`, sticks, or `None`)
 - Automatically saved to non-volatile Flash upon exit.
 
 ### Submenu 8: Radio Setup (`RADIO SETUP`)
-The Radio Setup menu features a scrollable 4-item viewport with 9px row heights and automatic vertical scrolling:
+The Radio Setup menu features a scrollable 4-item viewport with 9px row heights and automatic vertical scrolling across 7 configuration parameters:
 - **`Thr Trim:`**: Toggle between `OFF (Lock)`, `IDLE`, and `LINEAR`.
 - **`Beeper:`**: Toggle audio sound between `ENABLED` and `MUTED`.
 - **`BL Timer:`**: LCD backlight auto-shutoff timeout: `ALWAYS ON`, `15 SEC`, `30 SEC`, or `60 SEC`. Touching any key or moving any stick wakes the backlight instantly.
 - **`BL Level:`**: Backlight brightness level from `10%` to `100%` in 10% steps (supports both stock transistors and the `PC9` hardware PWM dimming mod).
 - **`Contrast:`**: LCD Electronic Volume (EV) contrast adjustment from `20` to `50` in steps of 3 (default: **`37`** / `0x25`). Adjusting this value provides instant live visual preview on the ST7567 display and persists across reboots.
 - **`Bat Warn:`**: Low battery alarm threshold from `4.0V` to `5.0V` in 0.1V steps (default: **`4.4V`**, or 1.10V/cell for 4xAA). When battery drops below this voltage, the status bar badge flashes inverted and an audible double-chirp alarm sounds every 8 seconds.
+- **`USB Mode:`**: Selects active USB peripheral personality:
+  - **`JOYSTICK`** (Default): 100 Hz native USB Gamepad for flight simulators with silent RF standby (zero RF radiation, cool running).
+  - **`SERIAL`**: Virtual COM Port (CDC-ACM) at 115200 baud streaming live telemetry while maintaining normal RF transmission.
+  - **`COMPOSITE`**: Simultaneous HID Gamepad + CDC-ACM Virtual COM Port.
+  - **`OFF`**: Completely disables USB peripheral and D+ pullup for charging only.
 
-### Submenu 9: RX Setup & Bind (`RX SETUP & BIND`)
-- Displays current RF protocol (`AFHDS 2A`).
-- Displays active model index and bound receiver ID (e.g. `Rx ID: 1A2B3C4D`).
-- Press **`[OK]`** to trigger receiver binding mode directly.
+### Submenu 9: Protocol Setup (`PROTOCOL SETUP`)
+Replaces the redundant bind menu with universal RF protocol management:
+- **`Proto: AFHDS 2A`**: Uses the built-in A7105 transceiver. Displays active model name and bound receiver ID (e.g. `Rx ID: 1A2B3C4D`). Pressing **`[OK]`** triggers receiver binding. Pressing **`[UP]`** or **`[DOWN]`** cycles protocol.
+- **`Proto: CRSF / ELRS`**: Prepares the radio for external Crossfire or ExpressLRS transmitter modules installed in the rear expansion bay. Displays port settings (`Port: Rear Bay (PD5)`, `Baud: 416666 (8N1)`). Pressing **`[UP]`** or **`[DOWN]`** cycles protocol.
 
 ### Submenu 10: Channel Monitor (`CHANNEL MONITOR`)
 - Displays live pulse widths (1000..2000 µs) across all 14 channels with 40-pixel horizontal graphic bar indicators and exact microsecond numbers.
@@ -382,3 +380,42 @@ The firmware includes four levels of proactive safety protection inspired by Ope
 ### 4. Telemetry RSSI Range Alarms
 - **Low Signal Warning (RSSI < 40%)**: Sounds a caution beep (`2000 Hz`) every 6 seconds.
 - **Critical Signal Alarm (RSSI < 20%)**: Sounds an urgent double-beep (`2800 Hz`) every 3 seconds to warn the pilot of imminent radio failsafe.
+
+---
+
+## 9. USB Subsystem & Flight Simulator Operations
+
+The FlySky FS-i6X features a hardware USB Full-Speed port wired directly to the microcontroller (`PA11` / `PA12`). The `flysky-i6x-rs` firmware supports native plug-and-play USB Joystick control, Virtual COM Port telemetry, and silent RF running.
+
+### 1. Flight Simulator Setup (Liftoff, Velocidrone, RealFlight)
+1. In **`RADIO SETUP`**, ensure **`USB Mode`** is set to **`JOYSTICK`** (or `COMPOSITE`).
+2. Connect a standard Micro-USB cable between the FS-i6X and your computer.
+3. The radio automatically enumerates as **`FS-i6X Joystick`** on Windows, Linux, and macOS without requiring any drivers.
+4. Open your flight simulator (e.g. Liftoff, Velocidrone, RealFlight, FPV Freerider):
+   - Navigate to the simulator's Controller Settings.
+   - Select `FS-i6X Joystick`.
+   - Calibrate the 4 main axes: Throttle, Roll, Pitch, and Yaw.
+   - Assign switches (SwA..SwD) to simulator functions like Arm, Flight Mode (Acro/Angle), or Turtle Mode.
+
+### 2. Silent RF Standby (Zero RF Emission)
+When connected via USB in `JOYSTICK` mode:
+- The 2.4 GHz RF power amplifier and A7105 transceiver are placed in **Standby** mode.
+- The flight screen status badge displays **`U:SIM`**.
+- Benefits:
+  - **Zero RF radiation**: Safe for close-up desktop simulator sessions.
+  - **Cool running**: Prevents heat buildup from the RF amplifier.
+  - **Battery savings**: Extends AA battery life significantly.
+- Unplugging the USB cable or switching to `SERIAL` mode immediately restores normal RF transmission to your aircraft.
+
+### 3. Virtual COM Port & Telemetry Streaming
+In **`SERIAL`** or **`COMPOSITE`** mode, the radio exposes a virtual serial port (`/dev/ttyACM0` on Linux, `COMx` on Windows):
+- **Live Telemetry (20 Hz)**: Streams ASCII telemetry lines:
+  ```
+  TELEM: VBAT=5180mV RSSI=98% RX_V=4980mV TX_PKT=15820 RX_PKT=15798 ERR=22
+  ```
+- **Interactive CLI**: Open a terminal at 115200 baud to query system state:
+  - `help`: List available commands.
+  - `status`: Show battery voltage, model profile, and link state.
+  - `channels`: Print real-time microsecond pulse widths across all 14 channels.
+  - `telemetry`: Display detailed downlink link metrics and packet stats.
+  - `reboot`: Trigger a clean system reboot.

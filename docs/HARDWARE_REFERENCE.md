@@ -203,3 +203,31 @@ The FlySky FS-i6X uses a single 12-bit ADC peripheral (**ADC1**) paired with **D
 - Validated against physical AA battery pack voltages:
   - 4x NiMH (~4.8V): ~1930 raw counts -> `4.8V`
   - 4x Alkaline fresh (~6.0V): ~2440 raw counts -> `6.0V`
+
+---
+
+## 8. USB Interface & Rear Expansion Bay
+
+### Hardware USB Interface (Micro-USB Port)
+The FlySky FS-i6X mainboard routes the Micro-USB port directly to the STM32F072 hardware USB controller:
+
+| Pin | Function | Mode | Description |
+| :--- | :--- | :--- | :--- |
+| **`PA11`** | `USB_DM` | Alternate Function 0 (`AF0`) | USB Full-Speed Data - line |
+| **`PA12`** | `USB_DP` | Alternate Function 0 (`AF0`) | USB Full-Speed Data + line |
+| **Silicon Internal** | 1.5 kΩ Pull-up | Software-Controlled | Engaged by setting bit 15 (`DPPU`) in `USB_BCDR` (`0x4000_5C58`) |
+
+- **Packet Memory Area (PMA)**: 1024 bytes located at `0x4000_6000` (`MemoryAccess::Word16x2`).
+- **Clock Tree**: Clocked directly from 48.000 MHz PLLCLK via `RCC_CFGR3` bit 7 (`USBSW = 1`).
+- **Modes Supported**: HID Gamepad (Flight Simulators), CDC-ACM (Virtual COM Port telemetry), Composite, and Off (Charge only).
+
+### Rear Expansion Bay & Trainer Port (CRSF / ELRS Ready)
+The 4-pin round rear port (and internal expansion header) connects to the MCU's hardware `USART2`:
+
+| Pin / Net | MCU Pin | Function | Notes |
+| :--- | :--- | :--- | :--- |
+| **Signal TX** | `PD5` | `USART2_TX` (AF0) | Half-duplex or full-duplex asynchronous serial output |
+| **Signal RX** | `PA15` | `USART2_RX` (AF1) | Serial telemetry input |
+| **Module Power**| `PC13` | Power Switch GPIO | High = Powers external RF module bay (VCC) |
+| **Baud Rate** | 416,666 bps | 8N1 | Standard Crossfire (CRSF) / ExpressLRS (ELRS) module baud rate |
+
