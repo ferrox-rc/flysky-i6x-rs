@@ -39,7 +39,7 @@ A comprehensive guide to operating the `flysky-i6x-rs` firmware on the FlySky FS
   - **Hold `[OK]` during Power-On**: Launches **Stick Calibration** immediately.
 - **`[CANCEL]` (`[ESC]`)**: Return to previous screen, exit edit mode, abort calibration, or complete one-way receiver binding.
 - **`[BIND]` (Dedicated Button with Clean Separation Logic)**:
-  - **Tap (`< 1.0s`) on Flight Screen**: Cycles through the 3 flight dashboard pages (`1/3` -> `2/3` -> `3/3` -> `1/3`).
+  - **Tap (`< 1.0s`) on Flight Screen**: Cycles through the 4 flight dashboard pages (`1/4` -> `2/4` -> `3/4` -> `4/4` -> `1/4`).
   - **Hold (`>= 1.0s`) on Flight Screen**: Initiates AFHDS 2A receiver binding.
   - **Hold during Power-On**: Launches AFHDS 2A binding subprogram immediately at boot.
   - **In Menus & Editors**: Functions as **`[TAB]` / Cursor Advance** (advances name characters or curve points) without triggering RF binding.
@@ -48,7 +48,7 @@ A comprehensive guide to operating the `flysky-i6x-rs` firmware on the FlySky FS
 
 ## 2. Multi-Page Flight Dashboard
 
-The main flight screen features 3 switchable display pages cycled by tapping **`[BIND]`**. All 3 pages share a pixel-perfect uniform layout:
+The main flight screen features 4 switchable display pages cycled by tapping **`[BIND]`**. All 4 pages share a pixel-perfect uniform layout:
 - **Top Status Bar (`y = 0..10`)**: Displays active model name, RF/telemetry status, and steady filtered battery voltage (`X.YYV`).
 - **Top Divider (`y = 11`)**: Full-width horizontal line (`Line(0, 11) -> (127, 11)`).
 - **Content Area (`y = 12..54`)**: Page-specific controls, gauges, and telemetry.
@@ -218,27 +218,6 @@ Configures stick throw authority and center sensitivity for primary controls:
 - **Hi Expo / Lo Expo**: Adjust center sensitivity (-100%..+100% in 5% steps). Positive expo softens stick sensitivity around center for smooth flight.
 
 ### Submenu 4: Throttle Curve Editor (`THR CURVE`)
-Interactive curve engine with real-time on-screen curve visualization (49 x 37 pixel plot) and selected-point indicator dot.
-
-### Submenu 5: Wing & Tail Mixer (`WING/MIXER`)
-- **Wing Template**: Cycle between `NORMAL`, `ELEVON/DELTA` (flying wings/jets: mixes Pitch & Roll on CH1/CH2), `V-TAIL` (gliders: mixes Pitch & Yaw on CH2/CH4), and `FLAPERON` (dual ailerons on CH1 & CH6 with flap input).
-- **Freeform Mix Lines (`M1` .. `M8`)**: Press **`[OK]`** to edit any mix line:
-  - **Target**: Output channel (`CH1`..`CH14` or `Disabled`).
-  - **Source**: Control source (`Roll`, `Pitch`, `Thr`, `Yaw`, `VRA`, `VRB`, `SA..SD`, `MAX`, `CH1..CH14`).
-  - **Weight / Offset**: Percentage scaling (-100%..+100%).
-  - **Switch**: Activation condition (`ON`, `SA^`, `SAv`, `SB^`, `SB-`, `SBv`, `SC^`, `SC-`, `SCv`, `SD^`, `SDv`).
-  - **Mode**: Multiplex method (`ADD (+)`, `MULT (*)`, `REPL (:=)`).
-
-### Submenu 6: Auxiliary Channels (`AUX CHANNELS`)
-Assigns physical controls (switches `SA..SD`, pots `VRA/VRB`, sticks, or `None`) to channels `CH5` through `CH14`.
-
-### Submenu 7: Channel Reverse (`CH REVERSE`)
-- Lists all 14 channels (CH1:ROL, CH2:PIT, CH3:THR, CH4:YAW, SwA..SwD, VR1, VR2).
-- Press **`[OK]`** to toggle between **`NOR`** (Normal) and **`REV`** (Reversed).
-- Calculations use hardware-standard inversion: `pulse = 3000 - pulse`.
-- Automatically saved to non-volatile Flash upon exit.
-
-### Submenu 4: Throttle Curve Editor (`THR CURVE`)
 Interactive curve engine with real-time on-screen curve visualization (49 x 37 pixel plot) and selected-point indicator dot:
 
 ```
@@ -267,9 +246,28 @@ Interactive curve engine with real-time on-screen curve visualization (49 x 37 p
     - **`[CANCEL]` (`[ESC]`)**: Exits point-editing mode.
   - A real-time 3 x 3 pixel dot indicator is plotted directly on the curve graph at the coordinates of the actively selected point.
 
+### Submenu 5: Wing & Tail Mixer (`WING/MIXER`)
+- **Wing Template**: Cycle between `NORMAL`, `ELEVON/DELTA` (flying wings/jets: mixes Pitch & Roll on CH1/CH2), `V-TAIL` (gliders: mixes Pitch & Yaw on CH2/CH4), and `FLAPERON` (dual ailerons on CH1 & CH6 with flap input).
+- **Freeform Mix Lines (`M1` .. `M8`)**: Press **`[OK]`** to edit any mix line:
+  - **Target**: Output channel (`CH1`..`CH14` or `Disabled`).
+  - **Source**: Control source (`Roll`, `Pitch`, `Thr`, `Yaw`, `VRA`, `VRB`, `SA..SD`, `MAX`, `CH1..CH14`).
+  - **Weight / Offset**: Percentage scaling (-100%..+100%).
+  - **Switch**: Activation condition (`ON`, `SA^`, `SAv`, `SB^`, `SB-`, `SBv`, `SC^`, `SC-`, `SCv`, `SD^`, `SDv`).
+  - **Mode**: Multiplex method (`ADD (+)`, `MULT (*)`, `REPL (:=)`).
+
+### Submenu 6: Auxiliary Channels (`AUX CHANNELS`)
+Assigns physical controls (switches `SA..SD`, pots `VRA/VRB`, sticks, or `None`) to channels `CH5` through `CH14`.
+
+### Submenu 7: Channel Reverse (`CH REVERSE`)
+- Lists all 14 channels (CH1:ROL, CH2:PIT, CH3:THR, CH4:YAW, SwA..SwD, VR1, VR2).
+- Press **`[OK]`** to toggle between **`NOR`** (Normal) and **`REV`** (Reversed).
+- Calculations use hardware-standard inversion: `pulse = 3000 - pulse`.
+- Automatically saved to non-volatile Flash upon exit.
+
 ### Submenu 8: Radio Setup (`RADIO SETUP`)
+The Radio Setup menu features a scrollable 4-item viewport with 9px row heights and automatic vertical scrolling:
 - **`Thr Trim:`**: Toggle between `OFF (Lock)`, `IDLE`, and `LINEAR`.
-- **`Audio:`**: Toggle beeper sound between `ENABLED` and `MUTED`.
+- **`Beeper:`**: Toggle audio sound between `ENABLED` and `MUTED`.
 - **`BL Timer:`**: LCD backlight auto-shutoff timeout: `ALWAYS ON`, `15 SEC`, `30 SEC`, or `60 SEC`. Touching any key or moving any stick wakes the backlight instantly.
 - **`BL Level:`**: Backlight brightness level from `10%` to `100%` in 10% steps (supports both stock transistors and the `PC9` hardware PWM dimming mod).
 - **`Contrast:`**: LCD Electronic Volume (EV) contrast adjustment from `20` to `50` in steps of 3 (default: **`37`** / `0x25`). Adjusting this value provides instant live visual preview on the ST7567 display and persists across reboots.

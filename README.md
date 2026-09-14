@@ -207,6 +207,7 @@ Comprehensive technical documentation is maintained in the [`docs/`](docs/) dire
 ### Phase 11: Display & Telemetry Enhancements (COMPLETED)
 - [x] LCD Electronic Volume (EV) contrast adjustment (`15..=55`, default 37 / `0x25`) in `Radio Setup` with instant live preview and Flash persistence.
 - [x] Dedicated full-screen telemetry sensor dashboard (Page 4/4) displaying live packet counters (`TX`, `RX`), link state (`OK` / `DISC`), battery voltages (`RX`, `TX`), and session minimums (`mRSS`, `mRX`).
+- [x] Scrollable 4-item viewport in `Radio Setup` with clean 9px row spacing and vertical scrolling.
 
 ### Current Firmware Footprint
 - **Flash ROM**: **51.7 KB** used out of **128 KB** available (~60% Flash free headroom).
@@ -220,7 +221,7 @@ Comprehensive technical documentation is maintained in the [`docs/`](docs/) dire
 | Action | Control | Notes |
 | :--- | :--- | :--- |
 | **Cycle Flight Pages** | **Tap `BIND` button** | Cycles through Page 1/4 (Gimbals), Page 2/4 (14-CH Monitor), Page 3/4 (Model Dashboard), and Page 4/4 (Telemetry Dashboard) |
-| **Open Settings Menu** | **Hold `OK` for 1.2s** | Opens Model Select, Model Setup, Ch Reverse, Thr Curve, Radio Setup, Calib, RX Setup, Monitors, & Diagnostics |
+| **Open Settings Menu** | **Hold `OK` for 1.2s** | Opens 13 submenus: Model Select, Model Setup, D/R & Expo, Thr Curve, Wing/Mixer, Aux Channels, Ch Reverse, Radio Setup, RX Setup, Monitors, Calib, Diag, & Info |
 | **Rapid Menu / Value Scroll** | **Hold `UP` or `DOWN`** | Auto-repeats every 70 ms after 300 ms hold across all menus, character editing, and curve points |
 | **Direct Calibration (Boot)**| **Hold `OK` during Power-On** | Launches 2-step calibration wizard immediately on boot |
 | **Initiate Receiver Binding**| **Hold `BIND` (>= 1.0s)** | Starts binding from any flight page (or hold during power-on) |

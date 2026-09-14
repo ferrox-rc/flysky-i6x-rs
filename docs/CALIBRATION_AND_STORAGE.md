@@ -39,10 +39,23 @@ pub struct RadioConfig {
     pub audio_enabled: u8,         // 0: Muted, 1: Enabled
     pub backlight_timeout: u8,     // 0: Always On, 1: 15s, 2: 30s, 3: 60s
     pub backlight_brightness: u8,  // 1..10 (10%..100%, default 10)
-    pub _pad0: [u8; 3],            // Alignment padding
+    pub vbat_warn_deci: u8,        // 40..50 (4.0V..5.0V, default 44 = 4.4V)
+    pub lcd_contrast: u8,          // 15..55 (default 37 / 0x25)
+    pub _pad0: u8,                 // Alignment padding
     pub sticks: [ChannelCalib; 4], // 0: Roll, 1: Pitch, 2: Throttle, 3: Yaw (32 bytes)
     pub pots: [ChannelCalib; 2],   // 0: VRA, 1: VRB (16 bytes)
-    pub _reserved: [u8; 60],       // Reserved expansion space (Total: 128 bytes)
+    pub _reserved: [u8; 64],       // Reserved expansion space (Total: 128 bytes)
+}
+
+/// A single freeform mix rule in the matrix mixer (6 bytes)
+#[repr(C)]
+pub struct MixLine {
+    pub target_ch: u8,   // 0: Disabled, 1..14: Target Channel CH1..CH14
+    pub source: u8,      // 0: None, 1: Roll, 2: Pitch, 3: Thr, 4: Yaw, 5: VRA, 6: VRB, 7..10: SA..SD, 11: MAX, 12..25: CH1..CH14
+    pub weight: i8,      // -100% .. +100%
+    pub offset: i8,      // -100% .. +100%
+    pub switch: u8,      // 0: Always On, 1..10: Switch condition
+    pub mode: u8,        // 0: Add (+), 1: Multiply (*), 2: Replace (:=)
 }
 
 /// Per-model profile configuration (exactly 128 bytes)
@@ -50,21 +63,29 @@ pub struct RadioConfig {
 pub struct ModelConfig {
     pub name: [u8; 10],            // 10-char ASCII model name (e.g. "QUAD 5IN  ")
     pub model_type: u8,            // 0: Airplane, 1: Glider, 2: Helicopter, 3: Multirotor / Quad
+    pub _pad0: u8,                 // Align rx_id
+    pub rx_id: u32,                // Bound receiver ID (Model Match)
+    pub trims: [i8; 4],            // -25 .. +25 (Roll, Pitch, Throttle, Yaw)
+    pub channel_reverse: u16,      // 14-bit channel reversing mask (bit 0=CH1 .. bit 13=CH14)
+    pub dr_switch: u8,             // 0: None, 1: SA, 2: SB, 3: SC, 4: SD
     pub thr_curve_pts: u8,         // 5 or 9 points
     pub thr_curve_smooth: u8,      // 0: Linear interpolation, 1: Catmull-Rom spline
-    pub _pad0: u8,
-    pub trim_roll: i8,             // -25 .. +25
-    pub trim_pitch: i8,            // -25 .. +25
-    pub trim_throttle: i8,         // -25 .. +25
-    pub trim_yaw: i8,              // -25 .. +25
-    pub channel_reverse: u16,      // 14-bit channel reversing mask (bit 0=CH1 .. bit 13=CH14)
-    pub rx_id: u32,                // Bound receiver ID (Model Match)
     pub thr_curve: [u8; 9],        // Throttle curve points (0..100%)
-    pub _pad1: [u8; 3],
-    pub failsafe_us: [u16; 14],    // Failsafe pulses (1000..2000 us, 0=hold) (28 bytes)
+    pub dr_high: [u8; 3],          // High rates: AIL, ELE, RUD (50..100%)
+    pub dr_low: [u8; 3],           // Low rates: AIL, ELE, RUD (30..100%)
+    pub expo_high: [i8; 3],        // High expo (-100..+100%)
+    pub expo_low: [i8; 3],         // Low expo (-100..+100%)
     pub timer_secs: u16,           // Flight timer duration in seconds
-    pub timer_mode: u8,            // 0: OFF, 1: Throttle ON, 2: Switch A..D
-    pub _reserved: [u8; 57],       // Reserved expansion space (Total: 128 bytes)
+    pub timer_source: u8,          // 0: Off, 1: Thr > 5%, 2..5: SA..SD
+    pub protocol_subtype: u8,      // 0: PWM, 1: PPM, 2: i-BUS, 3: S.BUS
+    pub failsafe_thr: u16,         // Failsafe throttle pulse in µs (e.g. 1000)
+    pub aux_channels: [u8; 10],    // Source for CH5..CH14
+    pub wing_tail_mix: u8,         // 0: Normal, 1: Elevon/Delta, 2: V-Tail, 3: Flaperon
+    pub template_diff: i8,         // Differential / mix ratio (-100..+100)
+    pub mixes: [MixLine; 8],       // 8 freeform mix rules (8 * 6 = 48 bytes)
+    pub failsafe_mode: u8,         // 0: Hold last, 1: Custom pulses
+    pub failsafe_timeout: u8,      // 10..50 (1.0s..5.0s)
+    pub _reserved: [u8; 14],       // Reserved expansion space (Total: 128 bytes)
 }
 
 /// Unified Flash image layout (exactly 2,688 bytes)

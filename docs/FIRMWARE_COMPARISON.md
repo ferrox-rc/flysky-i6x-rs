@@ -12,7 +12,7 @@ The FlySky FS-i6X is an entry-level radio driven by an **ARM Cortex-M0 microcont
 
 - **The Stock Firmware** is closed-source, limited to 6–10 channels, offers minimal customization, and uses a non-deterministic polling loop with ~15–25 ms latency.
 - **OpenI6X** is an ambitious community port of OpenTX 2.3/2.4. OpenTX is a desktop-class, monolithic C++ operating system designed for 32-bit Cortex-M3/M4 radios with 512 KB–2 MB Flash (e.g. FrSky Taranis, RadioMaster TX16S). Porting it to the Cortex-M0 required aggressively stripping features (removing voice prompts, SD cards, Lua scripting, and model memory slots). Despite this, **OpenI6X consumes ~121 KB of the 128 KB Flash (&gt;94.5% capacity)**, leaving less than 7 KB of headroom.
-- **`flysky-i6x-rs`** is a clean-slate, bare-metal rewrite in **`no_std` Rust**. Rather than shoehorning a heavy OS into a small chip, it was built specifically for the FS-i6X hardware. It delivers hard real-time determinism, sub-4ms stick-to-air latency, modern hardware safety locks, 20 full model memories, and full menu/diagnostics capabilities while consuming **only ~35.4 KB of Flash (~27.6%)**, leaving **over 88 KB of Flash (&gt;69%) free**.
+- **`flysky-i6x-rs`** is a clean-slate, bare-metal rewrite in **`no_std` Rust**. Rather than shoehorning a heavy OS into a small chip, it was built specifically for the FS-i6X hardware. It delivers hard real-time determinism, sub-4ms stick-to-air latency, modern hardware safety locks, 20 full model memories, 14-channel matrix mixer with aircraft templates, D/R & Expo, LCD contrast adjustment, dedicated 4-page telemetry dashboard, and comprehensive diagnostics while consuming **only ~51.7 KB of Flash (~40.4%)**, leaving **over 76 KB of Flash (>59%) free**.
 
 ---
 
@@ -21,22 +21,24 @@ The FlySky FS-i6X is an entry-level radio driven by an **ARM Cortex-M0 microcont
 | Technical Feature | Stock FlySky Firmware | OpenI6X (OpenTX 2.3/2.4 Port) | `flysky-i6x-rs` (Bare-Metal Rust) |
 | :--- | :--- | :--- | :--- |
 | **Language & Safety** | Proprietary C (Closed) | C++ (er9x/OpenTX lineage, raw pointers) | **100% `no_std` Rust (Memory-safe, 0 heap)** |
-| **Flash Memory Usage** | ~65 KB / 128 KB (~50%) | **~121 KB / 128 KB (94.5%)** | **35.4 KB / 128 KB (27.6%)** |
-| **Free Flash Headroom** | ~63 KB | **&lt; 7 KB (&lt; 5.5% free)** | **&gt; 88 KB (&gt; 69% free)** |
-| **SRAM Consumption** | ~6 KB / 16 KB | ~12.5–13.5 KB / 16 KB | **228 bytes static + 1 KB LCD (&gt;90% free)** |
-| **Boot Time to RF Link** | ~1.5 seconds | ~2.5–3.5 seconds (Splash screen) | **&lt; 30 milliseconds (Instantaneous)** |
-| **Stick-to-Antenna Latency** | 15–25 ms | 9–14 ms (Multi-layer mixer pipeline) | **&lt; 3.85 ms (Direct DMA-to-RF pass-through)** |
+| **Flash Memory Usage** | ~65 KB / 128 KB (~50%) | **~121 KB / 128 KB (94.5%)** | **51.7 KB / 128 KB (40.4%)** |
+| **Free Flash Headroom** | ~63 KB | **< 7 KB (< 5.5% free)** | **> 76 KB (> 59% free)** |
+| **SRAM Consumption** | ~6 KB / 16 KB | ~12.5–13.5 KB / 16 KB | **236 bytes static + 1 KB LCD (>90% free)** |
+| **Boot Time to RF Link** | ~1.5 seconds | ~2.5–3.5 seconds (Splash screen) | **< 30 milliseconds (Instantaneous)** |
+| **Stick-to-Antenna Latency** | 15–25 ms | 9–14 ms (Multi-layer mixer pipeline) | **< 3.85 ms (Direct DMA-to-RF pass-through)** |
 | **RF Packet Timing Sync** | Soft loop polling (jittery) | Soft mixer loop + hardware timer | **Hardware `TIM16` exact 3850.0 µs frame sync** |
 | **Channels Supported** | 6 (stock) / 10 (modded) | Up to 14 channels (AFHDS 2A) | **14 channels full resolution (1000–2000 µs)** |
+| **Matrix Mixer & Templates** | Basic fixed mixing | OpenTX matrix mixer | **8 freeform mix lines + Elevon/V-Tail/Flaperon** |
 | **Model Memory Storage** | 20 basic models | Severely limited (~4–8 stripped slots) | **20 independent 128-byte profiles in Flash** |
 | **Curves & Smoothing** | Fixed 5-point linear | Multi-point linear interpolation | **Switchable 5/9-point + Catmull-Rom spline** |
-| **Throttle Trim Safety Lock** | None (Active at all times) | Manual model mixer setting needed | **Built-in Option 2 Safety Lock (Default Off)** |
+| **Throttle Trim Safety Lock** | None (Active at all times) | Manual model mixer setting needed | **Built-in 3-mode safety lock (Lock/Idle/Linear)** |
 | **Backlight Dimming Mod** | Not supported (On/Off only) | Requires custom build flag (`PC9`) | **Universal out-of-the-box (TIM3_CH4 1 kHz PWM)** |
 | **Backlight Auto-Timeout** | None | Configurable | **15s / 30s / 60s / Always On with stick wake** |
+| **LCD Contrast Adjustment** | None | Limited | **Electronic Volume (EV) contrast (15..55)** |
 | **Digital Trims** | Standard digital trims | OpenTX trim routing | **Single-click + 90ms auto-repeat + audio pitch** |
 | **Audio Feedback** | Basic piezo beeps | Basic buzzer tones | **Frequency-scaled pitch & center confirmation** |
 | **Interactive Calibration** | Factory calibration menu | 2-page calibration | **2-step guided wizard with physical travel scaling** |
-| **Live Diagnostics** | Basic display | Channel monitor / Diag Anas | **14-CH Pulse Monitor + 12-bit Raw ADC View** |
+| **Live Diagnostics** | Basic display | Channel monitor / Diag Anas | **4-Page Dash: Gimbals, 14-CH, Model, Telemetry** |
 | **DFU Recovery Method** | Factory USB cable only | Bootloader mode | **Inward Trims shortcut + Hardware R53 pad** |
 
 ---
@@ -54,13 +56,13 @@ OpenI6X is an impressive feat of optimization, but it is fundamentally limited b
 
 | Firmware | Flash Used | Flash Free | Status |
 | :--- | :--- | :--- | :--- |
-| **`flysky-i6x-rs`** | **35.4 KB (27.6%)** | **~88 KB (69.8%)** | **Massive Headroom for Features** |
+| **`flysky-i6x-rs`** | **51.7 KB (40.4%)** | **~76.3 KB (59.6%)** | **Massive Headroom for Features** |
 | **Stock Firmware** | ~65 KB (50.8%) | ~63 KB (49.2%) | Closed Source / No Expansion |
-| **OpenI6X** | **121 KB (94.5%)** | **&lt; 7 KB (&lt; 5.5%)** | **Flash Starvation (Near Limit)** |
+| **OpenI6X** | **121 KB (94.5%)** | **< 7 KB (< 5.5%)** | **Flash Starvation (Near Limit)** |
 
-- **97 KB of Free Flash Headroom** allows massive future expansion:
-  - Multi-model storage profiles.
-  - Complex expo and custom throttle/pitch curves.
+- **Over 76 KB of Free Flash Headroom** allows massive future expansion:
+  - Multi-model storage profiles (20 slots supported).
+  - Dual Rates, Expo, and 8-rule freeform matrix mixing with templates.
   - Native CRSF / ELRS serial transmitter support via USART2 (`PD5`/`PA15`).
   - Full telemetry sensor decoding (GPS coordinates, altitude, battery current, fuel capacity).
 
@@ -99,9 +101,9 @@ In modern quadcopters and fixed-wing planes running Betaflight, INAV, or ArduPil
 - **The Problem in Stock & OpenI6X**:
   Accidentally bumping the Throttle Trim rocker switch downwards lowers the throttle pulse below 1000 µs (e.g. 950 µs). On Betaflight/INAV, this can trigger an unintentional Failsafe or prevent the drone from arming. Bumping it upwards can cause motors to spin immediately upon arming.
 - **The Solution in `flysky-i6x-rs`**:
-  `flysky-i6x-rs` implements **Option 2 Throttle Trim Safety Lock**:
-  - By default, throttle trim adjustment is **locked out** at the firmware level. Bumping the throttle rocker produces an audible warning tone without changing the throttle output, protecting modern flight controllers.
-  - Pilots flying traditional glow/gas fixed-wing aircraft who require throttle trim for idle/cutoff adjustment can toggle Throttle Trim to **`ENABLED`** in the `Radio Setup` menu, where the setting is persisted to Flash.
+  `flysky-i6x-rs` implements **Configurable Throttle Trim Safety Modes**:
+  - By default, throttle trim adjustment is **locked out** (`OFF (Lock)`). Bumping the throttle rocker produces an audible warning tone without changing the throttle output, protecting modern flight controllers from unintentional disarm or motor spins.
+  - Pilots flying traditional glow/gas fixed-wing aircraft can set Throttle Trim to **`IDLE`** (adjusts idle/cutoff below 50% throttle without altering full-throttle travel) or **`LINEAR`** in the scrollable `Radio Setup` menu, where the setting is persisted to Flash.
 
 ---
 
@@ -118,7 +120,7 @@ Older community guides for OpenI6X suggested soldering to `PB1`. However, hardwa
 `flysky-i6x-rs` includes built-in, out-of-the-box support for both stock and modded hardware:
 - **Pin `PC9`** is configured as Alternate Function 0 (`TIM3_CH4`) running **1 kHz hardware PWM**.
 - **Pin `PF3`** is simultaneously controlled for stock unmodded factory backlight switching.
-- **Unified Controls**: In the `Radio Setup` menu, pilots can adjust backlight brightness from **10% to 100%** in 10% steps, and configure auto-timeout (**Always On, 15s, 30s, 60s**).
+- **Unified Controls**: In the scrollable `Radio Setup` menu, pilots can adjust backlight brightness from **10% to 100%** in 10% steps, configure auto-timeout (**Always On, 15s, 30s, 60s**), adjust LCD contrast (**20..50**), and configure battery alarm threshold (**4.0V..5.0V**).
 - When a timeout is configured, any key press or stick movement (> 30 ADC counts) immediately wakes the display.
 
 ---

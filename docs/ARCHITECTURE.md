@@ -50,25 +50,25 @@ flowchart TD
 - **Medium Priority (Radio Event)**: `EXTI2_3` fires on A7105 GIO2 line transitions (packet transmission complete or downlink telemetry packet received).
 - **Autonomous DMA**: `DMA1_CH1` transfers all 11 ADC channels directly into circular SRAM buffers with zero CPU intervention.
 - **Hardware Timers**: `TIM1` generates non-blocking audio frequencies on `PA8`; `TIM3` generates 1 kHz PWM brightness control on `PC9`.
-- **Background / Main Loop**: Runs at ~500 Hz (every 1.5–2.0 ms), continuously sampling ADC values, applying trims, curves, and channel reversing, and writing the 1024-byte framebuffer to the ST7567 LCD.
+- **Background / Main Loop**: Decoupled control loop architecture; the real-time flight control pipeline (ADC sampling, lightweight 4-sample filtering with dynamic deadband bypass, matrix mixer, D/R & expo, throttle curves) executes in under 30 µs at multi-kHz pass rates, updating double-buffered `PENDING_CHANNELS` for RF transmission, while ST7567 LCD frame rendering and SPI flushing are throttled to a smooth 30 Hz (~33 ms).
 
 ---
 
 ## 3. Channel Latency & Data Freshness
 
 1. **Continuous ADC Scan**: All 11 channels (4 sticks, 4 switches, 2 pots, battery) are digitized continuously by ADC1 via DMA in **0.23 ms** (252 cycles * 11 / 12 MHz).
-2. **Double-Buffered Channels**: The main loop updates `PENDING_CHANNELS` within critical sections (`cortex_m::interrupt::free`).
-3. **Guaranteed Fresh Packets**: Because the main processing loop runs at ~500 Hz while the RF transmitter transmits at ~260 Hz, **every over-the-air packet carries fresh, up-to-date stick data** with end-to-end latency under **2.0 ms**.
+2. **Double-Buffered Channels**: The flight loop updates `PENDING_CHANNELS` within critical sections (`cortex_m::interrupt::free`).
+3. **Guaranteed Fresh Packets**: Because the decoupled flight control loop runs at kHz rates while the RF transmitter transmits at ~260 Hz, **every over-the-air packet carries fresh, up-to-date stick data** with end-to-end latency under **2.0 ms**.
 
 ---
 
 ## 4. Memory Footprint
 
-Measured on release builds (`thumbv6m-none-eabi`, opt-level 3 / z):
-- **Firmware Binary (Flash Pages 0–17)**: **35.4 KB** out of **128 KB** available.
-- **Free Program Space (Flash Pages 18–61)**: **~88 KB** remaining for future extensions.
+Measured on release builds (`thumbv6m-none-eabi`, opt-level = "z", LTO = "fat"):
+- **Firmware Binary**: **51.7 KB** (52,972 bytes) out of **128 KB** available.
+- **Free Program Space**: **~76.3 KB** (~60% Flash free headroom) remaining for future extensions.
 - **Non-Volatile Storage (Flash Pages 62–63)**: **2,688 bytes** allocated for global radio configuration and 20 full model profiles (1,408 bytes free headroom).
-- **SRAM**: **228 bytes** static allocation (`.data` + `.bss`) + 1024-byte framebuffer in RAM. **Over 90% of SRAM remains free**.
+- **SRAM**: **236 bytes** static allocation (`.data` 200 bytes + `.bss` 36 bytes) + 1024-byte framebuffer in RAM. **Over 90% of SRAM remains free**.
 - **Zero Heap**: Entirely static allocation; no dynamic heap allocations, no `alloc` crate, no risk of heap fragmentation.
 
 ---

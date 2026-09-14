@@ -255,4 +255,4 @@ All Phase 10 flight mixer parameters are stored directly inside each 128-byte [`
 | `_reserved` | `[u8; 14]` | 14 | Offset 114..128 |
 
 Total `ModelConfig` size: **exactly 128 bytes** (100% backward and forward compatible, 0 migration loss).
-Total firmware binary size: **50.8 KB** / 128 KB (~60% Flash headroom remaining).
+Total firmware binary size: **51.7 KB** / 128 KB (~60% Flash headroom remaining).
