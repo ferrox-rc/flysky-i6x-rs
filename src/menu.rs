@@ -1941,7 +1941,7 @@ impl MenuController {
                 Text::new("MCU:", Point::new(4, 21), text_style).draw(lcd).ok();
                 Text::new(profile.name, Point::new(36, 21), text_style).draw(lcd).ok();
 
-                Text::new("Firmware: v0.1.0 Rust", Point::new(4, 30), text_style).draw(lcd).ok();
+                Text::new(concat!("Firmware: v", env!("CARGO_PKG_VERSION")), Point::new(4, 30), text_style).draw(lcd).ok();
 
                 Text::new("Flash: 128KB (64P)", Point::new(4, 39), text_style).draw(lcd).ok();
                 Text::new("Profiles: 20 Models", Point::new(4, 48), text_style).draw(lcd).ok();
