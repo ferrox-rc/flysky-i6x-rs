@@ -795,7 +795,7 @@ fn main() -> ! {
                     let r_str = core::str::from_utf8(&r_buf).unwrap_or("RSSI:--%");
                     Text::new(r_str, Point::new(64, 51), text_style).draw(&mut lcd).ok();
                 } else {
-                    Text::new("AFHDS 2A: DISCONNECTED", Point::new(2, 51), text_style).draw(&mut lcd).ok();
+                    Text::new("AFHDS2A: DISCONNECTED", Point::new(2, 51), text_style).draw(&mut lcd).ok();
                 }
 
                 // Separator above footer
