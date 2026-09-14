@@ -27,17 +27,25 @@ impl SerialHandler {
         telem: &TelemetryData,
         battery_mv: u16,
     ) {
-        let mut buf = [0u8; 32];
+        let mut buf = [0u8; 64];
         if let Ok(count) = serial.read(&mut buf) {
             for &b in &buf[..count] {
                 if b == b'\r' || b == b'\n' {
+                    let _ = serial.write(b"\r\n");
                     if self.rx_len > 0 {
                         self.handle_command(serial, rf_chs, telem, battery_mv);
                         self.rx_len = 0;
                     }
+                } else if b == 0x08 || b == 0x7F {
+                    // Backspace
+                    if self.rx_len > 0 {
+                        self.rx_len -= 1;
+                        let _ = serial.write(b"\x08 \x08");
+                    }
                 } else if self.rx_len < self.rx_buf.len() {
                     self.rx_buf[self.rx_len] = b;
                     self.rx_len += 1;
+                    let _ = serial.write(&[b]); // Local echo
                 }
             }
         }
@@ -59,27 +67,37 @@ impl SerialHandler {
             let _ = serial.write(concat!("FlySky FS-i6X Rust Firmware v", env!("CARGO_PKG_VERSION"), "\r\n").as_bytes());
             self.send_telemetry_line(serial, rf_chs, telem, battery_mv);
         } else if cmd.eq_ignore_ascii_case("channels") {
-            let _ = serial.write(b"{\"ch\":[");
-            for (i, &ch) in rf_chs.iter().enumerate() {
-                let mut cbuf = [0u8; 6];
-                let mut pos = 0;
-                if i > 0 {
-                    cbuf[pos] = b',';
-                    pos += 1;
-                }
-                cbuf[pos] = b'0' + ((ch / 1000) % 10) as u8; pos += 1;
-                cbuf[pos] = b'0' + ((ch / 100) % 10) as u8; pos += 1;
-                cbuf[pos] = b'0' + ((ch / 10) % 10) as u8; pos += 1;
-                cbuf[pos] = b'0' + (ch % 10) as u8; pos += 1;
-                let _ = serial.write(&cbuf[..pos]);
+            let mut cbuf = [0u8; 128];
+            let mut pos = 0;
+            macro_rules! append_ch {
+                ($bytes:expr) => {
+                    let s = $bytes;
+                    if pos + s.len() <= cbuf.len() {
+                        cbuf[pos..pos + s.len()].copy_from_slice(s);
+                        pos += s.len();
+                    }
+                };
             }
-            let _ = serial.write(b"]}\r\n");
+            append_ch!(b"{\"ch\":[");
+            for (i, &ch) in rf_chs.iter().enumerate() {
+                if i > 0 {
+                    append_ch!(b",");
+                }
+                let mut num = [b'0'; 4];
+                num[0] = b'0' + ((ch / 1000) % 10) as u8;
+                num[1] = b'0' + ((ch / 100) % 10) as u8;
+                num[2] = b'0' + ((ch / 10) % 10) as u8;
+                num[3] = b'0' + (ch % 10) as u8;
+                append_ch!(&num);
+            }
+            append_ch!(b"]}\r\n");
+            let _ = serial.write(&cbuf[..pos]);
         } else if cmd.eq_ignore_ascii_case("telem") {
             self.send_telemetry_line(serial, rf_chs, telem, battery_mv);
         } else if cmd.eq_ignore_ascii_case("reboot") {
             let _ = serial.write(b"Rebooting...\r\n");
             cortex_m::peripheral::SCB::sys_reset();
-        } else {
+        } else if !cmd.is_empty() {
             let _ = serial.write(b"Unknown command. Type 'help'\r\n");
         }
     }
@@ -93,6 +111,11 @@ impl SerialHandler {
         telem: &TelemetryData,
         battery_mv: u16,
     ) {
+        // Only stream when host terminal is actively connected (DTR asserted)
+        if !serial.dtr() {
+            return;
+        }
+
         let mut buf = [0u8; 192];
         let mut pos = 0;
 
@@ -159,6 +182,12 @@ impl SerialHandler {
         }
         append!(b"]}\r\n");
 
-        let _ = serial.write(&buf[..pos]);
+        let mut offset = 0;
+        while offset < pos {
+            match serial.write(&buf[offset..pos]) {
+                Ok(n) if n > 0 => offset += n,
+                _ => break,
+            }
+        }
     }
 }

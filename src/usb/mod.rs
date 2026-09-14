@@ -14,7 +14,7 @@ use serial::SerialHandler;
 use stm32_usbd::{MemoryAccess, UsbBus, UsbPeripheral};
 use usb_device::{
     bus::UsbBusAllocator,
-    device::{StringDescriptors, UsbDevice, UsbDeviceBuilder, UsbDeviceState, UsbVidPid},
+    device::{StringDescriptors, UsbDevice, UsbDeviceBuilder, UsbDeviceState, UsbRev, UsbVidPid},
 };
 use usbd_hid::hid_class::HIDClass;
 use usbd_serial::SerialPort;
@@ -90,17 +90,20 @@ pub fn init(mode: u8) {
     unsafe {
         CURRENT_MODE = usb_mode;
 
-        // 1. Force physical disconnect on host PC by disabling DPPU and driving PA12 (D+) LOW
+        // 1. Force physical disconnect on host PC by disabling DPPU and driving PA11 (D-) and PA12 (D+) LOW
         let bcdr = 0x4000_5C58 as *mut u32;
         core::ptr::write_volatile(bcdr, 0); // Disable DPPU
 
         let gpioa_moder = 0x4800_0000 as *mut u32;
         let gpioa_bsrr = 0x4800_0018 as *mut u32;
         let moder = core::ptr::read_volatile(gpioa_moder);
-        // Set PA12 to output (0b01) and drive LOW to assert Single-Ended Zero (SE0) disconnect
-        core::ptr::write_volatile(gpioa_moder, (moder & !(0b11 << 24)) | (0b01 << 24));
-        core::ptr::write_volatile(gpioa_bsrr, 1 << (12 + 16));
-        cortex_m::asm::delay(1_000_000); // ~20 ms delay to guarantee host root hub detects disconnect
+        // Set PA11 (bits 23:22) and PA12 (bits 25:24) to general output (0b01) and drive LOW (SE0)
+        core::ptr::write_volatile(
+            gpioa_moder,
+            (moder & !((0b11 << 22) | (0b11 << 24))) | ((0b01 << 22) | (0b01 << 24)),
+        );
+        core::ptr::write_volatile(gpioa_bsrr, (1 << (11 + 16)) | (1 << (12 + 16)));
+        cortex_m::asm::delay(2_400_000); // ~150 ms delay to guarantee host root hub detects physical disconnect
 
         // 2. Hardware peripheral reset via RCC APB1RSTR (bit 23 = USBRST)
         let rcc_apb1rstr = 0x4002_1010 as *mut u32;
@@ -113,6 +116,7 @@ pub fn init(mode: u8) {
         USB_HID = None;
         USB_SERIAL = None;
         USB_ALLOCATOR = None;
+        SERIAL_HANDLER = SerialHandler::new();
 
         let rcc_apb1enr = 0x4002_101C as *mut u32;
         if usb_mode == UsbMode::Off {
@@ -132,7 +136,7 @@ pub fn init(mode: u8) {
         let moder = core::ptr::read_volatile(gpioa_moder);
         core::ptr::write_volatile(
             gpioa_moder,
-            (moder & !((0b11 << 22) | (0b11 << 24))) | ((0b10 << 22) | (0b10 << 24)),
+            (moder & !((0b11 << 22) | (0b11 << 24))) | ((0b10 << 22) | ((0b10 << 24))),
         );
         let afrh = core::ptr::read_volatile(gpioa_afrh);
         core::ptr::write_volatile(gpioa_afrh, afrh & !((0xF << 12) | (0xF << 16)));
@@ -153,6 +157,7 @@ pub fn init(mode: u8) {
 
                 let dev = UsbDeviceBuilder::new(alloc, UsbVidPid(0x1209, 0x4F54)) // OpenTX / EdgeTX Radio Joystick
                     .device_class(0x00)
+                    .usb_rev(UsbRev::Usb200)
                     .strings(&[StringDescriptors::default()
                         .manufacturer("FlySky")
                         .product("FS-i6X Joystick")
@@ -167,6 +172,7 @@ pub fn init(mode: u8) {
 
                 let dev = UsbDeviceBuilder::new(alloc, UsbVidPid(0x0483, 0x5740)) // Standard STM32 VCP
                     .device_class(usbd_serial::USB_CLASS_CDC)
+                    .usb_rev(UsbRev::Usb200)
                     .strings(&[StringDescriptors::default()
                         .manufacturer("FlySky")
                         .product("FS-i6X Serial")
@@ -182,9 +188,8 @@ pub fn init(mode: u8) {
                 USB_SERIAL = Some(serial);
 
                 let dev = UsbDeviceBuilder::new(alloc, UsbVidPid(0x1209, 0x4968)) // EdgeTX Radio Composite
-                    .device_class(0xEF) // Miscellaneous device (IAD)
-                    .device_sub_class(0x02)
-                    .device_protocol(0x01)
+                    .composite_with_iads()
+                    .usb_rev(UsbRev::Usb200)
                     .strings(&[StringDescriptors::default()
                         .manufacturer("FlySky")
                         .product("FS-i6X Radio")
@@ -202,6 +207,7 @@ fn panic_fallback() -> UsbDeviceBuilder<'static, FlyskyUsbBus> {
     unsafe {
         let alloc = USB_ALLOCATOR.as_ref().unwrap();
         UsbDeviceBuilder::new(alloc, UsbVidPid(0x1209, 0x4F54))
+            .usb_rev(UsbRev::Usb200)
     }
 }
 

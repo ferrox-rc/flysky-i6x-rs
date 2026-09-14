@@ -77,7 +77,7 @@ USB Mode:        JOYSTICK  <-- Cycle with [OK]
 | **`COMPOSITE`**| **`3`** | **Active (100 Hz)** | **Active (115200)** | **Active (100 mW Transmitting)** | Dual-purpose simulator & ground control station |
 
 > [!NOTE]
-> **On-The-Fly Mode Switching**: When switching modes in `Radio Setup`, the firmware asserts a Single-Ended Zero (SE0) disconnect by driving PA12 (`USB_DP`) LOW for 20 ms and performing an APB1 peripheral reset. The host PC detects a clean cable unplug and re-enumeration instantly without requiring a power cycle.
+> **On-The-Fly Mode Switching**: When switching modes in `Radio Setup`, the firmware asserts a Single-Ended Zero (SE0) physical disconnect by driving both `PA11` (`USB_DM`) and `PA12` (`USB_DP`) LOW for ~150 ms and issuing an APB1 peripheral reset. The host PC detects a clean physical cable unplug and re-enumerates the newly selected personality instantly without requiring a power cycle.
 
 ---
 
@@ -108,34 +108,35 @@ The HID descriptor adheres strictly to OpenI6X and EdgeTX mapping conventions to
                 +---------------------------------------+
                 |    18-Byte USB HID Report Format      |
                 +---------------------------------------+
-                | Byte 0..1   | Axis X: Roll (AIL - CH1)|
-                | Byte 2..3   | Axis Y: Pitch (ELE - CH2)|
-                | Byte 4..5   | Axis Z: Throttle (THR - CH3)|
-                | Byte 6..7   | Axis Rz: Yaw (RUD - CH4)|
-                | Byte 8..9   | Axis Rx: Aux CH5        |
-                | Byte 10..11 | Axis Ry: Aux CH6        |
-                | Byte 12..13 | Slider 1: VRA Pot (CH7) |
-                | Byte 14..15 | Slider 2: VRB Pot (CH8) |
-                | Byte 16..17 | 16 Digital Buttons      |
+                | Byte 0..1   | 16 Digital Buttons      |
+                | Byte 2..3   | Axis X: Roll (AIL - CH1)|
+                | Byte 4..5   | Axis Y: Pitch (ELE - CH2)|
+                | Byte 6..7   | Axis Z: Throttle (THR - CH3)|
+                | Byte 8..9   | Axis Rz: Yaw (RUD - CH4)|
+                | Byte 10..11 | Axis Rx: VRA Pot (CH7)  |
+                | Byte 12..13 | Axis Ry: VRB Pot (CH8)  |
+                | Byte 14..15 | Slider: CH5 Aux 1       |
+                | Byte 16..17 | Dial: CH6 Aux 2         |
                 +---------------------------------------+
 ```
 
 #### Axis Normalization
-All stick and potentiometer channels are calculated through the flight mixer pipeline (incorporating calibration, dual rates, expos, and trims), clamped to 1000..2000 µs, and linearly scaled to 16-bit signed USB axis units:
-$$ \text{USB Axis} = \left( \frac{\text{Pulse}_{\mu s} - 1000}{1000} \right) \times 65535 - 32768 $$
+All stick and potentiometer channels are calculated through the flight mixer pipeline (incorporating calibration, dual rates, expos, and trims), clamped to 1000..2000 µs, and linearly scaled to 11-bit USB axis units (0..2047, centered at 1024):
+$$ \text{USB Axis} = \left( \frac{\text{Pulse}_{\mu s} - 1000}{1000} \right) \times 2047 $$
 
 #### Button Mapping (Switches SA..SD & Aux Channels)
 Physical switches and auxiliary channels are mapped cleanly to digital buttons. In standard neutral position (all switches UP), **all buttons report 0 (released)**, eliminating phantom keystrokes or desktop focus lock on Linux systems:
 
 | Button | Source | Active Condition |
 | :---: | :--- | :--- |
-| **Buttons 1..6** | Channels 9..14 | High pulse (`pulse > 1500 µs`) |
-| **Button 7** | Switch SA | Down position |
-| **Button 8** | Switch SB | Mid position |
-| **Button 9** | Switch SB | Down position |
-| **Button 10** | Switch SC | Mid or Down position |
-| **Button 11** | Switch SD | Down position |
-| **Buttons 12..16** | Spare | 0 (Released) |
+| **Button 1** | Switch SA (2-pos) | Down position |
+| **Button 2** | Switch SB (3-pos) | Mid position |
+| **Button 3** | Switch SB (3-pos) | Down position |
+| **Button 4** | Switch SC (3-pos) | Mid position |
+| **Button 5** | Switch SC (3-pos) | Down position |
+| **Button 6** | Switch SD (2-pos) | Down position |
+| **Buttons 7..12** | Channels 9..14 | High pulse (`pulse > 1500 µs`) |
+| **Buttons 13..16** | Spare | 0 (Released) |
 
 ### Tested Flight Simulators
 The native joystick mode has been verified with:
