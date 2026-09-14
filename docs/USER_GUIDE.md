@@ -265,11 +265,11 @@ The Radio Setup menu features a scrollable 4-item viewport with 9px row heights 
 - **`BL Level:`**: Backlight brightness level from `10%` to `100%` in 10% steps (supports both stock transistors and the `PC9` hardware PWM dimming mod).
 - **`Contrast:`**: LCD Electronic Volume (EV) contrast adjustment from `20` to `50` in steps of 3 (default: **`37`** / `0x25`). Adjusting this value provides instant live visual preview on the ST7567 display and persists across reboots.
 - **`Bat Warn:`**: Low battery alarm threshold from `4.0V` to `5.0V` in 0.1V steps (default: **`4.4V`**, or 1.10V/cell for 4xAA). When battery drops below this voltage, the status bar badge flashes inverted and an audible double-chirp alarm sounds every 8 seconds.
-- **`USB Mode:`**: Selects active USB peripheral personality:
-  - **`JOYSTICK`** (Default): 100 Hz native USB Gamepad for flight simulators with silent RF standby (zero RF radiation, cool running).
-  - **`SERIAL`**: Virtual COM Port (CDC-ACM) at 115200 baud streaming live telemetry while maintaining normal RF transmission.
+- **`USB Mode:`**: Selects active USB peripheral personality (switches on-the-fly without rebooting):
+  - **`OFF`** (Default): Disables USB peripheral and D+ pullup to prevent unwanted PC inputs and minimize power draw.
+  - **`JOYSTICK`**: 100 Hz native USB Gamepad for flight simulators with silent RF standby (zero RF radiation, cool running).
+  - **`SERIAL`**: Virtual COM Port (CDC-ACM) at 115200 baud streaming live JSON telemetry while maintaining normal RF transmission.
   - **`COMPOSITE`**: Simultaneous HID Gamepad + CDC-ACM Virtual COM Port.
-  - **`OFF`**: Completely disables USB peripheral and D+ pullup for charging only.
 
 ### Submenu 9: Protocol Setup (`PROTOCOL SETUP`)
 Replaces the redundant bind menu with universal RF protocol management:
@@ -409,13 +409,13 @@ When connected via USB in `JOYSTICK` mode:
 
 ### 3. Virtual COM Port & Telemetry Streaming
 In **`SERIAL`** or **`COMPOSITE`** mode, the radio exposes a virtual serial port (`/dev/ttyACM0` on Linux, `COMx` on Windows):
-- **Live Telemetry (20 Hz)**: Streams ASCII telemetry lines:
-  ```
-  TELEM: VBAT=5180mV RSSI=98% RX_V=4980mV TX_PKT=15820 RX_PKT=15798 ERR=22
+- **Live Telemetry (20 Hz)**: Streams structured JSON Lines (`ndjson`) universally parseable by Python, Node.js, or WebSerial:
+  ```json
+  {"vbat":5.18,"rssi":98,"rx_v":5.02,"tx":15820,"rx":15798,"err":22,"ch":[1500,1500,1150,1500,1000,1000,1500,1500,1000,1000,1500,1500,1500,1500]}
   ```
 - **Interactive CLI**: Open a terminal at 115200 baud to query system state:
-  - `help`: List available commands.
-  - `status`: Show battery voltage, model profile, and link state.
-  - `channels`: Print real-time microsecond pulse widths across all 14 channels.
-  - `telemetry`: Display detailed downlink link metrics and packet stats.
-  - `reboot`: Trigger a clean system reboot.
+  - `help`: List available commands (`help, status, channels, telem, reboot`).
+  - `status`: Show firmware version and current JSON status line.
+  - `channels`: Print real-time pulse widths in JSON format `{"ch":[...]}`.
+  - `telem`: Print a single JSON telemetry line on demand.
+  - `reboot`: Trigger a software system reset.

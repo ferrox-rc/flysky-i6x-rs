@@ -1,7 +1,7 @@
 //! USB CDC-ACM Serial communications and telemetry streaming driver.
 //!
-//! Provides virtual COM port communication for live telemetry streaming,
-//! model parameters inspection, and interactive serial CLI.
+//! Provides virtual COM port communication with standard JSON-lines telemetry streaming,
+//! model inspection, and interactive serial CLI.
 
 use crate::rf::afhds2a::TelemetryData;
 use usbd_serial::SerialPort;
@@ -54,75 +54,111 @@ impl SerialHandler {
         let cmd = core::str::from_utf8(&self.rx_buf[..self.rx_len]).unwrap_or("").trim();
 
         if cmd.eq_ignore_ascii_case("help") {
-            let _ = serial.write(b"Commands: help, status, channels, telem\r\n");
+            let _ = serial.write(b"Commands: help, status, channels, telem, reboot\r\n");
         } else if cmd.eq_ignore_ascii_case("status") {
-            let _ = serial.write(b"FS-i6X Rust Firmware v0.12.0\r\n");
-            self.send_telemetry_line(serial, telem, battery_mv);
+            let _ = serial.write(concat!("FlySky FS-i6X Rust Firmware v", env!("CARGO_PKG_VERSION"), "\r\n").as_bytes());
+            self.send_telemetry_line(serial, rf_chs, telem, battery_mv);
         } else if cmd.eq_ignore_ascii_case("channels") {
-            let _ = serial.write(b"CH:");
-            for &ch in rf_chs.iter() {
-                let mut cbuf = [0u8; 5];
-                cbuf[0] = b' ';
-                cbuf[1] = b'0' + ((ch / 1000) % 10) as u8;
-                cbuf[2] = b'0' + ((ch / 100) % 10) as u8;
-                cbuf[3] = b'0' + ((ch / 10) % 10) as u8;
-                cbuf[4] = b'0' + (ch % 10) as u8;
-                let _ = serial.write(&cbuf);
+            let _ = serial.write(b"{\"ch\":[");
+            for (i, &ch) in rf_chs.iter().enumerate() {
+                let mut cbuf = [0u8; 6];
+                let mut pos = 0;
+                if i > 0 {
+                    cbuf[pos] = b',';
+                    pos += 1;
+                }
+                cbuf[pos] = b'0' + ((ch / 1000) % 10) as u8; pos += 1;
+                cbuf[pos] = b'0' + ((ch / 100) % 10) as u8; pos += 1;
+                cbuf[pos] = b'0' + ((ch / 10) % 10) as u8; pos += 1;
+                cbuf[pos] = b'0' + (ch % 10) as u8; pos += 1;
+                let _ = serial.write(&cbuf[..pos]);
             }
-            let _ = serial.write(b"\r\n");
+            let _ = serial.write(b"]}\r\n");
         } else if cmd.eq_ignore_ascii_case("telem") {
-            self.send_telemetry_line(serial, telem, battery_mv);
+            self.send_telemetry_line(serial, rf_chs, telem, battery_mv);
+        } else if cmd.eq_ignore_ascii_case("reboot") {
+            let _ = serial.write(b"Rebooting...\r\n");
+            cortex_m::peripheral::SCB::sys_reset();
         } else {
             let _ = serial.write(b"Unknown command. Type 'help'\r\n");
         }
     }
 
-    /// Stream a single formatted telemetry line over USB CDC.
+    /// Stream a single formatted JSON telemetry line over USB CDC.
+    /// Format: {"vbat":5.18,"rssi":98,"rx_v":5.02,"tx":15820,"rx":15798,"err":22,"ch":[1500,...]}\r\n
     pub fn send_telemetry_line<B: usb_device::bus::UsbBus>(
         &self,
         serial: &mut SerialPort<B>,
+        rf_chs: &[u16; 14],
         telem: &TelemetryData,
         battery_mv: u16,
     ) {
-        let mut line = [b' '; 64];
-        // Format: "TLM: VBAT=X.YYV RSSI=XX% RXV=X.YYV TX=N RX=N\r\n"
-        let mut i = 0;
-        let prefix = b"TLM: VBAT=";
-        line[..prefix.len()].copy_from_slice(prefix);
-        i += prefix.len();
+        let mut buf = [0u8; 192];
+        let mut pos = 0;
 
-        let v = (battery_mv / 1000) as u8;
-        let d1 = ((battery_mv % 1000) / 100) as u8;
-        let d2 = ((battery_mv % 100) / 10) as u8;
-        line[i] = b'0' + v; i += 1;
-        line[i] = b'.'; i += 1;
-        line[i] = b'0' + d1; i += 1;
-        line[i] = b'0' + d2; i += 1;
-        line[i] = b'V'; i += 1;
+        macro_rules! append {
+            ($bytes:expr) => {
+                let slice = $bytes;
+                if pos + slice.len() <= buf.len() {
+                    buf[pos..pos + slice.len()].copy_from_slice(slice);
+                    pos += slice.len();
+                }
+            };
+        }
 
-        let rssi_lbl = b" RSSI=";
-        line[i..i + rssi_lbl.len()].copy_from_slice(rssi_lbl);
-        i += rssi_lbl.len();
-        let r = telem.rssi.min(100);
-        line[i] = b'0' + (r / 10); i += 1;
-        line[i] = b'0' + (r % 10); i += 1;
-        line[i] = b'%'; i += 1;
+        macro_rules! append_u32 {
+            ($val:expr) => {
+                let mut num_buf = [0u8; 10];
+                let mut n: u32 = $val;
+                let mut idx = 10;
+                if n == 0 {
+                    append!(b"0");
+                } else {
+                    while n > 0 {
+                        idx -= 1;
+                        num_buf[idx] = b'0' + (n % 10) as u8;
+                        n /= 10;
+                    }
+                    append!(&num_buf[idx..]);
+                }
+            };
+        }
 
-        let rxv_lbl = b" RXV=";
-        line[i..i + rxv_lbl.len()].copy_from_slice(rxv_lbl);
-        i += rxv_lbl.len();
-        let rx_v = (telem.rx_voltage_mv / 1000) as u8;
-        let rx_d1 = ((telem.rx_voltage_mv % 1000) / 100) as u8;
-        let rx_d2 = ((telem.rx_voltage_mv % 100) / 10) as u8;
-        line[i] = b'0' + rx_v; i += 1;
-        line[i] = b'.'; i += 1;
-        line[i] = b'0' + rx_d1; i += 1;
-        line[i] = b'0' + rx_d2; i += 1;
-        line[i] = b'V'; i += 1;
+        macro_rules! append_volt {
+            ($mv:expr) => {
+                let v = ($mv / 1000) as u8;
+                let d1 = (($mv % 1000) / 100) as u8;
+                let d2 = (($mv % 100) / 10) as u8;
+                let mut v_buf = [b'0'; 4];
+                v_buf[0] = b'0' + v;
+                v_buf[1] = b'.';
+                v_buf[2] = b'0' + d1;
+                v_buf[3] = b'0' + d2;
+                append!(&v_buf);
+            };
+        }
 
-        line[i] = b'\r'; i += 1;
-        line[i] = b'\n'; i += 1;
+        append!(b"{\"vbat\":");
+        append_volt!(battery_mv);
+        append!(b",\"rssi\":");
+        append_u32!(telem.rssi as u32);
+        append!(b",\"rx_v\":");
+        append_volt!(telem.rx_voltage_mv);
+        append!(b",\"tx\":");
+        append_u32!(telem.packets_sent);
+        append!(b",\"rx\":");
+        append_u32!(telem.packets_received);
+        append!(b",\"err\":");
+        append_u32!(telem.packets_sent.saturating_sub(telem.packets_received));
+        append!(b",\"ch\":[");
+        for (i, &ch) in rf_chs.iter().enumerate() {
+            if i > 0 {
+                append!(b",");
+            }
+            append_u32!(ch as u32);
+        }
+        append!(b"]}\r\n");
 
-        let _ = serial.write(&line[..i]);
+        let _ = serial.write(&buf[..pos]);
     }
 }

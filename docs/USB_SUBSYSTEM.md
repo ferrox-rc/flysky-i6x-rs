@@ -69,12 +69,15 @@ USB Mode:        JOYSTICK  <-- Cycle with [OK]
 
 ### Mode Comparison Matrix
 
-| Mode | HID Gamepad | Virtual COM Port | RF Transceiver State | Primary Use Case |
-| :--- | :---: | :---: | :---: | :--- |
-| **`JOYSTICK`** | **Active (100 Hz)** | Inactive | **Standby / Muted (0 mW)** | Flight simulators (Liftoff, Velocidrone, RealFlight) |
-| **`SERIAL`** | Inactive | **Active (115200)** | **Active (100 mW Transmitting)** | Telemetry logging, blackbox monitoring, interactive CLI |
-| **`COMPOSITE`**| **Active (100 Hz)** | **Active (115200)** | **Active (100 mW Transmitting)** | Dual-purpose simulator & ground control station |
-| **`OFF`** | Inactive | Inactive | **Active (100 mW Transmitting)** | Charge-only, no USB enumeration, zero PC connection |
+| Mode | Value | HID Gamepad | Virtual COM Port | RF Transceiver State | Primary Use Case |
+| :--- | :---: | :---: | :---: | :---: | :--- |
+| **`OFF`** | **`0`** | Inactive | Inactive | **Active (100 mW Transmitting)** | Default: Charge-only, no USB enumeration, zero PC connection |
+| **`JOYSTICK`** | **`1`** | **Active (100 Hz)** | Inactive | **Standby / Muted (0 mW)** | Flight simulators (Liftoff, Velocidrone, RealFlight) |
+| **`SERIAL`** | **`2`** | Inactive | **Active (115200)** | **Active (100 mW Transmitting)** | Telemetry logging, blackbox monitoring, interactive CLI |
+| **`COMPOSITE`**| **`3`** | **Active (100 Hz)** | **Active (115200)** | **Active (100 mW Transmitting)** | Dual-purpose simulator & ground control station |
+
+> [!NOTE]
+> **On-The-Fly Mode Switching**: When switching modes in `Radio Setup`, the firmware asserts a Single-Ended Zero (SE0) disconnect by driving PA12 (`USB_DP`) LOW for 20 ms and performing an APB1 peripheral reset. The host PC detects a clean cable unplug and re-enumeration instantly without requiring a power cycle.
 
 ---
 
@@ -83,27 +86,36 @@ USB Mode:        JOYSTICK  <-- Cycle with [OK]
 When `JOYSTICK` or `COMPOSITE` mode is enabled, the transmitter enumerates on Windows, macOS, and Linux as a standard plug-and-play **DirectInput / SDL2 Human Interface Device (HID)** without requiring any external drivers or software.
 
 ### USB Identity
-- **Vendor ID (VID)**: `0x0483` (STMicroelectronics)
-- **Product ID (PID)**: `0x5710` (Custom Joystick) / `0x5750` (Composite)
-- **Product Name**: `FS-i6X Joystick`
-- **Manufacturer**: `FlySky`
-- **Serial Number**: `FS-I6X-SIM`
+- **Joystick Mode**:
+  - **Vendor ID (VID)**: `0x1209` (pid.codes open hardware)
+  - **Product ID (PID)**: `0x4F54` (Official OpenTX / EdgeTX Radio Joystick)
+  - **Product Name**: `FS-i6X Joystick`
+  - **Manufacturer**: `FlySky`
+  - **Serial Number**: `FS-I6X-SIM`
+- **Composite Mode**:
+  - **Vendor ID (VID)**: `0x1209`
+  - **Product ID (PID)**: `0x4968` (Official EdgeTX Radio Composite)
+  - **Product Name**: `FS-i6X Radio`
+- **Serial Mode**:
+  - **Vendor ID (VID)**: `0x0483` (STMicroelectronics)
+  - **Product ID (PID)**: `0x5740` (Standard Virtual COM Port)
+  - **Product Name**: `FS-i6X Serial`
 
 ### Report Descriptor (8 Axes, 16 Buttons)
-The HID descriptor adheres strictly to the OpenI6X and EdgeTX mapping conventions to ensure immediate, zero-configuration compatibility across all major RC simulators:
+The HID descriptor adheres strictly to OpenI6X and EdgeTX mapping conventions to ensure immediate, zero-configuration compatibility across all major RC simulators:
 
 ```
                 +---------------------------------------+
                 |    18-Byte USB HID Report Format      |
                 +---------------------------------------+
-                | Byte 0..1   | Axis X: Roll (AIL)      |
-                | Byte 2..3   | Axis Y: Pitch (ELE)     |
-                | Byte 4..5   | Axis Z: Throttle (THR)  |
-                | Byte 6..7   | Axis Rz: Yaw (RUD)      |
-                | Byte 8..9   | Axis Rx: Dial VRA (VR1) |
-                | Byte 10..11 | Axis Ry: Dial VRB (VR2) |
-                | Byte 12..13 | Slider: Aux CH7         |
-                | Byte 14..15 | Dial: Aux CH8           |
+                | Byte 0..1   | Axis X: Roll (AIL - CH1)|
+                | Byte 2..3   | Axis Y: Pitch (ELE - CH2)|
+                | Byte 4..5   | Axis Z: Throttle (THR - CH3)|
+                | Byte 6..7   | Axis Rz: Yaw (RUD - CH4)|
+                | Byte 8..9   | Axis Rx: Aux CH5        |
+                | Byte 10..11 | Axis Ry: Aux CH6        |
+                | Byte 12..13 | Slider 1: VRA Pot (CH7) |
+                | Byte 14..15 | Slider 2: VRB Pot (CH8) |
                 | Byte 16..17 | 16 Digital Buttons      |
                 +---------------------------------------+
 ```
@@ -112,25 +124,21 @@ The HID descriptor adheres strictly to the OpenI6X and EdgeTX mapping convention
 All stick and potentiometer channels are calculated through the flight mixer pipeline (incorporating calibration, dual rates, expos, and trims), clamped to 1000..2000 µs, and linearly scaled to 16-bit signed USB axis units:
 $$ \text{USB Axis} = \left( \frac{\text{Pulse}_{\mu s} - 1000}{1000} \right) \times 65535 - 32768 $$
 
-#### Button Mapping (Switches SA..SD)
-Physical switches are mapped to digital buttons to support simulator functions such as Flight Modes, Arming, Turtle Mode, and Reset:
+#### Button Mapping (Switches SA..SD & Aux Channels)
+Physical switches and auxiliary channels are mapped cleanly to digital buttons. In standard neutral position (all switches UP), **all buttons report 0 (released)**, eliminating phantom keystrokes or desktop focus lock on Linux systems:
 
-| Button | Source | Condition |
+| Button | Source | Active Condition |
 | :---: | :--- | :--- |
-| **Button 1** | Switch SA | Down position |
-| **Button 2** | Switch SA | Up position |
-| **Button 3** | Switch SB | Up position |
-| **Button 4** | Switch SB | Middle position |
-| **Button 5** | Switch SB | Down position |
-| **Button 6** | Switch SC | Up position |
-| **Button 7** | Switch SC | Middle position |
-| **Button 8** | Switch SC | Down position |
-| **Button 9** | Switch SD | Down position |
-| **Button 10** | Switch SD | Up position |
-| **Buttons 11..16** | Aux Channels | Spare / Reserved |
+| **Buttons 1..6** | Channels 9..14 | High pulse (`pulse > 1500 µs`) |
+| **Button 7** | Switch SA | Down position |
+| **Button 8** | Switch SB | Mid position |
+| **Button 9** | Switch SB | Down position |
+| **Button 10** | Switch SC | Mid or Down position |
+| **Button 11** | Switch SD | Down position |
+| **Buttons 12..16** | Spare | 0 (Released) |
 
 ### Tested Flight Simulators
-The native gamepad mode has been verified with:
+The native joystick mode has been verified with:
 - **Liftoff: FPV Drone Racing** (Steam / PC / Mac)
 - **VelociDrone FPV Racing Simulator**
 - **RealFlight Evolution / RF9**
@@ -152,10 +160,10 @@ When `SERIAL` or `COMPOSITE` mode is selected, the transmitter exposes a standar
 - **Stop Bits**: 1
 - **Flow Control**: None
 
-### Autonomous Telemetry Streaming
-Every 50 ms (20 Hz), the transmitter automatically broadcasts an ASCII telemetry packet formatted for easy parsing by ground control software or logging scripts:
-```
-TELEM: VBAT=5180mV RSSI=98% RX_V=4980mV TX_PKT=15820 RX_PKT=15798 ERR=22
+### Autonomous Telemetry Streaming (Universal JSON Lines)
+Every 50 ms (20 Hz), the transmitter automatically broadcasts a structured JSON Lines (`ndjson`) packet that can be parsed trivially by any Python script, Node.js tool, web browser (WebSerial), or ground station:
+```json
+{"vbat":5.18,"rssi":98,"rx_v":5.02,"tx":15820,"rx":15798,"err":22,"ch":[1500,1500,1150,1500,1000,1000,1500,1500,1000,1000,1500,1500,1500,1500]}
 ```
 
 ### Interactive CLI Commands
@@ -167,11 +175,11 @@ $ picocom -b 115200 /dev/ttyACM0
 
 | Command | Description | Example Output |
 | :--- | :--- | :--- |
-| **`help`** | Displays available serial CLI commands | `Commands: help, status, channels, telemetry, reboot` |
-| **`status`** | System health, voltage, active model, and link state | `STATUS: Model=0 (MODEL 01), Vbat=5.18V, RF=Active, Telem=Connected` |
-| **`channels`** | Real-time microsecond pulse widths for CH1..CH14 | `CH: 1500 1500 1150 1500 1000 1500 1500 1500 1000 1000 1500 1500 1500 1500` |
-| **`telemetry`** | Full downlink sensor metrics and packet odometer | `TELEM: RSSI=95%, RxBatt=5.02V, Errors=4, LinkQuality=99%` |
-| **`reboot`** | Safely triggers a software system reset | `Rebooting transmitter...` |
+| **`help`** | Displays available serial CLI commands | `Commands: help, status, channels, telem, reboot` |
+| **`status`** | System health, firmware version, and link state | `FlySky FS-i6X Rust Firmware v0.13.1` + JSON line |
+| **`channels`** | Real-time channel pulse widths in JSON format | `{"ch":[1500,1500,1150,1500,1000,...]}` |
+| **`telem`** | Full downlink sensor metrics and packet odometer | `{"vbat":5.18,"rssi":98,"rx_v":5.02,"tx":15820,"rx":15798,"err":22,"ch":[...]}` |
+| **`reboot`** | Safely triggers a software system reset | `Rebooting...` |
 
 ---
 
@@ -216,7 +224,7 @@ Offset 11      : Backlight Timeout
 Offset 12      : Backlight Brightness
 Offset 13      : Vbat Warn Threshold
 Offset 14      : LCD Contrast
-Offset 15      : usb_mode (0: Joystick, 1: Serial, 2: Composite, 3: Off) <-- REPLACED _pad0
+Offset 15      : usb_mode (0: Off, 1: Joystick, 2: Serial, 3: Composite) <-- Default: 0 (Off)
 Offset 16..48  : Stick Calibrations (4 x 8B)
 Offset 48..64  : Pot Calibrations (2 x 8B)
 Offset 64..128 : Reserved (64B)

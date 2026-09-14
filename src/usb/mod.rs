@@ -47,29 +47,29 @@ pub type FlyskyUsbBus = UsbBus<FlyskyUsb>;
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum UsbMode {
-    Joystick = 0,  // Native USB Gamepad (RF disabled for simulator play)
-    Serial = 1,    // Virtual COM Port (RF active with live telemetry streaming)
-    Composite = 2, // Both Joystick and Serial active simultaneously
-    Off = 3,       // USB disconnected / charging only
+    Off = 0,       // USB disconnected / charging only (Default)
+    Joystick = 1,  // Native USB Gamepad (RF disabled for simulator play)
+    Serial = 2,    // Virtual COM Port (RF active with live telemetry streaming)
+    Composite = 3, // Both Joystick and Serial active simultaneously
 }
 
 impl UsbMode {
     pub fn from_u8(val: u8) -> Self {
         match val {
-            1 => Self::Serial,
-            2 => Self::Composite,
-            3 => Self::Off,
-            _ => Self::Joystick,
+            1 => Self::Joystick,
+            2 => Self::Serial,
+            3 => Self::Composite,
+            _ => Self::Off,
         }
     }
 
     #[allow(dead_code)]
     pub fn as_str(&self) -> &'static str {
         match self {
+            Self::Off => "OFF",
             Self::Joystick => "JOYSTICK",
             Self::Serial => "SERIAL",
             Self::Composite => "COMPOSITE",
-            Self::Off => "OFF",
         }
     }
 }
@@ -79,52 +79,79 @@ static mut USB_DEV: Option<UsbDevice<'static, FlyskyUsbBus>> = None;
 static mut USB_HID: Option<HIDClass<'static, FlyskyUsbBus>> = None;
 static mut USB_SERIAL: Option<SerialPort<'static, FlyskyUsbBus>> = None;
 static mut SERIAL_HANDLER: SerialHandler = SerialHandler::new();
-static mut CURRENT_MODE: UsbMode = UsbMode::Joystick;
+static mut CURRENT_MODE: UsbMode = UsbMode::Off;
 static mut LAST_POLL_MS: u32 = 0;
 static mut LAST_TELEM_STREAM_MS: u32 = 0;
 
 /// Initialize the hardware USB peripheral according to the configured USB mode.
+/// Supports on-the-fly switching between modes by forcing physical disconnect and core reset.
 pub fn init(mode: u8) {
     let usb_mode = UsbMode::from_u8(mode);
     unsafe {
         CURRENT_MODE = usb_mode;
-    }
 
-    if usb_mode == UsbMode::Off {
-        // Ensure USB clock is disabled and D+ pullup disconnected
-        unsafe {
-            let bcdr = 0x4000_5C58 as *mut u32;
-            core::ptr::write_volatile(bcdr, 0); // Disable DPPU
-        }
-        return;
-    }
+        // 1. Force physical disconnect on host PC by disabling DPPU and driving PA12 (D+) LOW
+        let bcdr = 0x4000_5C58 as *mut u32;
+        core::ptr::write_volatile(bcdr, 0); // Disable DPPU
 
-    unsafe {
-        // 1. Initialize GPIOA PA11 & PA12 as AF0 (USB_DM & USB_DP)
         let gpioa_moder = 0x4800_0000 as *mut u32;
+        let gpioa_bsrr = 0x4800_0018 as *mut u32;
+        let moder = core::ptr::read_volatile(gpioa_moder);
+        // Set PA12 to output (0b01) and drive LOW to assert Single-Ended Zero (SE0) disconnect
+        core::ptr::write_volatile(gpioa_moder, (moder & !(0b11 << 24)) | (0b01 << 24));
+        core::ptr::write_volatile(gpioa_bsrr, 1 << (12 + 16));
+        cortex_m::asm::delay(1_000_000); // ~20 ms delay to guarantee host root hub detects disconnect
+
+        // 2. Hardware peripheral reset via RCC APB1RSTR (bit 23 = USBRST)
+        let rcc_apb1rstr = 0x4002_1010 as *mut u32;
+        core::ptr::write_volatile(rcc_apb1rstr, core::ptr::read_volatile(rcc_apb1rstr) | (1 << 23));
+        cortex_m::asm::delay(48_000);
+        core::ptr::write_volatile(rcc_apb1rstr, core::ptr::read_volatile(rcc_apb1rstr) & !(1 << 23));
+
+        // 3. Drop existing USB stack instances
+        USB_DEV = None;
+        USB_HID = None;
+        USB_SERIAL = None;
+        USB_ALLOCATOR = None;
+
+        let rcc_apb1enr = 0x4002_101C as *mut u32;
+        if usb_mode == UsbMode::Off {
+            // Disable USB peripheral clock
+            core::ptr::write_volatile(rcc_apb1enr, core::ptr::read_volatile(rcc_apb1enr) & !(1 << 23));
+            // Set PA11 and PA12 as analog inputs to float pins and conserve battery
+            let moder = core::ptr::read_volatile(gpioa_moder);
+            core::ptr::write_volatile(gpioa_moder, moder | (0b11 << 22) | (0b11 << 24));
+            return;
+        }
+
+        // Enable USB peripheral clock
+        core::ptr::write_volatile(rcc_apb1enr, core::ptr::read_volatile(rcc_apb1enr) | (1 << 23));
+
+        // Configure PA11 & PA12 as AF0 (USB_DM & USB_DP)
         let gpioa_afrh = 0x4800_0024 as *mut u32;
         let moder = core::ptr::read_volatile(gpioa_moder);
-        // PA11 (bits [23:22]), PA12 (bits [25:24]) -> Alternate Function (0b10)
         core::ptr::write_volatile(
             gpioa_moder,
             (moder & !((0b11 << 22) | (0b11 << 24))) | ((0b10 << 22) | (0b10 << 24)),
         );
         let afrh = core::ptr::read_volatile(gpioa_afrh);
-        // PA11 is pin 11 -> AFRH bits [15:12] = 0 (AF0), PA12 is pin 12 -> bits [19:16] = 0 (AF0)
         core::ptr::write_volatile(gpioa_afrh, afrh & !((0xF << 12) | (0xF << 16)));
 
-        // 2. Setup UsbBus allocator
+        // Stabilization delay
+        cortex_m::asm::delay(48_000);
+
+        // 4. Setup UsbBus allocator
         let bus = FlyskyUsbBus::new(FlyskyUsb);
         USB_ALLOCATOR = Some(bus);
         let alloc = USB_ALLOCATOR.as_ref().unwrap();
 
-        // 3. Initialize classes based on mode
+        // 5. Initialize classes based on mode
         match usb_mode {
             UsbMode::Joystick => {
                 let hid = HIDClass::new_ep_in(alloc, hid::GAMEPAD_REPORT_DESC, 10);
                 USB_HID = Some(hid);
 
-                let dev = UsbDeviceBuilder::new(alloc, UsbVidPid(0x0483, 0x5710)) // STMicroelectronics Gamepad VID/PID
+                let dev = UsbDeviceBuilder::new(alloc, UsbVidPid(0x1209, 0x4F54)) // OpenTX / EdgeTX Radio Joystick
                     .device_class(0x00)
                     .strings(&[StringDescriptors::default()
                         .manufacturer("FlySky")
@@ -138,7 +165,7 @@ pub fn init(mode: u8) {
                 let serial = SerialPort::new(alloc);
                 USB_SERIAL = Some(serial);
 
-                let dev = UsbDeviceBuilder::new(alloc, UsbVidPid(0x0483, 0x5740)) // Virtual COM Port VID/PID
+                let dev = UsbDeviceBuilder::new(alloc, UsbVidPid(0x0483, 0x5740)) // Standard STM32 VCP
                     .device_class(usbd_serial::USB_CLASS_CDC)
                     .strings(&[StringDescriptors::default()
                         .manufacturer("FlySky")
@@ -154,13 +181,13 @@ pub fn init(mode: u8) {
                 USB_HID = Some(hid);
                 USB_SERIAL = Some(serial);
 
-                let dev = UsbDeviceBuilder::new(alloc, UsbVidPid(0x0483, 0x5750)) // Composite Device
+                let dev = UsbDeviceBuilder::new(alloc, UsbVidPid(0x1209, 0x4968)) // EdgeTX Radio Composite
                     .device_class(0xEF) // Miscellaneous device (IAD)
                     .device_sub_class(0x02)
                     .device_protocol(0x01)
                     .strings(&[StringDescriptors::default()
                         .manufacturer("FlySky")
-                        .product("FS-i6X Gamepad & Serial")
+                        .product("FS-i6X Radio")
                         .serial_number("FS-I6X-COMP")])
                     .unwrap_or_else(|_| panic_fallback())
                     .build();
@@ -174,7 +201,7 @@ pub fn init(mode: u8) {
 fn panic_fallback() -> UsbDeviceBuilder<'static, FlyskyUsbBus> {
     unsafe {
         let alloc = USB_ALLOCATOR.as_ref().unwrap();
-        UsbDeviceBuilder::new(alloc, UsbVidPid(0x0483, 0x5710))
+        UsbDeviceBuilder::new(alloc, UsbVidPid(0x1209, 0x4F54))
     }
 }
 
@@ -243,7 +270,7 @@ pub fn poll(
         {
             LAST_TELEM_STREAM_MS = now_ms;
             if let Some(ref mut serial) = USB_SERIAL.as_mut() {
-                SERIAL_HANDLER.send_telemetry_line(serial, telem, battery_mv);
+                SERIAL_HANDLER.send_telemetry_line(serial, rf_chs, telem, battery_mv);
             }
         }
     }
@@ -263,7 +290,7 @@ pub fn is_connected() -> bool {
 /// When true, the RF transceiver is placed in Standby (zero RF emission / silent running).
 pub fn is_sim_mode() -> bool {
     unsafe {
-        (CURRENT_MODE == UsbMode::Joystick || CURRENT_MODE == UsbMode::Composite) && is_connected()
+        CURRENT_MODE == UsbMode::Joystick && is_connected()
     }
 }
 

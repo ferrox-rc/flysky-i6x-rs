@@ -50,7 +50,7 @@ pub struct RadioConfig {
     pub backlight_brightness: u8,  // 12 (1..10)
     pub vbat_warn_deci: u8,        // 13 (40..50 = 4.0V..5.0V, default 44 = 4.4V)
     pub lcd_contrast: u8,          // 14 (15..55, default 37 / 0x25)
-    pub usb_mode: u8,              // 15 (0: Joystick, 1: Serial, 2: Composite, 3: Off)
+    pub usb_mode: u8,              // 15 (0: Off, 1: Joystick, 2: Serial, 3: Composite)
     pub sticks: [ChannelCalib; 4], // 16..48 (32 bytes: Roll, Pitch, Throttle, Yaw)
     pub pots: [ChannelCalib; 2],   // 48..64 (16 bytes: VRA, VRB)
     pub _reserved: [u8; 64],       // 64..128

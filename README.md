@@ -230,14 +230,15 @@ Comprehensive technical documentation is maintained in the [`docs/`](docs/) dire
 
 ### Phase 13: USB Subsystem & Protocol Engine (COMPLETED)
 - [x] Hardware USB Full-Speed (12 Mbps) peripheral on `PA11` / `PA12` with internal 1.5 kΩ pull-up resistor.
-- [x] Native USB Gamepad / Joystick class (HID) at 100 Hz for flight simulators (Liftoff, Velocidrone, RealFlight) with OpenI6X/EdgeTX descriptor mapping (8 axes, 16 buttons).
-- [x] Virtual COM Port (CDC-ACM) streaming live telemetry and interactive CLI commands (`help`, `status`, `channels`, `telemetry`, `reboot`).
+- [x] Native USB Joystick class (HID) at 100 Hz with OpenI6X/EdgeTX mapping (8 axes: X/Y/Z/Rz/Rx/Ry/Sliders, 16 buttons with 0-state neutral release to eliminate Linux ghost typing).
+- [x] Virtual COM Port (CDC-ACM) streaming universal JSON Lines (`ndjson`) telemetry at 20 Hz and interactive CLI commands (`help`, `status`, `channels`, `telem`, `reboot`).
+- [x] True on-the-fly USB mode switching in `Radio Setup` (SE0 disconnect pulse + hardware APB1 reset without requiring reboot). Default mode: `OFF`.
 - [x] Silent RF standby running in Joystick mode: A7105 transceiver and PA/LNA frontend are placed in standby (zero RF radiation, cool running) with `U:SIM` status indicator.
-- [x] Non-volatile `USB Mode` setting in `Radio Setup` (`JOYSTICK`, `SERIAL`, `COMPOSITE`, `OFF`).
+- [x] Non-volatile `USB Mode` setting in `Radio Setup` (`OFF`, `JOYSTICK`, `SERIAL`, `COMPOSITE`).
 - [x] Main Menu Item 9 repurposed as `Protocol Setup` supporting `AFHDS 2A` internal RF and preparatory support for external `CRSF / ELRS` transmitter modules.
 
 ### Current Firmware Footprint
-- **Flash ROM**: **67.5 KB** (69,168 bytes) used out of **128 KB** available (>58 KB / 45.5% free headroom).
+- **Flash ROM**: **70.4 KB** (70,372 bytes) used out of **128 KB** available (>57.6 KB / 45.0% free headroom).
 - **Static RAM**: **1.7 KB** (`.data` 1,388B + `.bss` 364B) out of **16 KB** available (**>89% SRAM free**).
 - **Non-Volatile Storage**: **2,688 bytes** allocated across Pages 62 & 63 (1,408 bytes free headroom).
 

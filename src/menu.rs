@@ -1681,7 +1681,7 @@ impl MenuController {
                             storage::save_storage(storage);
                         }
                         6 => {
-                            // Cycle USB Mode: 0=JOYSTICK, 1=SERIAL, 2=COMPOSITE, 3=OFF
+                            // Cycle USB Mode: 0=OFF, 1=JOYSTICK, 2=SERIAL, 3=COMPOSITE
                             storage.radio.usb_mode = (storage.radio.usb_mode + 1) % 4;
                             crate::usb::init(storage.radio.usb_mode);
                             storage::save_storage(storage);
@@ -1767,10 +1767,10 @@ impl MenuController {
                         }
                         6 => {
                             let usb_str = match storage.radio.usb_mode {
-                                1 => "SERIAL",
-                                2 => "COMPOSITE",
-                                3 => "OFF",
-                                _ => "JOYSTICK",
+                                1 => "JOYSTICK",
+                                2 => "SERIAL",
+                                3 => "COMPOSITE",
+                                _ => "OFF",
                             };
                             Text::new("USB Mode:", Point::new(4, y + 7), style).draw(lcd).ok();
                             Text::new(usb_str, Point::new(62, y + 7), style).draw(lcd).ok();
