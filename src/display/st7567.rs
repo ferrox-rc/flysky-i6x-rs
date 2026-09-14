@@ -204,6 +204,13 @@ impl St7567 {
         self.write_byte(data, true);
     }
 
+    /// Set ST7567 Electronic Volume (EV) contrast value (0..63).
+    pub fn set_contrast(&self, ev: u8) {
+        let val = ev.min(63);
+        self.write_cmd(0x81); // LCD_CMD_EV (Electronic Volume)
+        self.write_cmd(val);
+    }
+
     /// Hardware reset and send OpenI6X-matched ST7567 initialization sequence.
     fn init_controller(&self) {
         unsafe {

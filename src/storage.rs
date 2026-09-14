@@ -49,7 +49,8 @@ pub struct RadioConfig {
     pub backlight_timeout: u8,     // 11 (0: Always On, 1: 15s, 2: 30s, 3: 60s)
     pub backlight_brightness: u8,  // 12 (1..10)
     pub vbat_warn_deci: u8,        // 13 (40..50 = 4.0V..5.0V, default 44 = 4.4V)
-    pub _pad0: [u8; 2],            // 14..16 (align sticks to 16)
+    pub lcd_contrast: u8,          // 14 (15..55, default 37 / 0x25)
+    pub _pad0: u8,                 // 15 (align sticks to 16)
     pub sticks: [ChannelCalib; 4], // 16..48 (32 bytes: Roll, Pitch, Throttle, Yaw)
     pub pots: [ChannelCalib; 2],   // 48..64 (16 bytes: VRA, VRB)
     pub _reserved: [u8; 64],       // 64..128
@@ -66,7 +67,8 @@ impl RadioConfig {
             backlight_timeout: 0,
             backlight_brightness: 10,
             vbat_warn_deci: 44,
-            _pad0: [0; 2],
+            lcd_contrast: 37,
+            _pad0: 0,
             sticks: [
                 ChannelCalib::new(2048 - 1670, 2048, 2048 + 1670), // Roll (Horizontal)
                 ChannelCalib::new(2048 - 1580, 2048, 2048 + 1580), // Pitch (Vertical)
@@ -217,6 +219,9 @@ impl RadioStorage {
         }
         if self.radio.backlight_brightness == 0 || self.radio.backlight_brightness > 10 {
             self.radio.backlight_brightness = 10;
+        }
+        if self.radio.lcd_contrast < 15 || self.radio.lcd_contrast > 55 {
+            self.radio.lcd_contrast = 37;
         }
 
         for (idx, m) in self.models.iter_mut().enumerate() {

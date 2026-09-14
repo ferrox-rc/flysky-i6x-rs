@@ -55,7 +55,7 @@ The main flight screen features 3 switchable display pages cycled by tapping **`
 - **Bottom Divider (`y = 55`)**: Full-width horizontal line (`Line(0, 55) -> (127, 55)`).
 - **Footer Info Bar (`y = 56..63`)**: Small text (`FONT_4X6`) rendered at baseline 62 (`y = 57..62`) for maximum vertical clearance.
 
-### Page 1/3: Primary Gimbals & Trims
+### Page 1/4: Primary Gimbals & Trims
 ```
 +-------------------------------------------------------------+
 | MODEL 01                  RF:OK                     5.18V   | <- Status Bar (y=0..10)
@@ -64,7 +64,7 @@ The main flight screen features 3 switchable display pages cycled by tapping **`
 | T [========.     ]   45%   | R [====|==.======]    0%       |
 | A:U  B:M  C:D  D:U                             V: 5/ 8      | <- Switches & Pots (y=44..53)
 |-------------------------------------------------------------| <- Bottom Line (y=55)
-| P1/3                                      Hold OK:Menu      | <- Footer Bar (y=57..62)
+| P1/4                                      Hold OK:Menu      | <- Footer Bar (y=57..62)
 +-------------------------------------------------------------+
 ```
 - **Top Status Bar (y = 0..10)**:
@@ -73,9 +73,9 @@ The main flight screen features 3 switchable display pages cycled by tapping **`
   - **Right (`X.YYV`)**: Internal battery voltage stabilized by an exponential moving average (EMA) filter to eliminate switching jitter on the hundredths digit.
 - **Gimbal Gauges (y = 12..43)**: Live channel sliders for Roll (`A`), Pitch (`E`), Throttle (`T`), Yaw (`R`) with center ticks, trim position ticks (`.`), and percentage readouts.
 - **Switches & Pots Line (y = 44..53)**: Position of switches SA..SD (`U`=Up, `M`=Middle, `D`=Down) and rotary pots VRA/VRB (`0`..`9`), positioned cleanly above the line 55 divider.
-- **Bottom Footer (y = 57..62)**: Displays active trim adjustment (`TRM A:+04`) or `P1/3   Hold OK:Menu` in crisp small font (`FONT_4X6`).
+- **Bottom Footer (y = 57..62)**: Displays active trim adjustment (`TRM A:+04`) or `P1/4   Hold OK:Menu` in crisp small font (`FONT_4X6`).
 
-### Page 2/3: 14-Channel Dual Column Monitor
+### Page 2/4: 14-Channel Dual Column Monitor
 ```
 +-------------------------------------------------------------+
 | MODEL 01                  RF:OK                     5.18V   | <- Status Bar (y=0..10)
@@ -88,7 +88,7 @@ The main flight screen features 3 switchable display pages cycled by tapping **`
 |  6: [==========] 1500  |  13: [==========] 1500             |
 |  7: [==========] 1500  |  14: [==========] 1500             |
 |-------------------------------------------------------------| <- Bottom Line (y=55)
-| P2/3                           14-CH MONITOR                | <- Footer Bar (y=57..62)
+| P2/4                           14-CH MONITOR                | <- Footer Bar (y=57..62)
 +-------------------------------------------------------------+
 ```
 - Real-time graphic bars and microsecond pulse readouts (1000..2000 µs) across all 14 AFHDS 2A channels simultaneously.
@@ -96,7 +96,7 @@ The main flight screen features 3 switchable display pages cycled by tapping **`
 - Right column: CH 8..14 (VR2, SwC, SwD, Aux channels).
 - Graphic bars are positioned at `y + 1` for pixel-perfect horizontal centering with the text labels, leaving 2px clearance above the line 55 divider.
 
-### Page 3/3: Model & Telemetry Dashboard
+### Page 3/4: Model Dashboard
 ```
 +-------------------------------------------------------------+
 | MODEL 01                  RF:OK                     5.18V   | <- Status Bar (y=0..10)
@@ -106,13 +106,37 @@ The main flight screen features 3 switchable display pages cycled by tapping **`
 | TCrv: 9-PT                                 SMOOTH           |
 | RX: 5.12V                                  RSSI: 98%        |
 |-------------------------------------------------------------| <- Bottom Line (y=55)
-| P3/3                         MODEL DASHBOARD                | <- Footer Bar (y=57..62)
+| P3/4                         MODEL DASHBOARD                | <- Footer Bar (y=57..62)
 +-------------------------------------------------------------+
 ```
 - Full 10-character model name and synchronized model type (`AIRPLANE`, `GLIDER`, `HELI`, `QUAD`).
 - Bound receiver 32-bit hex ID (`RxID`).
 - Active throttle curve configuration (`5-PT` / `9-PT`, `LINEAR` / `SMOOTH`).
 - Live telemetry readouts: Downlink RSSI percentage and receiver pack voltage (`RX: X.XXV`), or `AFHDS2A: DISCONNECTED` fitted within the screen width.
+
+### Page 4/4: Dedicated Telemetry & RF Diagnostics
+```
++-------------------------------------------------------------+
+| MODEL 01                  RF:OK                     5.18V   | <- Status Bar (y=0..10)
+|-------------------------------------------------------------| <- Top Line (y=11)
+| RSSI: 98%              | RX:   5.12V                        |
+| LINK: OK               | TX:   5.18V                        |
+| TX:    1420            | mRSS:   92%                        |
+| RX:    1398            | mRX:  4.92V                        |
+|-------------------------------------------------------------| <- Bottom Line (y=55)
+| P4/4                      TELEMETRY SENSORS                 | <- Footer Bar (y=57..62)
++-------------------------------------------------------------+
+```
+- **Live Signal & Diagnostics (Left Column)**:
+  - `RSSI: XX%`: Real-time signal strength from receiver telemetry.
+  - `LINK: OK / DISC`: Binary link status indicator.
+  - `TX: XXXXX`: Total 2.4 GHz RF packets transmitted since boot.
+  - `RX: XXXXX`: Total telemetry frames successfully acknowledged by receiver.
+- **Power & Session Extremes (Right Column)**:
+  - `RX: X.XXV`: Live flight receiver / BEC battery voltage.
+  - `TX: X.XXV`: Live transmitter battery voltage.
+  - `mRSS: XX%`: Lowest RSSI recorded during the active session (identifies signal dips or edge-of-range events).
+  - `mRX: X.XXV`: Lowest flight pack voltage recorded (identifies brownout risks and servo sag).
 
 ---
 
@@ -248,6 +272,7 @@ Interactive curve engine with real-time on-screen curve visualization (49 x 37 p
 - **`Audio:`**: Toggle beeper sound between `ENABLED` and `MUTED`.
 - **`BL Timer:`**: LCD backlight auto-shutoff timeout: `ALWAYS ON`, `15 SEC`, `30 SEC`, or `60 SEC`. Touching any key or moving any stick wakes the backlight instantly.
 - **`BL Level:`**: Backlight brightness level from `10%` to `100%` in 10% steps (supports both stock transistors and the `PC9` hardware PWM dimming mod).
+- **`Contrast:`**: LCD Electronic Volume (EV) contrast adjustment from `20` to `50` in steps of 3 (default: **`37`** / `0x25`). Adjusting this value provides instant live visual preview on the ST7567 display and persists across reboots.
 - **`Bat Warn:`**: Low battery alarm threshold from `4.0V` to `5.0V` in 0.1V steps (default: **`4.4V`**, or 1.10V/cell for 4xAA). When battery drops below this voltage, the status bar badge flashes inverted and an audible double-chirp alarm sounds every 8 seconds.
 
 ### Submenu 9: RX Setup & Bind (`RX SETUP & BIND`)

@@ -53,6 +53,15 @@ fn u16_to_dec_4(val: u16, buf: &mut [u8; 4]) {
     buf[3] = b'0' + (val % 10) as u8;
 }
 
+fn u32_to_dec_5(val: u32, buf: &mut [u8; 5]) {
+    let v = val.min(99999);
+    buf[0] = if v >= 10000 { b'0' + ((v / 10000) % 10) as u8 } else { b' ' };
+    buf[1] = if v >= 1000 { b'0' + ((v / 1000) % 10) as u8 } else { b' ' };
+    buf[2] = if v >= 100 { b'0' + ((v / 100) % 10) as u8 } else { b' ' };
+    buf[3] = if v >= 10 { b'0' + ((v / 10) % 10) as u8 } else { b' ' };
+    buf[4] = b'0' + (v % 10) as u8;
+}
+
 /// Format voltage in mV to "X.YYV" or "XX.YYV"
 fn format_vbat(mv: u16, buf: &mut [u8; 6]) -> &str {
     let v = mv / 1000;
@@ -323,8 +332,9 @@ fn main() -> ! {
     trims.values.yaw = active.trims[3];
     rf::set_rx_id(active.rx_id);
 
-    // Apply saved backlight brightness level
+    // Apply saved backlight brightness level & LCD contrast
     lcd.set_backlight_level(storage.radio.backlight_brightness * 10);
+    lcd.set_contrast(storage.radio.lcd_contrast);
 
     let mut calib_wizard = calib::CalibWizard::new();
     let mut menu_controller = menu::MenuController::new();
@@ -353,6 +363,9 @@ fn main() -> ! {
     let mut bind_was_held: bool = false;
     let mut vbat_alarm_timer: u32 = 7000;
     let mut rssi_alarm_timer: u32 = 0;
+    let mut min_rssi: u8 = 100;
+    let mut min_rx_v_mv: u16 = 0xFFFF;
+    let mut telem_seen: bool = false;
     let mut inactivity_timer_ms: u32 = 0;
     let mut inactivity_beep_timer: u32 = 0;
     let mut blink_phase: u8 = 0;
@@ -568,7 +581,7 @@ fn main() -> ! {
                 }
             } else {
                 if !bind_was_held && bind_hold_ms >= 40 {
-                    flight_page = (flight_page + 1) % 3;
+                    flight_page = (flight_page + 1) % 4;
                     buzzer.play_tone(2200, 30);
                 }
                 bind_hold_ms = 0;
@@ -733,8 +746,23 @@ fn main() -> ! {
 
         blink_phase = blink_phase.wrapping_add(1);
 
-        // Downlink Telemetry RSSI Range Alarms
+        // Downlink Telemetry RSSI Range Alarms & Stats Tracking
         if telem.connected {
+            if !telem_seen {
+                telem_seen = true;
+                min_rssi = telem.rssi;
+                if telem.rx_voltage_mv > 0 {
+                    min_rx_v_mv = telem.rx_voltage_mv;
+                }
+            } else {
+                if telem.rssi < min_rssi {
+                    min_rssi = telem.rssi;
+                }
+                if telem.rx_voltage_mv > 0 && telem.rx_voltage_mv < min_rx_v_mv {
+                    min_rx_v_mv = telem.rx_voltage_mv;
+                }
+            }
+
             if telem.rssi < 20 {
                 if rssi_alarm_timer >= 3000 {
                     rssi_alarm_timer = 0;
@@ -832,7 +860,7 @@ fn main() -> ! {
                     Text::new(trm_str, Point::new(2, 62), text_style_small).draw(&mut lcd).ok();
                     Text::new("Hold OK:Menu", Point::new(50, 62), text_style_small).draw(&mut lcd).ok();
                 } else {
-                    Text::new("P1/3", Point::new(2, 62), text_style_small).draw(&mut lcd).ok();
+                    Text::new("P1/4", Point::new(2, 62), text_style_small).draw(&mut lcd).ok();
                     Text::new("Hold OK:Menu", Point::new(50, 62), text_style_small).draw(&mut lcd).ok();
                 }
             }
@@ -902,13 +930,13 @@ fn main() -> ! {
                 if is_binding {
                     Text::new("[ESC] Finish Bind", Point::new(26, 62), text_style_small).draw(&mut lcd).ok();
                 } else {
-                    Text::new("P2/3", Point::new(2, 62), text_style_small).draw(&mut lcd).ok();
+                    Text::new("P2/4", Point::new(2, 62), text_style_small).draw(&mut lcd).ok();
                     Text::new("14-CH MONITOR", Point::new(40, 62), text_style_small).draw(&mut lcd).ok();
                 }
             }
 
-            _ => {
-                // --- Page 2: Model & Telemetry Dashboard (y = 13..53) ---
+            2 => {
+                // --- Page 2: Model Dashboard (y = 13..53) ---
                 let active = storage.active_model();
 
                 // Line 1 (y = 21): Model Name & Type
@@ -946,8 +974,13 @@ fn main() -> ! {
 
                     let mut r_buf = *b"RSSI:   %";
                     let r = telem.rssi.min(100);
-                    r_buf[5] = b'0' + (r / 10);
-                    r_buf[6] = b'0' + (r % 10);
+                    if r >= 10 {
+                        r_buf[5] = b'0' + (r / 10);
+                        r_buf[6] = b'0' + (r % 10);
+                    } else {
+                        r_buf[5] = b' ';
+                        r_buf[6] = b'0' + r;
+                    }
                     let r_str = core::str::from_utf8(&r_buf).unwrap_or("RSSI:--%");
                     Text::new(r_str, Point::new(64, 51), text_style).draw(&mut lcd).ok();
                 } else {
@@ -964,8 +997,120 @@ fn main() -> ! {
                 if is_binding {
                     Text::new("[ESC] Finish Bind", Point::new(26, 62), text_style_small).draw(&mut lcd).ok();
                 } else {
-                    Text::new("P3/3", Point::new(2, 62), text_style_small).draw(&mut lcd).ok();
+                    Text::new("P3/4", Point::new(2, 62), text_style_small).draw(&mut lcd).ok();
                     Text::new("MODEL DASHBOARD", Point::new(36, 62), text_style_small).draw(&mut lcd).ok();
+                }
+            }
+
+            _ => {
+                // --- Page 3: Telemetry & RF Diagnostics (y = 12..53) ---
+                let text_style_small = MonoTextStyle::new(&FONT_4X6, BinaryColor::On);
+
+                // Left Column (x = 2..62)
+                // Row 1 (y = 21): RSSI
+                if telem.connected {
+                    let mut r_buf = *b"RSSI:   %";
+                    let r = telem.rssi.min(100);
+                    if r >= 10 {
+                        r_buf[5] = b'0' + (r / 10);
+                        r_buf[6] = b'0' + (r % 10);
+                    } else {
+                        r_buf[5] = b' ';
+                        r_buf[6] = b'0' + r;
+                    }
+                    let r_str = core::str::from_utf8(&r_buf).unwrap_or("RSSI:--%");
+                    Text::new(r_str, Point::new(2, 21), text_style).draw(&mut lcd).ok();
+                } else {
+                    Text::new("RSSI: --%", Point::new(2, 21), text_style).draw(&mut lcd).ok();
+                }
+
+                // Row 2 (y = 31): Link Status
+                let link_str = if telem.connected { "LINK: OK" } else { "LINK: DISC" };
+                Text::new(link_str, Point::new(2, 31), text_style).draw(&mut lcd).ok();
+
+                // Row 3 (y = 41): Packets Sent
+                let mut tx_p_buf = [b' '; 5];
+                u32_to_dec_5(telem.packets_sent, &mut tx_p_buf);
+                let tx_p_str = core::str::from_utf8(&tx_p_buf).unwrap_or("    0");
+                Text::new("TX:", Point::new(2, 41), text_style).draw(&mut lcd).ok();
+                Text::new(tx_p_str, Point::new(24, 41), text_style).draw(&mut lcd).ok();
+
+                // Row 4 (y = 51): Packets Received
+                let mut rx_p_buf = [b' '; 5];
+                u32_to_dec_5(telem.packets_received, &mut rx_p_buf);
+                let rx_p_str = core::str::from_utf8(&rx_p_buf).unwrap_or("    0");
+                Text::new("RX:", Point::new(2, 51), text_style).draw(&mut lcd).ok();
+                Text::new(rx_p_str, Point::new(24, 51), text_style).draw(&mut lcd).ok();
+
+                // Vertical divider line between columns
+                Line::new(Point::new(64, 12), Point::new(64, 53))
+                    .into_styled(sep_style)
+                    .draw(&mut lcd)
+                    .ok();
+
+                // Right Column (x = 66..126)
+                // Row 1 (y = 21): RX Battery Voltage
+                Text::new("RX:", Point::new(66, 21), text_style).draw(&mut lcd).ok();
+                if telem.connected {
+                    let mut rxv_buf = [0u8; 6];
+                    let rxv_str = format_vbat(telem.rx_voltage_mv, &mut rxv_buf);
+                    Text::new(rxv_str, Point::new(88, 21), text_style).draw(&mut lcd).ok();
+                } else {
+                    Text::new("----", Point::new(88, 21), text_style).draw(&mut lcd).ok();
+                }
+
+                // Row 2 (y = 31): TX Battery Voltage
+                Text::new("TX:", Point::new(66, 31), text_style).draw(&mut lcd).ok();
+                let mut txv_buf = [0u8; 6];
+                let txv_str = format_vbat(state.battery_mv, &mut txv_buf);
+                Text::new(txv_str, Point::new(88, 31), text_style).draw(&mut lcd).ok();
+
+                // Row 3 (y = 41): Min Session RSSI
+                Text::new("mRSS:", Point::new(66, 41), text_style).draw(&mut lcd).ok();
+                if telem_seen {
+                    let mut mr_buf = *b"    ";
+                    let r = min_rssi.min(100);
+                    if r == 100 {
+                        mr_buf = *b"100%";
+                    } else if r >= 10 {
+                        mr_buf[0] = b' ';
+                        mr_buf[1] = b'0' + (r / 10);
+                        mr_buf[2] = b'0' + (r % 10);
+                        mr_buf[3] = b'%';
+                    } else {
+                        mr_buf[0] = b' ';
+                        mr_buf[1] = b' ';
+                        mr_buf[2] = b'0' + r;
+                        mr_buf[3] = b'%';
+                    }
+                    let mr_str = core::str::from_utf8(&mr_buf).unwrap_or(" --%");
+                    Text::new(mr_str, Point::new(98, 41), text_style).draw(&mut lcd).ok();
+                } else {
+                    Text::new(" --%", Point::new(98, 41), text_style).draw(&mut lcd).ok();
+                }
+
+                // Row 4 (y = 51): Min Session RX Voltage
+                Text::new("mRX:", Point::new(66, 51), text_style).draw(&mut lcd).ok();
+                if min_rx_v_mv != 0xFFFF && min_rx_v_mv > 0 {
+                    let mut mrxv_buf = [0u8; 6];
+                    let mrxv_str = format_vbat(min_rx_v_mv, &mut mrxv_buf);
+                    Text::new(mrxv_str, Point::new(92, 51), text_style).draw(&mut lcd).ok();
+                } else {
+                    Text::new("----", Point::new(92, 51), text_style).draw(&mut lcd).ok();
+                }
+
+                // Separator above footer
+                Line::new(Point::new(0, 55), Point::new(127, 55))
+                    .into_styled(sep_style)
+                    .draw(&mut lcd)
+                    .ok();
+
+                // Footer
+                if is_binding {
+                    Text::new("[ESC] Finish Bind", Point::new(26, 62), text_style_small).draw(&mut lcd).ok();
+                } else {
+                    Text::new("P4/4", Point::new(2, 62), text_style_small).draw(&mut lcd).ok();
+                    Text::new("TELEMETRY SENSORS", Point::new(28, 62), text_style_small).draw(&mut lcd).ok();
                 }
             }
         }

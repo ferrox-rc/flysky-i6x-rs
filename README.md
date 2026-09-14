@@ -204,12 +204,12 @@ Comprehensive technical documentation is maintained in the [`docs/`](docs/) dire
 - [x] Elimination of 64-bit software division emulation (`__aeabi_ldivmod`) across all mixing and expo math.
 - [x] Automated Flash storage sanitization (`RadioStorage::sanitize`) enforcing valid operating limits.
 
-### Phase 11: Display & Telemetry Enhancements (PLANNED)
-- [ ] LCD Electronic Volume (EV) contrast adjustment (0..63) in `Radio Setup`.
-- [ ] Dedicated full-screen telemetry sensor dashboard (Page 4/4) displaying live pack voltage, RSSI, and i-BUS sensor telemetry.
+### Phase 11: Display & Telemetry Enhancements (COMPLETED)
+- [x] LCD Electronic Volume (EV) contrast adjustment (`15..=55`, default 37 / `0x25`) in `Radio Setup` with instant live preview and Flash persistence.
+- [x] Dedicated full-screen telemetry sensor dashboard (Page 4/4) displaying live packet counters (`TX`, `RX`), link state (`OK` / `DISC`), battery voltages (`RX`, `TX`), and session minimums (`mRSS`, `mRX`).
 
 ### Current Firmware Footprint
-- **Flash ROM**: **51.2 KB** used out of **128 KB** available (~60% Flash free headroom).
+- **Flash ROM**: **52.5 KB** used out of **128 KB** available (~59% Flash free headroom).
 - **Static RAM**: **236 bytes** (`.data` + `.bss`) out of **16 KB** available (**>90% SRAM free**).
 - **Non-Volatile Storage**: **2,688 bytes** allocated across Pages 62 & 63 (1,408 bytes free headroom).
 
@@ -219,7 +219,7 @@ Comprehensive technical documentation is maintained in the [`docs/`](docs/) dire
 
 | Action | Control | Notes |
 | :--- | :--- | :--- |
-| **Cycle Flight Pages** | **Tap `BIND` button** | Cycles through Page 1/3 (Gimbals), Page 2/3 (14-CH Monitor), and Page 3/3 (Model Dashboard) |
+| **Cycle Flight Pages** | **Tap `BIND` button** | Cycles through Page 1/4 (Gimbals), Page 2/4 (14-CH Monitor), Page 3/4 (Model Dashboard), and Page 4/4 (Telemetry Dashboard) |
 | **Open Settings Menu** | **Hold `OK` for 1.2s** | Opens Model Select, Model Setup, Ch Reverse, Thr Curve, Radio Setup, Calib, RX Setup, Monitors, & Diagnostics |
 | **Rapid Menu / Value Scroll** | **Hold `UP` or `DOWN`** | Auto-repeats every 70 ms after 300 ms hold across all menus, character editing, and curve points |
 | **Direct Calibration (Boot)**| **Hold `OK` during Power-On** | Launches 2-step calibration wizard immediately on boot |
