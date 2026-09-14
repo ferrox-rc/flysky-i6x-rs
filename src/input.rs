@@ -37,7 +37,7 @@ pub struct Pots {
 }
 
 /// Physical switch states on the radio.
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct Switches {
     pub sa: SwitchPos, // 2-pos
     pub sb: SwitchPos, // 3-pos

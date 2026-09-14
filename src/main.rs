@@ -335,7 +335,13 @@ fn main() -> ! {
 
     let mut ok_hold_ms = 0u16;
     let mut bl_timer_ms: u32 = 30_000;
-    let mut prev_stick_sample = 2048u16;
+    let mut prev_stick_samples = [2048u16; 6];
+    let mut prev_switches = input::Switches {
+        sa: input::SwitchPos::Up,
+        sb: input::SwitchPos::Up,
+        sc: input::SwitchPos::Up,
+        sd: input::SwitchPos::Up,
+    };
     let mut prev_bind_key = bind_on_boot;
     let mut flight_page: usize = 0;
     let mut bind_hold_ms: u32 = 0;
@@ -436,11 +442,26 @@ fn main() -> ! {
         buzzer.tick(20);
         trims.update(keys, 20, &mut buzzer);
 
-        // Backlight activity reset (keys pressed or stick moved > 30 counts)
-        let stick_moved = (state.raw[0] as i32 - prev_stick_sample as i32).abs() > 30;
-        prev_stick_sample = state.raw[0];
+        // Backlight & inactivity activity tracking across all physical controls
+        let stick_moved = (state.raw[0] as i32 - prev_stick_samples[0] as i32).abs() > 30   // Roll / Aileron
+            || (state.raw[1] as i32 - prev_stick_samples[1] as i32).abs() > 30              // Pitch / Elevator
+            || (state.raw[2] as i32 - prev_stick_samples[2] as i32).abs() > 30              // Throttle
+            || (state.raw[3] as i32 - prev_stick_samples[3] as i32).abs() > 30              // Yaw / Rudder
+            || (state.raw[6] as i32 - prev_stick_samples[4] as i32).abs() > 40              // Pot VRA
+            || (state.raw[7] as i32 - prev_stick_samples[5] as i32).abs() > 40;             // Pot VRB
+        prev_stick_samples[0] = state.raw[0];
+        prev_stick_samples[1] = state.raw[1];
+        prev_stick_samples[2] = state.raw[2];
+        prev_stick_samples[3] = state.raw[3];
+        prev_stick_samples[4] = state.raw[6];
+        prev_stick_samples[5] = state.raw[7];
 
-        if keys != 0 || stick_moved {
+        let sw_changed = state.switches != prev_switches;
+        prev_switches = state.switches;
+
+        let user_active = keys != 0 || stick_moved || sw_changed;
+
+        if user_active {
             let timeout_ms: u32 = match storage.radio.backlight_timeout {
                 1 => 15_000,
                 2 => 30_000,
@@ -458,8 +479,8 @@ fn main() -> ! {
             }
         }
 
-        // Radio Inactivity Alarm (10 minutes without stick or key interaction)
-        if keys != 0 || stick_moved {
+        // Radio Inactivity Alarm (10 minutes without physical control activity)
+        if user_active {
             inactivity_timer_ms = 0;
             inactivity_beep_timer = 0;
         } else {
