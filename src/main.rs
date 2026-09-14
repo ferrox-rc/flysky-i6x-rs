@@ -341,6 +341,92 @@ fn main() -> ! {
     let mut flight_page: usize = 0;
     let mut bind_hold_ms: u32 = 0;
     let mut bind_was_held: bool = false;
+    let mut vbat_alarm_timer: u32 = 7000;
+    let mut rssi_alarm_timer: u32 = 0;
+    let mut inactivity_timer_ms: u32 = 0;
+    let mut inactivity_beep_timer: u32 = 0;
+    let mut blink_phase: u8 = 0;
+
+    // 8. Pre-flight Startup Safety Check: Throttle at idle and switches in safe (UP) positions
+    let startup_safety_cleared = calib_wizard.is_active() || boot::is_dfu_requested(initial_keys);
+    let mut preflight_beep_timer: u16 = 800;
+
+    while !startup_safety_cleared {
+        let state = input::poll();
+        let keys = boot::scan_keys();
+        buzzer.tick(20);
+
+        let thr_unsafe = state.sticks.throttle > -900;
+        let sa_unsafe = state.switches.sa != input::SwitchPos::Up;
+        let sb_unsafe = state.switches.sb != input::SwitchPos::Up;
+        let sc_unsafe = state.switches.sc != input::SwitchPos::Up;
+        let sd_unsafe = state.switches.sd != input::SwitchPos::Up;
+        let sw_unsafe = sa_unsafe || sb_unsafe || sc_unsafe || sd_unsafe;
+
+        // Cancel key (Bit 11: KEY_CANCEL) allows pilot to bypass warning
+        let cancel_pressed = (keys & (1 << 11)) != 0;
+
+        if (!thr_unsafe && !sw_unsafe) || cancel_pressed {
+            buzzer.play_tone(2200, 40);
+            break;
+        }
+
+        // Lock RF transmission to safe idle/failsafe during warning
+        rf::set_channels(&[1500, 1500, 1000, 1500, 1000, 1000, 1500, 1500, 1000, 1000, 1500, 1500, 1500, 1500]);
+
+        // Beep alarm every 800 ms
+        if preflight_beep_timer >= 800 {
+            preflight_beep_timer = 0;
+            buzzer.warn_preflight();
+        } else {
+            preflight_beep_timer += 20;
+        }
+
+        // Render Safety Warning Screen
+        lcd.clear(BinaryColor::Off).ok();
+        Text::new("SAFETY WARNING!", Point::new(16, 9), text_style).draw(&mut lcd).ok();
+        Line::new(Point::new(0, 11), Point::new(127, 11)).into_styled(sep_style).draw(&mut lcd).ok();
+
+        if thr_unsafe {
+            Text::new("THROTTLE NOT AT IDLE!", Point::new(2, 23), text_style).draw(&mut lcd).ok();
+        }
+
+        if sw_unsafe {
+            Text::new("SWITCH WARNING:", Point::new(2, 34), text_style).draw(&mut lcd).ok();
+            let mut sw_warn = *b"                ";
+            let mut col = 0;
+            if sa_unsafe && col + 4 <= 16 {
+                sw_warn[col..col + 4].copy_from_slice(b"[SA]");
+                col += 4;
+                if col < 16 { sw_warn[col] = b' '; col += 1; }
+            }
+            if sb_unsafe && col + 4 <= 16 {
+                sw_warn[col..col + 4].copy_from_slice(b"[SB]");
+                col += 4;
+                if col < 16 { sw_warn[col] = b' '; col += 1; }
+            }
+            if sc_unsafe && col + 4 <= 16 {
+                sw_warn[col..col + 4].copy_from_slice(b"[SC]");
+                col += 4;
+                if col < 16 { sw_warn[col] = b' '; col += 1; }
+            }
+            if sd_unsafe && col + 4 <= 16 {
+                sw_warn[col..col + 4].copy_from_slice(b"[SD]");
+                col += 4;
+            }
+            let sw_str = core::str::from_utf8(&sw_warn[..col.min(16)]).unwrap_or("CHECK SWITCHES");
+            Text::new(sw_str, Point::new(2, 44), text_style).draw(&mut lcd).ok();
+        }
+
+        Line::new(Point::new(0, 55), Point::new(127, 55)).into_styled(sep_style).draw(&mut lcd).ok();
+        Text::new("Lower Thr/Safe SW  [ESC]Skip", Point::new(2, 62), text_style_small).draw(&mut lcd).ok();
+
+        lcd.flush();
+
+        for _ in 0..160_000 {
+            cortex_m::asm::nop();
+        }
+    }
 
     loop {
         // Poll continuous DMA inputs
@@ -370,6 +456,22 @@ fn main() -> ! {
             } else {
                 bl_timer_ms = 0;
                 lcd.set_backlight_level(0);
+            }
+        }
+
+        // Radio Inactivity Alarm (10 minutes without stick or key interaction)
+        if keys != 0 || stick_moved {
+            inactivity_timer_ms = 0;
+            inactivity_beep_timer = 0;
+        } else {
+            inactivity_timer_ms = inactivity_timer_ms.saturating_add(20);
+            if inactivity_timer_ms >= 600_000 {
+                if inactivity_beep_timer >= 30_000 {
+                    inactivity_beep_timer = 0;
+                    buzzer.warn_inactivity();
+                } else {
+                    inactivity_beep_timer += 20;
+                }
             }
         }
 
@@ -594,13 +696,61 @@ fn main() -> ! {
                 .ok();
         }
 
-        // Battery voltage (x = 98)
+        // Battery voltage alarm & display (x = 98)
         let mut vbat_buf = [0u8; 6];
         let vbat_str = format_vbat(state.battery_mv, &mut vbat_buf);
 
-        Text::new(vbat_str, Point::new(98, 9), text_style)
-            .draw(&mut lcd)
-            .ok();
+        let vbat_warn_mv = (storage.radio.vbat_warn_deci as u16) * 100;
+        let vbat_is_low = state.battery_mv < vbat_warn_mv;
+
+        if vbat_is_low {
+            if vbat_alarm_timer >= 8000 {
+                vbat_alarm_timer = 0;
+                buzzer.warn_battery();
+            } else {
+                vbat_alarm_timer += 20;
+            }
+
+            // Invert/blink badge every ~320 ms
+            if (blink_phase & 0x10) != 0 {
+                Rectangle::new(Point::new(97, 0), Size::new(31, 10))
+                    .into_styled(PrimitiveStyle::with_fill(BinaryColor::On))
+                    .draw(&mut lcd)
+                    .ok();
+                let inv_style = MonoTextStyle::new(&FONT_6X10, BinaryColor::Off);
+                Text::new(vbat_str, Point::new(98, 9), inv_style).draw(&mut lcd).ok();
+            } else {
+                Text::new(vbat_str, Point::new(98, 9), text_style).draw(&mut lcd).ok();
+            }
+        } else {
+            vbat_alarm_timer = 7000;
+            Text::new(vbat_str, Point::new(98, 9), text_style).draw(&mut lcd).ok();
+        }
+
+        blink_phase = blink_phase.wrapping_add(1);
+
+        // Downlink Telemetry RSSI Range Alarms
+        if telem.connected {
+            if telem.rssi < 20 {
+                if rssi_alarm_timer >= 3000 {
+                    rssi_alarm_timer = 0;
+                    buzzer.warn_rssi_critical();
+                } else {
+                    rssi_alarm_timer += 20;
+                }
+            } else if telem.rssi < 40 {
+                if rssi_alarm_timer >= 6000 {
+                    rssi_alarm_timer = 0;
+                    buzzer.warn_rssi_low();
+                } else {
+                    rssi_alarm_timer += 20;
+                }
+            } else {
+                rssi_alarm_timer = 0;
+            }
+        } else {
+            rssi_alarm_timer = 0;
+        }
 
         // Header separator line
         Line::new(Point::new(0, 11), Point::new(127, 11))

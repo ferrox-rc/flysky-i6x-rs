@@ -200,4 +200,24 @@ impl Buzzer {
     pub fn warn_battery(&mut self) {
         self.play_tone_pattern(2400, 70, 50, 1);
     }
+
+    /// Pre-flight throttle / switch startup safety alarm (urgent alert).
+    pub fn warn_preflight(&mut self) {
+        self.play_tone_pattern(2600, 80, 50, 2);
+    }
+
+    /// Radio inactivity idle alarm (gentle reminder chirp).
+    pub fn warn_inactivity(&mut self) {
+        self.play_tone(1800, 250);
+    }
+
+    /// Telemetry RSSI low warning alert (range warning < 40%).
+    pub fn warn_rssi_low(&mut self) {
+        self.play_tone(2000, 80);
+    }
+
+    /// Telemetry RSSI critical alarm (range critical < 20%).
+    pub fn warn_rssi_critical(&mut self) {
+        self.play_tone_pattern(2800, 50, 40, 2);
+    }
 }

@@ -926,7 +926,6 @@ impl MenuController {
             }
 
             MenuState::RadioSetup => {
-                const SETUP_ITEMS: usize = 4;
                 if cancel_pressed {
                     self.state = MenuState::MainMenu;
                     self.selected_item = 4;
@@ -935,6 +934,7 @@ impl MenuController {
                     buzzer.click();
                     return;
                 }
+                const SETUP_ITEMS: usize = 5;
 
                 if down_pressed {
                     self.selected_item = (self.selected_item + 1) % SETUP_ITEMS;
@@ -979,6 +979,15 @@ impl MenuController {
                             lcd.set_backlight_level(storage.radio.backlight_brightness * 10);
                             storage::save_storage(storage);
                         }
+                        4 => {
+                            // Cycle Battery Alarm: 4.0V .. 5.0V (40..50 deci-volts)
+                            storage.radio.vbat_warn_deci = if storage.radio.vbat_warn_deci >= 50 {
+                                40
+                            } else {
+                                storage.radio.vbat_warn_deci + 1
+                            };
+                            storage::save_storage(storage);
+                        }
                         _ => {}
                     }
                 }
@@ -988,7 +997,7 @@ impl MenuController {
                 Line::new(Point::new(0, 11), Point::new(127, 11)).into_styled(border_style).draw(lcd).ok();
 
                 // Item 0: Throttle Trim
-                let y0 = 14;
+                let y0 = 13;
                 let is_sel0 = self.selected_item == 0;
                 let val_str = match storage.radio.throttle_trim {
                     1 => "IDLE",
@@ -996,7 +1005,7 @@ impl MenuController {
                     _ => "OFF (Lock)",
                 };
                 if is_sel0 {
-                    Rectangle::new(Point::new(2, y0), Size::new(124, 9)).into_styled(fill_style).draw(lcd).ok();
+                    Rectangle::new(Point::new(2, y0), Size::new(124, 8)).into_styled(fill_style).draw(lcd).ok();
                     let inv = MonoTextStyle::new(&FONT_6X10, BinaryColor::Off);
                     Text::new("Thr Trim:", Point::new(4, y0 + 7), inv).draw(lcd).ok();
                     Text::new(val_str, Point::new(62, y0 + 7), inv).draw(lcd).ok();
@@ -1006,10 +1015,10 @@ impl MenuController {
                 }
 
                 // Item 1: Audio Beeper
-                let y1 = 23;
+                let y1 = 21;
                 let is_sel1 = self.selected_item == 1;
                 if is_sel1 {
-                    Rectangle::new(Point::new(2, y1), Size::new(124, 9)).into_styled(fill_style).draw(lcd).ok();
+                    Rectangle::new(Point::new(2, y1), Size::new(124, 8)).into_styled(fill_style).draw(lcd).ok();
                     let inv = MonoTextStyle::new(&FONT_6X10, BinaryColor::Off);
                     Text::new("Beeper:", Point::new(4, y1 + 7), inv).draw(lcd).ok();
                     let val_str = if storage.radio.audio_enabled != 0 { "ENABLED" } else { "MUTED" };
@@ -1021,7 +1030,7 @@ impl MenuController {
                 }
 
                 // Item 2: Backlight Timeout
-                let y2 = 32;
+                let y2 = 29;
                 let is_sel2 = self.selected_item == 2;
                 let timer_str = match storage.radio.backlight_timeout {
                     1 => "15 SEC",
@@ -1030,7 +1039,7 @@ impl MenuController {
                     _ => "ALWAYS ON",
                 };
                 if is_sel2 {
-                    Rectangle::new(Point::new(2, y2), Size::new(124, 9)).into_styled(fill_style).draw(lcd).ok();
+                    Rectangle::new(Point::new(2, y2), Size::new(124, 8)).into_styled(fill_style).draw(lcd).ok();
                     let inv = MonoTextStyle::new(&FONT_6X10, BinaryColor::Off);
                     Text::new("BL Timer:", Point::new(4, y2 + 7), inv).draw(lcd).ok();
                     Text::new(timer_str, Point::new(62, y2 + 7), inv).draw(lcd).ok();
@@ -1040,7 +1049,7 @@ impl MenuController {
                 }
 
                 // Item 3: Backlight Brightness
-                let y3 = 41;
+                let y3 = 37;
                 let is_sel3 = self.selected_item == 3;
                 let mut b_buf = *b"  %";
                 let pct = (storage.radio.backlight_brightness * 10).min(100);
@@ -1054,7 +1063,7 @@ impl MenuController {
                 let b_str = core::str::from_utf8(&b_buf).unwrap_or("100");
 
                 if is_sel3 {
-                    Rectangle::new(Point::new(2, y3), Size::new(124, 9)).into_styled(fill_style).draw(lcd).ok();
+                    Rectangle::new(Point::new(2, y3), Size::new(124, 8)).into_styled(fill_style).draw(lcd).ok();
                     let inv = MonoTextStyle::new(&FONT_6X10, BinaryColor::Off);
                     Text::new("BL Level:", Point::new(4, y3 + 7), inv).draw(lcd).ok();
                     Text::new(b_str, Point::new(62, y3 + 7), inv).draw(lcd).ok();
@@ -1065,8 +1074,27 @@ impl MenuController {
                     Text::new("%", Point::new(82, y3 + 7), text_style).draw(lcd).ok();
                 }
 
-                Line::new(Point::new(0, 52), Point::new(127, 52)).into_styled(border_style).draw(lcd).ok();
-                Text::new("[OK] Toggle   [ESC] Back", Point::new(2, 62), text_style).draw(lcd).ok();
+                // Item 4: Battery Alarm
+                let y4 = 45;
+                let is_sel4 = self.selected_item == 4;
+                let mut v_buf = *b"0.0V";
+                v_buf[0] = b'0' + (storage.radio.vbat_warn_deci / 10);
+                v_buf[2] = b'0' + (storage.radio.vbat_warn_deci % 10);
+                let v_str = core::str::from_utf8(&v_buf).unwrap_or("4.4V");
+
+                if is_sel4 {
+                    Rectangle::new(Point::new(2, y4), Size::new(124, 8)).into_styled(fill_style).draw(lcd).ok();
+                    let inv = MonoTextStyle::new(&FONT_6X10, BinaryColor::Off);
+                    Text::new("Bat Warn:", Point::new(4, y4 + 7), inv).draw(lcd).ok();
+                    Text::new(v_str, Point::new(62, y4 + 7), inv).draw(lcd).ok();
+                } else {
+                    Text::new("Bat Warn:", Point::new(4, y4 + 7), text_style).draw(lcd).ok();
+                    Text::new(v_str, Point::new(62, y4 + 7), text_style).draw(lcd).ok();
+                }
+
+                let text_style_small = MonoTextStyle::new(&FONT_4X6, BinaryColor::On);
+                Line::new(Point::new(0, 55), Point::new(127, 55)).into_styled(border_style).draw(lcd).ok();
+                Text::new("[OK] Toggle/Cycle   [ESC] Back", Point::new(2, 62), text_style_small).draw(lcd).ok();
             }
 
             MenuState::RxSetup => {

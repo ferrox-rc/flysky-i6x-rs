@@ -223,6 +223,7 @@ Interactive curve engine with real-time on-screen curve visualization ($49 \time
 - **`Audio:`**: Toggle beeper sound between `ENABLED` and `MUTED`.
 - **`BL Timer:`**: LCD backlight auto-shutoff timeout: `ALWAYS ON`, `15 SEC`, `30 SEC`, or `60 SEC`. Touching any key or moving any stick wakes the backlight instantly.
 - **`BL Level:`**: Backlight brightness level from `10%` to `100%` in 10% steps (supports both stock transistors and the `PC9` hardware PWM dimming mod).
+- **`Bat Warn:`**: Low battery alarm threshold from `4.0V` to `5.0V` in 0.1V steps (default: **`4.4V`**, or 1.10V/cell for 4×AA). When battery drops below this voltage, the status bar badge flashes inverted and an audible double-chirp alarm sounds every 8 seconds.
 
 ### Submenu 6: Stick Calibration (`STICK CALIB`)
 Launches the interactive 2-step calibration wizard (see Section 5 below).
@@ -306,3 +307,30 @@ The firmware binary can be flashed via USB without specialized hardware programm
    dfu-util -a0 -s 0x08000000:leave -d 0483:df11 -D target/flysky-i6x-rs.bin
    ```
 3. The radio will immediately reboot into the new firmware upon completion.
+
+---
+
+## 8. Safety Systems & Audio Alarms
+
+The firmware includes four levels of proactive safety protection inspired by OpenTX/EdgeTX:
+
+### 1. Pre-Flight Startup Checks (Throttle & Switch Safety Interlock)
+- **Detection**: At power-on, the radio inspects the physical throttle position and all 4 toggle switches (`SA`, `SB`, `SC`, `SD`).
+- **Safety Trigger**: If the throttle stick is $> 5\%$ above zero, or any switch is not in the safe **UP** position:
+  - The transmitter intercepts normal boot and presents a dedicated **`SAFETY WARNING!`** screen.
+  - RF transmission is locked into zero-throttle failsafe pulses ($1000\,\mu\text{s}$) so motors cannot spin up.
+  - An urgent alternating alarm tone (`warn_preflight`) sounds every 800 ms.
+- **Clearing**: Moving the throttle stick to minimum and returning all switches to UP automatically clears the warning with a confirmation chirp and opens the flight screen. Alternatively, pressing **`[CANCEL]` (`[ESC]`)** bypasses the check.
+
+### 2. Transmitter Low Battery Alarm
+- **Threshold**: Configurable in `RADIO SETUP` $\rightarrow$ `Bat Warn` (`4.0V` .. `5.0V`, default **`4.4V`**).
+- **Visual Alert**: The battery voltage badge on the top right status bar blinks in inverted video (`[ 4.38V ]`).
+- **Audio Alert**: The piezo buzzer sounds a double-chirp warning (`2400 Hz`) every 8 seconds.
+
+### 3. Radio Inactivity Idle Alarm
+- **Timeout**: 10 minutes ($600\text{ seconds}$).
+- **Behavior**: If no physical sticks, switches, trims, or keys are moved for 10 minutes, the radio emits a reminder chime every 30 seconds to alert the pilot and prevent battery drain.
+
+### 4. Telemetry RSSI Range Alarms
+- **Low Signal Warning ($\text{RSSI} < 40\%$)**: Sounds a caution beep (`2000 Hz`) every 6 seconds.
+- **Critical Signal Alarm ($\text{RSSI} < 20\%$)**: Sounds an urgent double-beep (`2800 Hz`) every 3 seconds to warn the pilot of imminent radio failsafe.

@@ -48,7 +48,8 @@ pub struct RadioConfig {
     pub audio_enabled: u8,         // 10 (0: Muted, 1: Enabled)
     pub backlight_timeout: u8,     // 11 (0: Always On, 1: 15s, 2: 30s, 3: 60s)
     pub backlight_brightness: u8,  // 12 (1..10)
-    pub _pad0: [u8; 3],            // 13..16 (align sticks to 16)
+    pub vbat_warn_deci: u8,        // 13 (40..50 = 4.0V..5.0V, default 44 = 4.4V)
+    pub _pad0: [u8; 2],            // 14..16 (align sticks to 16)
     pub sticks: [ChannelCalib; 4], // 16..48 (32 bytes: Roll, Pitch, Throttle, Yaw)
     pub pots: [ChannelCalib; 2],   // 48..64 (16 bytes: VRA, VRB)
     pub _reserved: [u8; 64],       // 64..128
@@ -64,7 +65,8 @@ impl RadioConfig {
             audio_enabled: 1,
             backlight_timeout: 0,
             backlight_brightness: 10,
-            _pad0: [0; 3],
+            vbat_warn_deci: 44,
+            _pad0: [0; 2],
             sticks: [
                 ChannelCalib::new(2048 - 1670, 2048, 2048 + 1670), // Roll (Horizontal)
                 ChannelCalib::new(2048 - 1580, 2048, 2048 + 1580), // Pitch (Vertical)
@@ -183,6 +185,9 @@ pub fn load_storage() -> RadioStorage {
             let word_count = core::mem::size_of::<RadioStorage>() / 4;
             for i in 0..word_count {
                 *dst.add(i) = core::ptr::read_volatile(src.add(i));
+            }
+            if storage.radio.vbat_warn_deci < 35 || storage.radio.vbat_warn_deci > 60 {
+                storage.radio.vbat_warn_deci = 44;
             }
             return storage;
         }

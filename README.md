@@ -185,8 +185,24 @@ Comprehensive technical documentation is maintained in the [`docs/`](docs/) dire
 - [x] Key auto-repeat for UP and DOWN navigation keys (300 ms hold threshold, 70 ms repeat interval).
 - [x] Dynamic point range indicator (`Pts: 1..5` vs `Pts: 1..9`) in throttle curve editor.
 
+### Phase 9: Safety First Subsystem (COMPLETED)
+- [x] Transmitter low battery voltage alarm with configurable threshold in `Radio Setup` (4.0V–5.0V), flashing status bar display, and periodic audio alarm.
+- [x] Pre-flight startup checks: detects raised throttle stick (> 5%) and unsafe switch states upon boot with audible alarm and RF throttle motor interlock.
+- [x] Radio inactivity idle alarm: sounds periodic reminder chirps after 10 minutes without stick or key interaction.
+- [x] Downlink telemetry RSSI range warnings: audible alerts when signal drops below 40% (Warning) and 20% (Critical).
+
+### Phase 10: Flight Control & Mixing (PLANNED)
+- [ ] Dual Rates & Exponential (D/R & EXPO) on Roll, Pitch, and Yaw with switchable high/low rates.
+- [ ] Auxiliary Channel Source Mapping: remapping any physical switch or potentiometer to any output channel (CH5–CH14).
+- [ ] Programmable Failsafe configuration menu (Hold vs custom microsecond pulses).
+- [ ] Elevon / Delta Wing / V-Tail mixer for flying wings and gliders.
+
+### Phase 11: Display & Telemetry Enhancements (PLANNED)
+- [ ] LCD Electronic Volume (EV) contrast adjustment ($0 \dots 63$) in `Radio Setup`.
+- [ ] Dedicated full-screen telemetry sensor dashboard (Page 4/4) displaying live pack voltage, RSSI, and i-BUS sensor telemetry.
+
 ### Current Firmware Footprint
-- **Flash ROM**: **41.0 KB** used out of **128 KB** available (~68% Flash free headroom).
+- **Flash ROM**: **42.4 KB** used out of **128 KB** available (~67% Flash free headroom).
 - **Static RAM**: **228 bytes** (`.data` + `.bss`) out of **16 KB** available (**>90% SRAM free**).
 - **Non-Volatile Storage**: **2,688 bytes** allocated across Pages 62 & 63 (1,408 bytes free headroom).
 
