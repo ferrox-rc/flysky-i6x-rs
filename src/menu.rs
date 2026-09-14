@@ -365,6 +365,7 @@ impl MenuController {
                         7 => {
                             self.state = MenuState::RadioSetup;
                             self.selected_item = 0;
+                            self.scroll_offset = 0;
                         }
                         8 => {
                             self.state = MenuState::RxSetup;
@@ -1598,7 +1599,7 @@ impl MenuController {
                 if cancel_pressed {
                     self.state = MenuState::MainMenu;
                     self.selected_item = 7;
-                    self.scroll_offset = 0;
+                    self.scroll_offset = 4;
                     self.waiting_release = true;
                     buzzer.click();
                     return;
@@ -1606,15 +1607,27 @@ impl MenuController {
                 const SETUP_ITEMS: usize = 6;
 
                 if down_pressed {
-                    self.selected_item = (self.selected_item + 1) % SETUP_ITEMS;
+                    if self.selected_item + 1 < SETUP_ITEMS {
+                        self.selected_item += 1;
+                        if self.selected_item >= self.scroll_offset + 4 {
+                            self.scroll_offset = self.selected_item - 3;
+                        }
+                    } else {
+                        self.selected_item = 0;
+                        self.scroll_offset = 0;
+                    }
                     buzzer.play_tone(2200, 30);
                 }
                 if up_pressed {
-                    self.selected_item = if self.selected_item == 0 {
-                        SETUP_ITEMS - 1
+                    if self.selected_item > 0 {
+                        self.selected_item -= 1;
+                        if self.selected_item < self.scroll_offset {
+                            self.scroll_offset = self.selected_item;
+                        }
                     } else {
-                        self.selected_item - 1
-                    };
+                        self.selected_item = SETUP_ITEMS - 1;
+                        self.scroll_offset = SETUP_ITEMS.saturating_sub(4);
+                    }
                     buzzer.play_tone(2200, 30);
                 }
 
@@ -1675,121 +1688,83 @@ impl MenuController {
                 Text::new("RADIO SETUP", Point::new(32, 9), text_style).draw(lcd).ok();
                 Line::new(Point::new(0, 11), Point::new(127, 11)).into_styled(border_style).draw(lcd).ok();
 
-                // Item 0: Throttle Trim (y = 13)
-                let y0 = 13;
-                let is_sel0 = self.selected_item == 0;
-                let val_str = match storage.radio.throttle_trim {
-                    1 => "IDLE",
-                    2 => "LINEAR",
-                    _ => "OFF (Lock)",
-                };
-                if is_sel0 {
-                    Rectangle::new(Point::new(2, y0), Size::new(124, 7)).into_styled(fill_style).draw(lcd).ok();
-                    let inv = MonoTextStyle::new(&FONT_6X10, BinaryColor::Off);
-                    Text::new("Thr Trim:", Point::new(4, y0 + 6), inv).draw(lcd).ok();
-                    Text::new(val_str, Point::new(62, y0 + 6), inv).draw(lcd).ok();
-                } else {
-                    Text::new("Thr Trim:", Point::new(4, y0 + 6), text_style).draw(lcd).ok();
-                    Text::new(val_str, Point::new(62, y0 + 6), text_style).draw(lcd).ok();
-                }
+                // Render 4 visible items with clean 9px row spacing
+                for slot in 0..4 {
+                    let idx = self.scroll_offset + slot;
+                    if idx >= SETUP_ITEMS {
+                        break;
+                    }
+                    let y = 14 + (slot as i32 * 9);
+                    let is_sel = idx == self.selected_item;
+                    let style = if is_sel {
+                        Rectangle::new(Point::new(2, y), Size::new(124, 9)).into_styled(fill_style).draw(lcd).ok();
+                        MonoTextStyle::new(&FONT_6X10, BinaryColor::Off)
+                    } else {
+                        text_style
+                    };
 
-                // Item 1: Audio Beeper (y = 20)
-                let y1 = 20;
-                let is_sel1 = self.selected_item == 1;
-                let beeper_str = if storage.radio.audio_enabled != 0 { "ENABLED" } else { "MUTED" };
-                if is_sel1 {
-                    Rectangle::new(Point::new(2, y1), Size::new(124, 7)).into_styled(fill_style).draw(lcd).ok();
-                    let inv = MonoTextStyle::new(&FONT_6X10, BinaryColor::Off);
-                    Text::new("Beeper:", Point::new(4, y1 + 6), inv).draw(lcd).ok();
-                    Text::new(beeper_str, Point::new(62, y1 + 6), inv).draw(lcd).ok();
-                } else {
-                    Text::new("Beeper:", Point::new(4, y1 + 6), text_style).draw(lcd).ok();
-                    Text::new(beeper_str, Point::new(62, y1 + 6), text_style).draw(lcd).ok();
-                }
-
-                // Item 2: Backlight Timeout (y = 27)
-                let y2 = 27;
-                let is_sel2 = self.selected_item == 2;
-                let timer_str = match storage.radio.backlight_timeout {
-                    1 => "15 SEC",
-                    2 => "30 SEC",
-                    3 => "60 SEC",
-                    _ => "ALWAYS ON",
-                };
-                if is_sel2 {
-                    Rectangle::new(Point::new(2, y2), Size::new(124, 7)).into_styled(fill_style).draw(lcd).ok();
-                    let inv = MonoTextStyle::new(&FONT_6X10, BinaryColor::Off);
-                    Text::new("BL Timer:", Point::new(4, y2 + 6), inv).draw(lcd).ok();
-                    Text::new(timer_str, Point::new(62, y2 + 6), inv).draw(lcd).ok();
-                } else {
-                    Text::new("BL Timer:", Point::new(4, y2 + 6), text_style).draw(lcd).ok();
-                    Text::new(timer_str, Point::new(62, y2 + 6), text_style).draw(lcd).ok();
-                }
-
-                // Item 3: Backlight Brightness (y = 34)
-                let y3 = 34;
-                let is_sel3 = self.selected_item == 3;
-                let mut b_buf = *b"  %";
-                let pct = (storage.radio.backlight_brightness * 10).min(100);
-                if pct == 100 {
-                    b_buf = *b"100";
-                } else {
-                    b_buf[0] = b' ';
-                    b_buf[1] = b'0' + (pct / 10);
-                    b_buf[2] = b'0';
-                }
-                let b_str = core::str::from_utf8(&b_buf).unwrap_or("100");
-
-                if is_sel3 {
-                    Rectangle::new(Point::new(2, y3), Size::new(124, 7)).into_styled(fill_style).draw(lcd).ok();
-                    let inv = MonoTextStyle::new(&FONT_6X10, BinaryColor::Off);
-                    Text::new("BL Level:", Point::new(4, y3 + 6), inv).draw(lcd).ok();
-                    Text::new(b_str, Point::new(62, y3 + 6), inv).draw(lcd).ok();
-                    Text::new("%", Point::new(82, y3 + 6), inv).draw(lcd).ok();
-                } else {
-                    Text::new("BL Level:", Point::new(4, y3 + 6), text_style).draw(lcd).ok();
-                    Text::new(b_str, Point::new(62, y3 + 6), text_style).draw(lcd).ok();
-                    Text::new("%", Point::new(82, y3 + 6), text_style).draw(lcd).ok();
-                }
-
-                // Item 4: Contrast (y = 41)
-                let y4 = 41;
-                let is_sel4 = self.selected_item == 4;
-                let mut c_buf = *b"00";
-                c_buf[0] = b'0' + (storage.radio.lcd_contrast / 10);
-                c_buf[1] = b'0' + (storage.radio.lcd_contrast % 10);
-                let c_str = core::str::from_utf8(&c_buf).unwrap_or("37");
-
-                if is_sel4 {
-                    Rectangle::new(Point::new(2, y4), Size::new(124, 7)).into_styled(fill_style).draw(lcd).ok();
-                    let inv = MonoTextStyle::new(&FONT_6X10, BinaryColor::Off);
-                    Text::new("Contrast:", Point::new(4, y4 + 6), inv).draw(lcd).ok();
-                    Text::new(c_str, Point::new(62, y4 + 6), inv).draw(lcd).ok();
-                } else {
-                    Text::new("Contrast:", Point::new(4, y4 + 6), text_style).draw(lcd).ok();
-                    Text::new(c_str, Point::new(62, y4 + 6), text_style).draw(lcd).ok();
-                }
-
-                // Item 5: Battery Alarm (y = 48)
-                let y5 = 48;
-                let is_sel5 = self.selected_item == 5;
-                let mut v_buf = *b"0.0V";
-                v_buf[0] = b'0' + (storage.radio.vbat_warn_deci / 10);
-                v_buf[2] = b'0' + (storage.radio.vbat_warn_deci % 10);
-                let v_str = core::str::from_utf8(&v_buf).unwrap_or("4.4V");
-
-                if is_sel5 {
-                    Rectangle::new(Point::new(2, y5), Size::new(124, 7)).into_styled(fill_style).draw(lcd).ok();
-                    let inv = MonoTextStyle::new(&FONT_6X10, BinaryColor::Off);
-                    Text::new("Bat Warn:", Point::new(4, y5 + 6), inv).draw(lcd).ok();
-                    Text::new(v_str, Point::new(62, y5 + 6), inv).draw(lcd).ok();
-                } else {
-                    Text::new("Bat Warn:", Point::new(4, y5 + 6), text_style).draw(lcd).ok();
-                    Text::new(v_str, Point::new(62, y5 + 6), text_style).draw(lcd).ok();
+                    match idx {
+                        0 => {
+                            let val_str = match storage.radio.throttle_trim {
+                                1 => "IDLE",
+                                2 => "LINEAR",
+                                _ => "OFF (Lock)",
+                            };
+                            Text::new("Thr Trim:", Point::new(4, y + 7), style).draw(lcd).ok();
+                            Text::new(val_str, Point::new(62, y + 7), style).draw(lcd).ok();
+                        }
+                        1 => {
+                            let beeper_str = if storage.radio.audio_enabled != 0 { "ENABLED" } else { "MUTED" };
+                            Text::new("Beeper:", Point::new(4, y + 7), style).draw(lcd).ok();
+                            Text::new(beeper_str, Point::new(62, y + 7), style).draw(lcd).ok();
+                        }
+                        2 => {
+                            let timer_str = match storage.radio.backlight_timeout {
+                                1 => "15 SEC",
+                                2 => "30 SEC",
+                                3 => "60 SEC",
+                                _ => "ALWAYS ON",
+                            };
+                            Text::new("BL Timer:", Point::new(4, y + 7), style).draw(lcd).ok();
+                            Text::new(timer_str, Point::new(62, y + 7), style).draw(lcd).ok();
+                        }
+                        3 => {
+                            let mut b_buf = *b"   %";
+                            let pct = (storage.radio.backlight_brightness * 10).min(100);
+                            if pct == 100 {
+                                b_buf = *b"100%";
+                            } else {
+                                b_buf[0] = b' ';
+                                b_buf[1] = b'0' + (pct / 10);
+                                b_buf[2] = b'0';
+                                b_buf[3] = b'%';
+                            }
+                            let b_str = core::str::from_utf8(&b_buf).unwrap_or("100%");
+                            Text::new("BL Level:", Point::new(4, y + 7), style).draw(lcd).ok();
+                            Text::new(b_str, Point::new(62, y + 7), style).draw(lcd).ok();
+                        }
+                        4 => {
+                            let mut c_buf = *b"00";
+                            c_buf[0] = b'0' + (storage.radio.lcd_contrast / 10);
+                            c_buf[1] = b'0' + (storage.radio.lcd_contrast % 10);
+                            let c_str = core::str::from_utf8(&c_buf).unwrap_or("37");
+                            Text::new("Contrast:", Point::new(4, y + 7), style).draw(lcd).ok();
+                            Text::new(c_str, Point::new(62, y + 7), style).draw(lcd).ok();
+                        }
+                        5 => {
+                            let mut v_buf = *b"0.0V";
+                            v_buf[0] = b'0' + (storage.radio.vbat_warn_deci / 10);
+                            v_buf[2] = b'0' + (storage.radio.vbat_warn_deci % 10);
+                            let v_str = core::str::from_utf8(&v_buf).unwrap_or("4.4V");
+                            Text::new("Bat Warn:", Point::new(4, y + 7), style).draw(lcd).ok();
+                            Text::new(v_str, Point::new(62, y + 7), style).draw(lcd).ok();
+                        }
+                        _ => {}
+                    }
                 }
 
                 let text_style_small = MonoTextStyle::new(&FONT_4X6, BinaryColor::On);
-                Line::new(Point::new(0, 55), Point::new(127, 55)).into_styled(border_style).draw(lcd).ok();
+                Line::new(Point::new(0, 52), Point::new(127, 52)).into_styled(border_style).draw(lcd).ok();
                 Text::new("[OK] Toggle/Cycle   [ESC] Back", Point::new(2, 62), text_style_small).draw(lcd).ok();
             }
 

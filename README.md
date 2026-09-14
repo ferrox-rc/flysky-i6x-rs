@@ -209,7 +209,7 @@ Comprehensive technical documentation is maintained in the [`docs/`](docs/) dire
 - [x] Dedicated full-screen telemetry sensor dashboard (Page 4/4) displaying live packet counters (`TX`, `RX`), link state (`OK` / `DISC`), battery voltages (`RX`, `TX`), and session minimums (`mRSS`, `mRX`).
 
 ### Current Firmware Footprint
-- **Flash ROM**: **52.5 KB** used out of **128 KB** available (~59% Flash free headroom).
+- **Flash ROM**: **51.7 KB** used out of **128 KB** available (~60% Flash free headroom).
 - **Static RAM**: **236 bytes** (`.data` + `.bss`) out of **16 KB** available (**>90% SRAM free**).
 - **Non-Volatile Storage**: **2,688 bytes** allocated across Pages 62 & 63 (1,408 bytes free headroom).
 
