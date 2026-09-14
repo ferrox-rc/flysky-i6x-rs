@@ -55,15 +55,16 @@ impl WingTailTemplate {
 /// Positive expo softens stick sensitivity around neutral center.
 /// Negative expo increases sensitivity around neutral center.
 pub fn apply_dr_expo(input: i16, rate: u8, expo: i8) -> i16 {
-    let rate_clamped = rate.clamp(30, 100) as i64;
-    let x = ((input as i64) * rate_clamped) / 100;
+    let rate_clamped = rate.clamp(30, 100) as i32;
+    let x = ((input as i32) * rate_clamped) / 100;
 
     if expo == 0 {
         return x.clamp(-1000, 1000) as i16;
     }
 
-    let expo_val = expo.clamp(-100, 100) as i64;
-    let x_cubic = (x * x * x) / 1_000_000; // Normalized cubic term in -1000..+1000
+    let expo_val = expo.clamp(-100, 100) as i32;
+    // Normalized cubic term in -1000..+1000 fits entirely within i32 (1000^3 = 10^9 < 2.14*10^9)
+    let x_cubic = (x * x * x) / 1_000_000;
 
     let result = if expo_val > 0 {
         // Soften center: blend linear with cubic
@@ -245,7 +246,7 @@ pub fn compute_channels(
             }
             1 => {
                 // MULTIPLY (*)
-                ch_vals[target_idx] = ((ch_vals[target_idx] as i64 * term as i64) / 1000).clamp(-1000, 1000) as i32;
+                ch_vals[target_idx] = ((ch_vals[target_idx] * term) / 1000).clamp(-1000, 1000);
             }
             2 => {
                 // REPLACE (:=)

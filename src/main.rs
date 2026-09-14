@@ -25,6 +25,7 @@ mod menu;
 mod mixer;
 mod rf;
 mod storage;
+mod time;
 mod trim;
 
 use display::St7567;
@@ -275,6 +276,9 @@ fn main() -> ! {
     // 2. Initialize System Clock to 48 MHz using external 8 MHz crystal (HSE) + PLL
     chip::init_system_clock();
 
+    // Initialize SysTick 1.000 ms hardware monotonic timekeeper
+    time::init();
+
     // 3. Initialize ST7567 128×64 LCD & Backlight immediately
     let mut lcd = St7567::new();
 
@@ -352,15 +356,18 @@ fn main() -> ! {
     let mut inactivity_timer_ms: u32 = 0;
     let mut inactivity_beep_timer: u32 = 0;
     let mut blink_phase: u8 = 0;
+    let mut last_display_ms: u32 = 0;
+    let mut last_tick_ms: u32 = 0;
 
     // 8. Pre-flight Startup Safety Check: Throttle at idle and switches in safe (UP) positions
     let startup_safety_cleared = calib_wizard.is_active();
-    let mut preflight_beep_timer: u16 = 800;
+    let mut preflight_beep_timer: u32 = 0;
+    let mut preflight_last_render: u32 = 0;
 
     while !startup_safety_cleared {
+        let now = time::millis();
         let state = input::poll();
         let keys = boot::scan_keys();
-        buzzer.tick(20);
 
         let thr_unsafe = state.sticks.throttle > -900;
         let sa_unsafe = state.switches.sa != input::SwitchPos::Up;
@@ -381,67 +388,74 @@ fn main() -> ! {
         rf::set_channels(&[1500, 1500, 1000, 1500, 1000, 1000, 1500, 1500, 1000, 1000, 1500, 1500, 1500, 1500]);
 
         // Beep alarm every 800 ms
-        if preflight_beep_timer >= 800 {
-            preflight_beep_timer = 0;
+        if now.wrapping_sub(preflight_beep_timer) >= 800 {
+            preflight_beep_timer = now;
             buzzer.warn_preflight();
-        } else {
-            preflight_beep_timer += 20;
         }
 
-        // Render Safety Warning Screen
-        lcd.clear(BinaryColor::Off).ok();
-        Text::new("SAFETY WARNING!", Point::new(16, 9), text_style).draw(&mut lcd).ok();
-        Line::new(Point::new(0, 11), Point::new(127, 11)).into_styled(sep_style).draw(&mut lcd).ok();
+        // Render Safety Warning Screen at ~30 Hz
+        if now.wrapping_sub(preflight_last_render) >= 33 {
+            let dt = (now.wrapping_sub(preflight_last_render)).min(100) as u16;
+            preflight_last_render = now;
+            buzzer.tick(dt);
 
-        if thr_unsafe {
-            Text::new("THROTTLE NOT AT IDLE!", Point::new(2, 23), text_style).draw(&mut lcd).ok();
-        }
+            lcd.clear(BinaryColor::Off).ok();
+            Text::new("SAFETY WARNING!", Point::new(16, 9), text_style).draw(&mut lcd).ok();
+            Line::new(Point::new(0, 11), Point::new(127, 11)).into_styled(sep_style).draw(&mut lcd).ok();
 
-        if sw_unsafe {
-            Text::new("SWITCH WARNING:", Point::new(2, 34), text_style).draw(&mut lcd).ok();
-            let mut sw_warn = *b"                ";
-            let mut col = 0;
-            if sa_unsafe && col + 4 <= 16 {
-                sw_warn[col..col + 4].copy_from_slice(b"[SA]");
-                col += 4;
-                if col < 16 { sw_warn[col] = b' '; col += 1; }
+            if thr_unsafe {
+                Text::new("THROTTLE NOT AT IDLE!", Point::new(2, 23), text_style).draw(&mut lcd).ok();
             }
-            if sb_unsafe && col + 4 <= 16 {
-                sw_warn[col..col + 4].copy_from_slice(b"[SB]");
-                col += 4;
-                if col < 16 { sw_warn[col] = b' '; col += 1; }
-            }
-            if sc_unsafe && col + 4 <= 16 {
-                sw_warn[col..col + 4].copy_from_slice(b"[SC]");
-                col += 4;
-                if col < 16 { sw_warn[col] = b' '; col += 1; }
-            }
-            if sd_unsafe && col + 4 <= 16 {
-                sw_warn[col..col + 4].copy_from_slice(b"[SD]");
-                col += 4;
-            }
-            let sw_str = core::str::from_utf8(&sw_warn[..col.min(16)]).unwrap_or("CHECK SWITCHES");
-            Text::new(sw_str, Point::new(2, 44), text_style).draw(&mut lcd).ok();
-        }
 
-        Line::new(Point::new(0, 55), Point::new(127, 55)).into_styled(sep_style).draw(&mut lcd).ok();
-        Text::new("Lower Thr/Safe SW  [ESC]Skip", Point::new(2, 62), text_style_small).draw(&mut lcd).ok();
+            if sw_unsafe {
+                Text::new("SWITCH WARNING:", Point::new(2, 34), text_style).draw(&mut lcd).ok();
+                let mut sw_warn = *b"                ";
+                let mut col = 0;
+                if sa_unsafe && col + 4 <= 16 {
+                    sw_warn[col..col + 4].copy_from_slice(b"[SA]");
+                    col += 4;
+                    if col < 16 { sw_warn[col] = b' '; col += 1; }
+                }
+                if sb_unsafe && col + 4 <= 16 {
+                    sw_warn[col..col + 4].copy_from_slice(b"[SB]");
+                    col += 4;
+                    if col < 16 { sw_warn[col] = b' '; col += 1; }
+                }
+                if sc_unsafe && col + 4 <= 16 {
+                    sw_warn[col..col + 4].copy_from_slice(b"[SC]");
+                    col += 4;
+                    if col < 16 { sw_warn[col] = b' '; col += 1; }
+                }
+                if sd_unsafe && col + 4 <= 16 {
+                    sw_warn[col..col + 4].copy_from_slice(b"[SD]");
+                    col += 4;
+                }
+                let sw_str = core::str::from_utf8(&sw_warn[..col.min(16)]).unwrap_or("CHECK SWITCHES");
+                Text::new(sw_str, Point::new(2, 44), text_style).draw(&mut lcd).ok();
+            }
 
-        lcd.flush();
+            Line::new(Point::new(0, 55), Point::new(127, 55)).into_styled(sep_style).draw(&mut lcd).ok();
+            Text::new("Lower Thr/Safe SW  [ESC]Skip", Point::new(2, 62), text_style_small).draw(&mut lcd).ok();
 
-        for _ in 0..160_000 {
-            cortex_m::asm::nop();
+            lcd.flush();
         }
     }
 
     loop {
-        // Poll continuous DMA inputs
+        let now = time::millis();
+        let dt_ms = (now.wrapping_sub(last_tick_ms)).min(100) as u16;
+        let run_display = now.wrapping_sub(last_display_ms) >= 33; // ~30 Hz frame rate
+
+        // Poll continuous DMA inputs (sub-microsecond)
         let state = input::poll();
 
         // Check keys and update trims and buzzer
         let keys = boot::scan_keys();
-        buzzer.tick(20);
-        trims.update(keys, 20, &mut buzzer);
+        if dt_ms > 0 {
+            last_tick_ms = now;
+            buzzer.tick(dt_ms);
+            trims.update(keys, dt_ms, &mut buzzer);
+        }
 
         // Backlight & inactivity activity tracking across all physical controls
         let stick_moved = (state.raw[0] as i32 - prev_stick_samples[0] as i32).abs() > 30   // Roll / Aileron
@@ -471,9 +485,9 @@ fn main() -> ! {
             };
             bl_timer_ms = timeout_ms;
             lcd.set_backlight_level(storage.radio.backlight_brightness * 10);
-        } else if storage.radio.backlight_timeout != 0 {
-            if bl_timer_ms > 20 {
-                bl_timer_ms -= 20;
+        } else if storage.radio.backlight_timeout != 0 && dt_ms > 0 {
+            if bl_timer_ms > dt_ms as u32 {
+                bl_timer_ms -= dt_ms as u32;
             } else {
                 bl_timer_ms = 0;
                 lcd.set_backlight_level(0);
@@ -484,14 +498,14 @@ fn main() -> ! {
         if user_active {
             inactivity_timer_ms = 0;
             inactivity_beep_timer = 0;
-        } else {
-            inactivity_timer_ms = inactivity_timer_ms.saturating_add(20);
+        } else if dt_ms > 0 {
+            inactivity_timer_ms = inactivity_timer_ms.saturating_add(dt_ms as u32);
             if inactivity_timer_ms >= 600_000 {
                 if inactivity_beep_timer >= 30_000 {
                     inactivity_beep_timer = 0;
                     buzzer.warn_inactivity();
                 } else {
-                    inactivity_beep_timer += 20;
+                    inactivity_beep_timer += dt_ms as u32;
                 }
             }
         }
@@ -546,7 +560,7 @@ fn main() -> ! {
             // - Hold BIND (PF2) >= 1000ms: trigger AFHDS 2A binding mode
             // - Tap BIND (release 40..1000ms): cycle flight display page (0 -> 1 -> 2 -> 0)
             if bind_key_raw {
-                bind_hold_ms = bind_hold_ms.saturating_add(20);
+                bind_hold_ms = bind_hold_ms.saturating_add(dt_ms as u32);
                 if bind_hold_ms >= 1000 && !bind_was_held {
                     rf::set_bind_mode(true);
                     buzzer.play_tone(2400, 150);
@@ -574,7 +588,7 @@ fn main() -> ! {
         // Long-press OK (1.2s) from flight dashboard opens Settings Menu
         if !menu_controller.is_active() && !calib_wizard.is_active() {
             if (keys & (1 << 10)) != 0 {
-                ok_hold_ms = ok_hold_ms.saturating_add(20);
+                ok_hold_ms = ok_hold_ms.saturating_add(dt_ms);
                 if ok_hold_ms >= 1200 {
                     menu_controller.open(&mut buzzer);
                     ok_hold_ms = 0;
@@ -586,44 +600,51 @@ fn main() -> ! {
 
         // If Settings Menu is active, update menu and loop
         if menu_controller.is_active() {
-            menu_controller.update(
-                &mut lcd,
-                keys,
-                &mut storage,
-                &mut trims,
-                &state.raw,
-                &rf_chs,
-                &mut buzzer,
-            );
+            if run_display {
+                last_display_ms = now;
+                menu_controller.update(
+                    &mut lcd,
+                    keys,
+                    &mut storage,
+                    &mut trims,
+                    &state.raw,
+                    &rf_chs,
+                    &mut buzzer,
+                );
 
-            if menu_controller.request_calibration {
-                calib_wizard.start(&mut buzzer);
-                menu_controller.request_calibration = false;
-            }
+                if menu_controller.request_calibration {
+                    calib_wizard.start(&mut buzzer);
+                    menu_controller.request_calibration = false;
+                }
 
-            if menu_controller.request_bind {
-                rf::set_bind_mode(true);
-                menu_controller.request_bind = false;
-                buzzer.play_tone(2400, 150);
-            }
+                if menu_controller.request_bind {
+                    rf::set_bind_mode(true);
+                    menu_controller.request_bind = false;
+                    buzzer.play_tone(2400, 150);
+                }
 
-            lcd.flush();
-            for _ in 0..160_000 {
-                cortex_m::asm::nop();
+                lcd.flush();
             }
             continue;
         }
 
         // If calibration wizard is active, update wizard, flush display, and loop
         if calib_wizard.is_active() {
-            calib_wizard.update(&mut lcd, &state.raw, keys, 20, &mut buzzer);
-            lcd.flush();
-
-            for _ in 0..160_000 {
-                cortex_m::asm::nop();
+            if run_display {
+                last_display_ms = now;
+                calib_wizard.update(&mut lcd, &state.raw, keys, dt_ms.max(20), &mut buzzer);
+                lcd.flush();
             }
             continue;
         }
+
+        // Throttle flight display rendering to ~30 Hz.
+        // On non-display passes, loop immediately so stick polling and RF channel
+        // updates run at kHz rates without any LCD latency!
+        if !run_display {
+            continue;
+        }
+        last_display_ms = now;
 
         // Render live flight screen
         lcd.clear(BinaryColor::Off).ok();
@@ -691,7 +712,7 @@ fn main() -> ! {
                 vbat_alarm_timer = 0;
                 buzzer.warn_battery();
             } else {
-                vbat_alarm_timer += 20;
+                vbat_alarm_timer += 33;
             }
 
             // Invert/blink badge every ~320 ms
@@ -719,14 +740,14 @@ fn main() -> ! {
                     rssi_alarm_timer = 0;
                     buzzer.warn_rssi_critical();
                 } else {
-                    rssi_alarm_timer += 20;
+                    rssi_alarm_timer += 33;
                 }
             } else if telem.rssi < 40 {
                 if rssi_alarm_timer >= 6000 {
                     rssi_alarm_timer = 0;
                     buzzer.warn_rssi_low();
                 } else {
-                    rssi_alarm_timer += 20;
+                    rssi_alarm_timer += 33;
                 }
             } else {
                 rssi_alarm_timer = 0;

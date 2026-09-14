@@ -9,7 +9,7 @@
 | Component | Setting | Notes |
 | :--- | :--- | :--- |
 | **Primary Oscillator** | **HSE Crystal @ 8.000 MHz** | Clean external quartz crystal on pins `PD0`/`PD1` |
-| **PLL Multiplier** | **PLLMUL = 6** | $8.000\text{ MHz} \times 6 = \mathbf{48.000\text{ MHz}}$ core clock |
+| **PLL Multiplier** | **PLLMUL = 6** | 8.000 MHz * 6 = **48.000 MHz** core clock |
 | **Flash Latency** | **1 Wait State (`LATENCY = 1`)** | Mandatory for Cortex-M0 operation above 24 MHz |
 | **System Busses** | **AHB = 48 MHz, APB = 48 MHz** | Prescalers set to 1 for maximum peripheral throughput |
 
@@ -56,7 +56,7 @@ flowchart TD
 
 ## 3. Channel Latency & Data Freshness
 
-1. **Continuous ADC Scan**: All 11 channels (4 sticks, 4 switches, 2 pots, battery) are digitized continuously by ADC1 via DMA in **0.23 ms** ($252\text{ cycles} \times 11 / 12\text{ MHz}$).
+1. **Continuous ADC Scan**: All 11 channels (4 sticks, 4 switches, 2 pots, battery) are digitized continuously by ADC1 via DMA in **0.23 ms** (252 cycles * 11 / 12 MHz).
 2. **Double-Buffered Channels**: The main loop updates `PENDING_CHANNELS` within critical sections (`cortex_m::interrupt::free`).
 3. **Guaranteed Fresh Packets**: Because the main processing loop runs at ~500 Hz while the RF transmitter transmits at ~260 Hz, **every over-the-air packet carries fresh, up-to-date stick data** with end-to-end latency under **2.0 ms**.
 
@@ -75,12 +75,16 @@ Measured on release builds (`thumbv6m-none-eabi`, opt-level 3 / z):
 
 ## 5. Throttle Curve Engine & Catmull-Rom Spline Math (`src/curve.rs`)
 
-The curve engine transforms normalized stick inputs ($0 \dots 1000$) into tailored output curves:
-- **Modes**: 5-point ($0\%, 25\%, 50\%, 75\%, 100\%$) and 9-point ($0\%, 12.5\%, 25\%, \dots, 100\%$).
+The curve engine transforms normalized stick inputs (0..1000) into tailored output curves:
+- **Modes**: 5-point (0%, 25%, 50%, 75%, 100%) and 9-point (0%, 12.5%, 25%, ..., 100%).
 - **Linear Interpolation**:
-  $$\text{val} = y_0 + \frac{(y_1 - y_0) \times \Delta x}{x_{\text{span}}}$$
+  ```text
+  val = y0 + ((y1 - y0) * delta_x) / x_span
+  ```
 - **Catmull-Rom Cubic Spline Smoothing**:
   To achieve smooth, C1-continuous throttle response without flat inflection points or aggressive step changes, the engine evaluates standard Catmull-Rom cubic Hermite splines:
-  $$P(t) = 0.5 \times \left(2 P_1 + (-P_0 + P_2) t + (2 P_0 - 5 P_1 + 4 P_2 - P_3) t^2 + (-P_0 + 3 P_1 - 3 P_2 + P_3) t^3\right)$$
+  ```text
+  P(t) = 0.5 * (2*P1 + (-P0 + P2)*t + (2*P0 - 5*P1 + 4*P2 - P3)*t^2 + (-P0 + 3*P1 - 3*P2 + P3)*t^3)
+  ```
 - **Deterministic Fixed-Point Execution**:
-  Implemented using integer-only fixed-point arithmetic ($t$ scaled by 1024). Spline interpolation executes in **&lt; 60 CPU clock cycles** (&lt; 1.25 µs at 48 MHz), meaning spline smoothing imposes zero perceptible latency on the control loop.
+  Implemented using integer-only fixed-point arithmetic (`t` scaled by 1024). Spline interpolation executes in **< 60 CPU clock cycles** (< 1.25 µs at 48 MHz), meaning spline smoothing imposes zero perceptible latency on the control loop.

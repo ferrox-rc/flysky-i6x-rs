@@ -140,7 +140,7 @@ Comprehensive technical documentation is maintained in the [`docs/`](docs/) dire
 - [x] Fast power-on boot (< 30 ms) and reliable DFU bootloader invocation.
 
 ### Phase 2: Analog & Digital Inputs (COMPLETED)
-- [x] Continuous 11-channel DMA1 ADC1 scanner ($0.23\text{ ms}$ complete scan).
+- [x] Continuous 11-channel DMA1 ADC1 scanner (0.23 ms complete scan).
 - [x] OpenTX Modified Moving Average (MMA) micro-jitter filter (0 latency on stick movement).
 - [x] Exponential moving average (EMA) filter on battery voltage ADC (`PC0`) to stabilize hundredths digit.
 - [x] Decode 2-pos / 3-pos switches (`SA..SD`), rotary pots (`VRA`, `VRB`), and battery voltage (`PC0`).
@@ -152,7 +152,7 @@ Comprehensive technical documentation is maintained in the [`docs/`](docs/) dire
 - [x] External HSE crystal (48.000 MHz) and calibrated `TIM16` timer (`PSC = 47`, `ARR = 3849`) for exact 3850.0 µs (259.74 Hz) frame sync.
 
 ### Phase 4: AFHDS 2A Over-the-Air Link & Telemetry (COMPLETED)
-- [x] 14-channel 38-byte stick frame generation ($1000 \dots 2000\,\mu\text{s}$).
+- [x] 14-channel 38-byte stick frame generation (1000..2000 µs).
 - [x] 4-phase bidirectional bind sequence with persistent RX ID Flash storage.
 - [x] Cancel / Abort binding mode via `[ESC]` (Cancel key) and support for one-way receivers (FS-A8S, Fli14).
 - [x] Downlink telemetry reception window: live RSSI and RX battery voltage.
@@ -177,7 +177,7 @@ Comprehensive technical documentation is maintained in the [`docs/`](docs/) dire
 - [x] Model Match: independent `rx_id` per model profile with dynamic RF switching on model change.
 - [x] Per-model digital trims (Roll, Pitch, Throttle, Yaw) and 14-channel reversing bitmask.
 - [x] Switchable 5-point and 9-point throttle curves with optional **Catmull-Rom cubic Hermite spline** smoothing.
-- [x] Real-time curve graph visualization ($44 \times 36$ pixels) in the on-screen throttle curve editor.
+- [x] Real-time curve graph visualization (44 x 36 pixels) in the on-screen throttle curve editor.
 - [x] Model setup: 10-character ASCII model name editor and aircraft type selector.
 
 ### Phase 8: Multi-Page Flight Dashboard & Navigation Polish (COMPLETED)
@@ -193,19 +193,24 @@ Comprehensive technical documentation is maintained in the [`docs/`](docs/) dire
 - [x] Downlink telemetry RSSI range warnings: audible alerts when signal drops below 40% (Warning) and 20% (Critical).
 
 ### Phase 10: Flight Control & Mixing (COMPLETED)
-- [x] Dual Rates & Exponential (D/R & EXPO) on Roll, Pitch, and Yaw with 64-bit integer cubic curves and switchable high/low rates.
+- [x] Dual Rates & Exponential (D/R & EXPO) on Roll, Pitch, and Yaw with integer cubic curves and switchable high/low rates.
 - [x] Auxiliary Channel Source Mapping: remapping any physical switch or potentiometer to any output channel (CH5–CH14).
 - [x] Pre-configured aircraft templates: Elevon / Delta Wing, V-Tail, and Flaperon (dual ailerons with auxiliary flap input).
 - [x] EdgeTX / OpenTX-style 14-channel freeform matrix mixer with 8 user-configurable mix lines (Weight, Offset, Switch, ADD/MULT/REPLACE modes).
 - [x] Dedicated UI editors in Settings Menu: `Dual Rate/Expo`, `Wing/Mixer` (with mix line editor), and `Aux Channels`.
+- [x] Real-time flight control loop decoupled from display flush via hardware Cortex-M SysTick timer (`src/time.rs`).
+- [x] High-rate channel updates (sub-30 µs execution at kHz pass rates) with 30 Hz display throttling.
+- [x] Lightweight 4-sample stick filter with dynamic deadband bypass (`diff >= 6`) for instantaneous step-response.
+- [x] Elimination of 64-bit software division emulation (`__aeabi_ldivmod`) across all mixing and expo math.
+- [x] Automated Flash storage sanitization (`RadioStorage::sanitize`) enforcing valid operating limits.
 
 ### Phase 11: Display & Telemetry Enhancements (PLANNED)
-- [ ] LCD Electronic Volume (EV) contrast adjustment ($0 \dots 63$) in `Radio Setup`.
+- [ ] LCD Electronic Volume (EV) contrast adjustment (0..63) in `Radio Setup`.
 - [ ] Dedicated full-screen telemetry sensor dashboard (Page 4/4) displaying live pack voltage, RSSI, and i-BUS sensor telemetry.
 
 ### Current Firmware Footprint
-- **Flash ROM**: **50.8 KB** used out of **128 KB** available (~60% Flash free headroom).
-- **Static RAM**: **228 bytes** (`.data` + `.bss`) out of **16 KB** available (**>90% SRAM free**).
+- **Flash ROM**: **51.2 KB** used out of **128 KB** available (~60% Flash free headroom).
+- **Static RAM**: **236 bytes** (`.data` + `.bss`) out of **16 KB** available (**>90% SRAM free**).
 - **Non-Volatile Storage**: **2,688 bytes** allocated across Pages 62 & 63 (1,408 bytes free headroom).
 
 ---
@@ -218,7 +223,7 @@ Comprehensive technical documentation is maintained in the [`docs/`](docs/) dire
 | **Open Settings Menu** | **Hold `OK` for 1.2s** | Opens Model Select, Model Setup, Ch Reverse, Thr Curve, Radio Setup, Calib, RX Setup, Monitors, & Diagnostics |
 | **Rapid Menu / Value Scroll** | **Hold `UP` or `DOWN`** | Auto-repeats every 70 ms after 300 ms hold across all menus, character editing, and curve points |
 | **Direct Calibration (Boot)**| **Hold `OK` during Power-On** | Launches 2-step calibration wizard immediately on boot |
-| **Initiate Receiver Binding**| **Hold `BIND` ($\ge 1.0\text{s}$)** | Starts binding from any flight page (or hold during power-on) |
+| **Initiate Receiver Binding**| **Hold `BIND` (>= 1.0s)** | Starts binding from any flight page (or hold during power-on) |
 | **Abort / Cancel Binding** | **Press `Cancel` (`ESC`)** | Exits binding mode immediately and restores normal RF |
 | **Tab / Advance Cursor** | **`OK` or `BIND` in Editors** | Advances character cursor in naming editor and point selection in curve editor |
 | **Enter DFU Bootloader (Boot)** | **Inward Trims + Power ON** | Push Roll Left & Yaw Right inward while switching on (Primary hardware recovery/flashing mode) |

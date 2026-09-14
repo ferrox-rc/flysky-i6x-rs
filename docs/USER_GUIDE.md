@@ -33,14 +33,14 @@ A comprehensive guide to operating the `flysky-i6x-rs` firmware on the FlySky FS
 
 ### Keypad & Navigation Buttons
 - **`[UP]`** / **`[DOWN]`**: Navigate menu items, cycle characters, increment/decrement values.
-  - **Auto-Repeat**: Holding **`[UP]`** or **`[DOWN]`** for $\ge 300\text{ ms}$ automatically repeats every **70 ms** for rapid scrolling through lists, swift character selection, and fast curve point editing.
+  - **Auto-Repeat**: Holding **`[UP]`** or **`[DOWN]`** for >= 300 ms automatically repeats every **70 ms** for rapid scrolling through lists, swift character selection, and fast curve point editing.
 - **`[OK]`**: Enter submenu, toggle setting, confirm values, advance character cursor in naming editor.
   - **Hold `[OK]` for 1.2 seconds** on any flight dashboard page: Opens the **Settings Menu**.
   - **Hold `[OK]` during Power-On**: Launches **Stick Calibration** immediately.
 - **`[CANCEL]` (`[ESC]`)**: Return to previous screen, exit edit mode, abort calibration, or complete one-way receiver binding.
 - **`[BIND]` (Dedicated Button with Clean Separation Logic)**:
-  - **Tap (`< 1.0s`) on Flight Screen**: Cycles through the 3 flight dashboard pages (`1/3` $\rightarrow$ `2/3` $\rightarrow$ `3/3` $\rightarrow$ `1/3`).
-  - **Hold (`\ge 1.0s`) on Flight Screen**: Initiates AFHDS 2A receiver binding.
+  - **Tap (`< 1.0s`) on Flight Screen**: Cycles through the 3 flight dashboard pages (`1/3` -> `2/3` -> `3/3` -> `1/3`).
+  - **Hold (`>= 1.0s`) on Flight Screen**: Initiates AFHDS 2A receiver binding.
   - **Hold during Power-On**: Launches AFHDS 2A binding subprogram immediately at boot.
   - **In Menus & Editors**: Functions as **`[TAB]` / Cursor Advance** (advances name characters or curve points) without triggering RF binding.
 
@@ -91,7 +91,7 @@ The main flight screen features 3 switchable display pages cycled by tapping **`
 | P2/3                           14-CH MONITOR                | <- Footer Bar (y=57..62)
 +-------------------------------------------------------------+
 ```
-- Real-time graphic bars and microsecond pulse readouts ($1000 \dots 2000\,\mu\text{s}$) across all 14 AFHDS 2A channels simultaneously.
+- Real-time graphic bars and microsecond pulse readouts (1000..2000 µs) across all 14 AFHDS 2A channels simultaneously.
 - Left column: CH 1..7 (Gimbals, SwA, SwB, VR1).
 - Right column: CH 8..14 (VR2, SwC, SwD, Aux channels).
 - Graphic bars are positioned at `y + 1` for pixel-perfect horizontal centering with the text labels, leaving 2px clearance above the line 55 divider.
@@ -118,14 +118,14 @@ The main flight screen features 3 switchable display pages cycled by tapping **`
 
 ## 3. Digital Trims & Audio Feedback
 
-All 4 primary axes have dedicated digital rocker switches providing $\pm 25$ steps of trim authority ($\pm 100\,\mu\text{s}$):
+All 4 primary axes have dedicated digital rocker switches providing ±25 steps of trim authority (±100 µs):
 
 ### Trim Operation & Tones
-- **Single Press**: Nudges trim by 1 step ($4\,\mu\text{s}$). A short tone sounds.
-- **Pitch Shift**: Tone pitch rises as trim increases ($1500 \dots 2500\text{ Hz}$), giving instant acoustic feedback of direction.
+- **Single Press**: Nudges trim by 1 step (4 µs). A short tone sounds.
+- **Pitch Shift**: Tone pitch rises as trim increases (1500..2500 Hz), giving instant acoustic feedback of direction.
 - **Center Return**: When passing through `0` (neutral), a distinctive high-pitched double-length tone (`2800 Hz`) sounds.
-- **End of Travel**: Attempting to move past $\pm 25$ sounds a low-frequency warning buzz (`1100 Hz`).
-- **Auto-Repeat**: Holding any trim switch for $\ge 350\text{ ms}$ automatically repeats steps at 90 ms intervals.
+- **End of Travel**: Attempting to move past ±25 sounds a low-frequency warning buzz (`1100 Hz`).
+- **Auto-Repeat**: Holding any trim switch for >= 350 ms automatically repeats steps at 90 ms intervals.
 
 ### Throttle Trim Safety Modes
 Configurable in `Radio Setup`:
@@ -133,9 +133,9 @@ Configurable in `Radio Setup`:
    - Throttle trim buttons are locked out. Pressing them sounds a warning tone without modifying output.
    - Prevents accidental disarm failures or motor spin-ups caused by bumping the throttle trim.
 2. **`IDLE` (Traditional Glow / Nitro Engines)**:
-   - Throttle trim only affects the lower half of the throttle stick range ($1000 \dots 1500\,\mu\text{s}$), leaving maximum full-throttle output unchanged at $2000\,\mu\text{s}$.
+   - Throttle trim only affects the lower half of the throttle stick range (1000..1500 µs), leaving maximum full-throttle output unchanged at 2000 µs.
 3. **`LINEAR` (Electric Aircraft)**:
-   - Throttle trim shifts the entire $1000 \dots 2000\,\mu\text{s}$ range symmetrically.
+   - Throttle trim shifts the entire 1000..2000 µs range symmetrically.
 
 ---
 
@@ -190,18 +190,18 @@ Hold **`[OK]` for 1.2 seconds** from the main flight screen to open the Settings
 Configures stick throw authority and center sensitivity for primary controls:
 - **Switch**: Select physical hardware switch (`None`, `SA`, `SB`, `SC`, `SD`) to toggle between High Rates (UP) and Low Rates (MID/DOWN).
 - **Channel**: Select axis to adjust (`Roll`, `Pitch`, `Yaw`).
-- **Hi Rate / Lo Rate**: Adjust throw authority ($30\%\dots 100\%$ in $5\%$ steps).
-- **Hi Expo / Lo Expo**: Adjust center sensitivity ($-100\%\dots +100\%$ in $5\%$ steps). Positive expo softens stick sensitivity around center for smooth flight.
+- **Hi Rate / Lo Rate**: Adjust throw authority (30%..100% in 5% steps).
+- **Hi Expo / Lo Expo**: Adjust center sensitivity (-100%..+100% in 5% steps). Positive expo softens stick sensitivity around center for smooth flight.
 
 ### Submenu 4: Throttle Curve Editor (`THR CURVE`)
-Interactive curve engine with real-time on-screen curve visualization ($49 \times 37$ pixel plot) and selected-point indicator dot.
+Interactive curve engine with real-time on-screen curve visualization (49 x 37 pixel plot) and selected-point indicator dot.
 
 ### Submenu 5: Wing & Tail Mixer (`WING/MIXER`)
 - **Wing Template**: Cycle between `NORMAL`, `ELEVON/DELTA` (flying wings/jets: mixes Pitch & Roll on CH1/CH2), `V-TAIL` (gliders: mixes Pitch & Yaw on CH2/CH4), and `FLAPERON` (dual ailerons on CH1 & CH6 with flap input).
 - **Freeform Mix Lines (`M1` .. `M8`)**: Press **`[OK]`** to edit any mix line:
   - **Target**: Output channel (`CH1`..`CH14` or `Disabled`).
   - **Source**: Control source (`Roll`, `Pitch`, `Thr`, `Yaw`, `VRA`, `VRB`, `SA..SD`, `MAX`, `CH1..CH14`).
-  - **Weight / Offset**: Percentage scaling ($-100\%\dots +100\%$).
+  - **Weight / Offset**: Percentage scaling (-100%..+100%).
   - **Switch**: Activation condition (`ON`, `SA^`, `SAv`, `SB^`, `SB-`, `SBv`, `SC^`, `SC-`, `SCv`, `SD^`, `SDv`).
   - **Mode**: Multiplex method (`ADD (+)`, `MULT (*)`, `REPL (:=)`).
 
@@ -211,11 +211,11 @@ Assigns physical controls (switches `SA..SD`, pots `VRA/VRB`, sticks, or `None`)
 ### Submenu 7: Channel Reverse (`CH REVERSE`)
 - Lists all 14 channels (CH1:ROL, CH2:PIT, CH3:THR, CH4:YAW, SwA..SwD, VR1, VR2).
 - Press **`[OK]`** to toggle between **`NOR`** (Normal) and **`REV`** (Reversed).
-- Calculations use hardware-standard inversion: $\text{pulse} = 3000 - \text{pulse}$.
+- Calculations use hardware-standard inversion: `pulse = 3000 - pulse`.
 - Automatically saved to non-volatile Flash upon exit.
 
 ### Submenu 4: Throttle Curve Editor (`THR CURVE`)
-Interactive curve engine with real-time on-screen curve visualization ($49 \times 37$ pixel plot) and selected-point indicator dot:
+Interactive curve engine with real-time on-screen curve visualization (49 x 37 pixel plot) and selected-point indicator dot:
 
 ```
 +------------------------------------+
@@ -232,23 +232,23 @@ Interactive curve engine with real-time on-screen curve visualization ($49 \time
 +------------------------------------+
 ```
 
-- **Field 0 (`Pts:`)**: Toggle between **`5-PT`** and **`9-PT`**. The UI dynamically updates the point range indicator (`Pts: 1..5` in 5-point mode, `Pts: 1..9` in 9-point mode). Switching from 5-point to 9-point mode automatically **resamples** midpoint values between existing points (e.g. `[0, 25, 50, 75, 100]` $\rightarrow$ `[0, 12, 25, 37, 50, 62, 75, 87, 100]`), preventing flat-zero dropoffs.
+- **Field 0 (`Pts:`)**: Toggle between **`5-PT`** and **`9-PT`**. The UI dynamically updates the point range indicator (`Pts: 1..5` in 5-point mode, `Pts: 1..9` in 9-point mode). Switching from 5-point to 9-point mode automatically **resamples** midpoint values between existing points (e.g. `[0, 25, 50, 75, 100]` -> `[0, 12, 25, 37, 50, 62, 75, 87, 100]`), preventing flat-zero dropoffs.
 - **Field 1 (`Crv:`)**: Toggle between **`LINEAR`** (piecewise linear interpolation) and **`SMOOTH`** (**Catmull-Rom cubic Hermite spline** smoothing).
 - **Field 2.. (`P1` .. `Pn`)**:
   - While navigating (`!editing`), scroll with **`[UP]`** / **`[DOWN]`** and press **`[OK]`** to enter point-editing mode (`> Pn: XX% <`).
   - While editing:
-    - **`[UP]`** / **`[DOWN]`**: Adjust point value between $0\%$ and $100\%$ (with auto-repeat when held).
-    - **`[OK]`**: Confirm current point and advance to next point (`P1` $\rightarrow$ `P2` $\rightarrow$ `...`). On the last point, exits edit mode.
+    - **`[UP]`** / **`[DOWN]`**: Adjust point value between 0% and 100% (with auto-repeat when held).
+    - **`[OK]`**: Confirm current point and advance to next point (`P1` -> `P2` -> `...`). On the last point, exits edit mode.
     - **`[BIND]`**: Tabs to the next point (wraps to `P1`).
     - **`[CANCEL]` (`[ESC]`)**: Exits point-editing mode.
-  - A real-time $3 \times 3$ pixel dot indicator is plotted directly on the curve graph at the coordinates of the actively selected point.
+  - A real-time 3 x 3 pixel dot indicator is plotted directly on the curve graph at the coordinates of the actively selected point.
 
 ### Submenu 8: Radio Setup (`RADIO SETUP`)
 - **`Thr Trim:`**: Toggle between `OFF (Lock)`, `IDLE`, and `LINEAR`.
 - **`Audio:`**: Toggle beeper sound between `ENABLED` and `MUTED`.
 - **`BL Timer:`**: LCD backlight auto-shutoff timeout: `ALWAYS ON`, `15 SEC`, `30 SEC`, or `60 SEC`. Touching any key or moving any stick wakes the backlight instantly.
 - **`BL Level:`**: Backlight brightness level from `10%` to `100%` in 10% steps (supports both stock transistors and the `PC9` hardware PWM dimming mod).
-- **`Bat Warn:`**: Low battery alarm threshold from `4.0V` to `5.0V` in 0.1V steps (default: **`4.4V`**, or 1.10V/cell for 4×AA). When battery drops below this voltage, the status bar badge flashes inverted and an audible double-chirp alarm sounds every 8 seconds.
+- **`Bat Warn:`**: Low battery alarm threshold from `4.0V` to `5.0V` in 0.1V steps (default: **`4.4V`**, or 1.10V/cell for 4xAA). When battery drops below this voltage, the status bar badge flashes inverted and an audible double-chirp alarm sounds every 8 seconds.
 
 ### Submenu 9: RX Setup & Bind (`RX SETUP & BIND`)
 - Displays current RF protocol (`AFHDS 2A`).
@@ -256,14 +256,14 @@ Interactive curve engine with real-time on-screen curve visualization ($49 \time
 - Press **`[OK]`** to trigger receiver binding mode directly.
 
 ### Submenu 10: Channel Monitor (`CHANNEL MONITOR`)
-- Displays live pulse widths ($1000 \dots 2000\,\mu\text{s}$) across all 14 channels with 40-pixel horizontal graphic bar indicators and exact microsecond numbers.
+- Displays live pulse widths (1000..2000 µs) across all 14 channels with 40-pixel horizontal graphic bar indicators and exact microsecond numbers.
 - Press **`[UP]`** / **`[DOWN]`** to toggle between Page 1 (CH1..CH7) and Page 2 (CH8..CH14).
 
 ### Submenu 11: Stick Calibration (`STICK CALIB`)
 Launches the interactive 2-step calibration wizard (see Section 5 below).
 
 ### Submenu 12: Analog Diagnostics (`DIAG ANAS`)
-- Multi-page graphic diagnostics screen matching the `CHANNEL MONITOR` layout with 40-pixel graphic fill bars and exact 4-digit raw decimal ADC counts ($0 \dots 4095$):
+- Multi-page graphic diagnostics screen matching the `CHANNEL MONITOR` layout with 40-pixel graphic fill bars and exact 4-digit raw decimal ADC counts (0..4095):
   - **Page 1 (`ANALOG (1-6)`)**: Stick gimbals & switches: `RH:AIL`, `RV:ELE`, `LV:THR`, `LH:RUD`, `SW:SA`, `SW:SB`.
   - **Page 2 (`ANALOG (7-11)`)**: Rotary pots, switches, & battery: `POT:V1`, `POT:V2`, `SW:SC`, `SW:SD`, `VBAT`.
 - Press **`[UP]`** / **`[DOWN]`** to switch between Page 1 and Page 2.
@@ -279,7 +279,7 @@ Launches the interactive 2-step calibration wizard (see Section 5 below).
 Calibration ensures gimbals reach full travel without clipping or deadzones:
 
 1. **Enter Calibration**:
-   - Hold **`[OK]` for 1.2s** on the flight screen $\rightarrow$ select `STICK CALIB`.
+   - Hold **`[OK]` for 1.2s** on the flight screen -> select `STICK CALIB`.
    - Alternatively, **hold `[OK]` while switching on the radio**.
 2. **Step 1: Center Position**:
    - Let Roll, Pitch, and Yaw return to center springs.
@@ -300,7 +300,7 @@ Calibration ensures gimbals reach full travel without clipping or deadzones:
 
 The firmware provides 4 convenient ways to initiate AFHDS 2A binding with clean separation logic:
 1. **Hold `[BIND]` during Power-On**: Boots directly into RF bind mode.
-2. **Hold `[BIND]` ($\ge 1.0\text{s}$) on Flight Screen**: Initiates binding from any flight dashboard page.
+2. **Hold `[BIND]` (>= 1.0s) on Flight Screen**: Initiates binding from any flight dashboard page.
 3. **`MODEL SETUP` Menu**: Select Field 2 (`Bind RX`) and press **`[OK]`**.
 4. **`RX SETUP & BIND` Menu**: Press **`[OK]`**.
 
@@ -341,21 +341,21 @@ The firmware includes four levels of proactive safety protection inspired by Ope
 
 ### 1. Pre-Flight Startup Checks (Throttle & Switch Safety Interlock)
 - **Detection**: At power-on, the radio inspects the physical throttle position and all 4 toggle switches (`SA`, `SB`, `SC`, `SD`).
-- **Safety Trigger**: If the throttle stick is $> 5\%$ above zero, or any switch is not in the safe **UP** position:
+- **Safety Trigger**: If the throttle stick is > 5% above zero, or any switch is not in the safe **UP** position:
   - The transmitter intercepts normal boot and presents a dedicated **`SAFETY WARNING!`** screen.
-  - RF transmission is locked into zero-throttle failsafe pulses ($1000\,\mu\text{s}$) so motors cannot spin up.
+  - RF transmission is locked into zero-throttle failsafe pulses (1000 µs) so motors cannot spin up.
   - An urgent alternating alarm tone (`warn_preflight`) sounds every 800 ms.
 - **Clearing**: Moving the throttle stick to minimum and returning all switches to UP automatically clears the warning with a confirmation chirp and opens the flight screen. Alternatively, pressing **`[CANCEL]` (`[ESC]`)** bypasses the check.
 
 ### 2. Transmitter Low Battery Alarm
-- **Threshold**: Configurable in `RADIO SETUP` $\rightarrow$ `Bat Warn` (`4.0V` .. `5.0V`, default **`4.4V`**).
+- **Threshold**: Configurable in `RADIO SETUP` -> `Bat Warn` (`4.0V` .. `5.0V`, default **`4.4V`**).
 - **Visual Alert**: The battery voltage badge on the top right status bar blinks in inverted video (`[ 4.38V ]`).
 - **Audio Alert**: The piezo buzzer sounds a double-chirp warning (`2400 Hz`) every 8 seconds.
 
 ### 3. Radio Inactivity Idle Alarm
-- **Timeout**: 10 minutes ($600\text{ seconds}$).
+- **Timeout**: 10 minutes (600 seconds).
 - **Behavior**: If no physical sticks, switches, trims, or keys are moved for 10 minutes, the radio emits a reminder chime every 30 seconds to alert the pilot and prevent battery drain.
 
 ### 4. Telemetry RSSI Range Alarms
-- **Low Signal Warning ($\text{RSSI} < 40\%$)**: Sounds a caution beep (`2000 Hz`) every 6 seconds.
-- **Critical Signal Alarm ($\text{RSSI} < 20\%$)**: Sounds an urgent double-beep (`2800 Hz`) every 3 seconds to warn the pilot of imminent radio failsafe.
+- **Low Signal Warning (RSSI < 40%)**: Sounds a caution beep (`2000 Hz`) every 6 seconds.
+- **Critical Signal Alarm (RSSI < 20%)**: Sounds an urgent double-beep (`2800 Hz`) every 3 seconds to warn the pilot of imminent radio failsafe.

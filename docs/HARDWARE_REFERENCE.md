@@ -60,17 +60,17 @@ The transmitter uses a Sitronix **ST7567** (or compatible) monochrome LCD contro
 | :--- | :--- | :--- |
 | **D0 .. D7** | `PE0 .. PE7` | Full-byte parallel data bus written via `GPIOE->ODR[7:0]` |
 | **RS** | `PB3` | Command / Data select: Low = Command, High = Graphic data |
-| **RST** | `PB4` | Active Low hardware reset (pulse Low for $\ge 20\,\mu\text{s}$) |
+| **RST** | `PB4` | Active Low hardware reset (pulse Low for >= 20 µs) |
 | **RW** | `PB5` | Read / Write select: Kept **LOW** for write mode |
 | **CS** | `PD2` | Chip Select: Kept **LOW** to permanently enable the display |
-| **RD / E** | `PD7` | 6800-series latch strobe: Data is latched on **High $\to$ Low** transition |
+| **RD / E** | `PD7` | 6800-series latch strobe: Data is latched on **High -> Low** transition |
 
 ### Controller Dimensions & Column Offset
 
 The ST7567 controller contains 132 column segment drivers, while the FS-i6X physical LCD panel is 128 pixels wide.
 - Active display starts at **Column 4** (`col_start = 0x04`).
-- Pages: 8 vertical pages ($8 \times 8 = 64$ rows), each byte containing 8 vertical pixels (LSB at top).
-- Total SRAM framebuffer size: $128 \times 8 = 1024$ bytes.
+- Pages: 8 vertical pages (8 * 8 = 64 rows), each byte containing 8 vertical pixels (LSB at top).
+- Total SRAM framebuffer size: 128 * 8 = 1024 bytes.
 
 ### Initialization Sequence
 
@@ -105,7 +105,7 @@ The ST7567 controller contains 132 column segment drivers, while the FS-i6X phys
 ### Optional Hardware PWM Mod (Dimming)
 - **Control Pin:** **`GPIOC` Pin 9 (`PC9`)**
 - **Circuit:** Solder jumper added from the unpopulated `PC9` pad to the backlight transistor base pad (`BL`).
-- **Dimming:** Driven via `TIM3_CH4` (AF0) with 500 Hz PWM for variable brightness levels ($0\dots 100\%$).
+- **Dimming:** Driven via `TIM3_CH4` (AF0) with 500 Hz PWM for variable brightness levels (0..100%).
 - **Software Strategy:** The firmware simultaneously drives `PF3` and `PC9` HIGH, supporting both stock and modded hardware transparently.
 
 > [!CAUTION]
@@ -129,7 +129,7 @@ The audible beeper is a passive piezoelectric transducer driven by hardware PWM:
 | **Nav Click** | 2400 Hz | 12 ms | Light feedback when pressing menu buttons |
 | **Trim Step** | 1500 .. 2500 Hz | 25 ms | Dynamic pitch shifting with trim step offset |
 | **Trim Center** | 2800 Hz | 60 ms | High-pitch confirmation when reaching 0 neutral |
-| **Trim Limit** | 1100 Hz | 45 ms | Low warning buzz when hitting $\pm 25$ limits |
+| **Trim Limit** | 1100 Hz | 45 ms | Low warning buzz when hitting ±25 limits |
 | **Bind Success** | 2200 / 2800 Hz | 80 ms each | Two-tone rising fanfare upon binding receiver |
 | **Calib Success** | 2000 / 2800 Hz | 100 ms each | Confirmation chime when saving gimbals |
 
@@ -190,15 +190,16 @@ The FlySky FS-i6X uses a single 12-bit ADC peripheral (**ADC1**) paired with **D
 3. **Endpoint Range Expansion:**
    - Rather than relying on rigid factory bounds, the piecewise calibrator expands its min/max endpoints dynamically whenever physical stick deflection exceeds the stored bounds, ensuring full `-1000 .. +1000` throw without clipping.
 4. **Adaptive Noise / Jitter Filtering:**
-   - To counteract track wear and ADC noise (especially prominent on the Rudder gimbal), an adaptive exponential moving average (EMA) filter is applied:
-     - Movements $\le 12$ raw counts are filtered to eliminate jitter.
-     - Rapid intentional movements ($> 12$ counts) bypass the filter completely to preserve zero-latency response.
+    - To counteract track wear and ADC noise (especially prominent on the Rudder gimbal), an adaptive exponential moving average (EMA) filter is applied:
+      - Movements <= 12 raw counts are filtered to eliminate jitter.
+      - Rapid intentional movements (> 12 counts) bypass the filter completely to preserve zero-latency response.
 
 ### Battery Voltage Sensing
 
 - Connected to `PC0` (ADC Channel 10) through a resistive voltage divider:
-  $$\text{Voltage (in 0.1V units)} = \frac{\text{raw} \times 100}{421} + 20$$
+  ```text
+  Voltage (in 0.1V units) = ((raw * 100) / 421) + 20
+  ```
 - Validated against physical AA battery pack voltages:
-  - 4× NiMH (~4.8V): ~1930 raw counts $\to$ `4.8V`
-  - 4× Alkaline fresh (~6.0V): ~2440 raw counts $\to$ `6.0V`
-
+  - 4x NiMH (~4.8V): ~1930 raw counts -> `4.8V`
+  - 4x Alkaline fresh (~6.0V): ~2440 raw counts -> `6.0V`

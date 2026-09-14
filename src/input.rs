@@ -77,24 +77,25 @@ impl AxisCalib {
     }
 
     /// Normalize raw ADC count (0..4095) around center point to -1000..+1000.
-    /// OpenTX/OpenI6X MMA filter: filters micro-jitter without adding latency or deadband.
+    /// Fast responsive jitter filter: suppresses resting potentiometer noise
+    /// while passing all intentional stick movements (> 6 counts) with 0 latency.
     pub fn normalize(&mut self, raw: u16) -> i16 {
         if self.filtered_raw == 0 {
-            self.filtered_raw = raw as u32 * 16;
+            self.filtered_raw = raw as u32 * 4;
         }
 
-        let previous = (self.filtered_raw / 16) as u16;
+        let previous = (self.filtered_raw / 4) as u16;
         let diff = (raw as i32 - previous as i32).abs();
 
-        // OpenTX jitter filter:
-        // Pass through any change >= 20 counts directly (0 latency)
-        // For small changes (< 20 counts), use MMA filter
-        if diff < 20 {
+        // Responsive low-latency jitter filter:
+        // Pass through any change >= 6 counts directly (0 latency)
+        // For micro-noise (< 6 counts), use 4-sample fast MMA filter
+        if diff < 6 {
             self.filtered_raw = (self.filtered_raw - previous as u32) + raw as u32;
         } else {
-            self.filtered_raw = raw as u32 * 16;
+            self.filtered_raw = raw as u32 * 4;
         }
-        let smoothed_raw = (self.filtered_raw / 16) as u16;
+        let smoothed_raw = (self.filtered_raw / 4) as u16;
 
         let val = if smoothed_raw <= self.center {
             let span = (self.center - self.min).max(100) as i32;

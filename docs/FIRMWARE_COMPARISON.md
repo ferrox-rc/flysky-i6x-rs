@@ -94,10 +94,10 @@ flowchart TD
 ## 5. Safety Systems & Flight Controller Integration
 
 ### Throttle Trim Safety Lock (Option 2)
-In modern quadcopters and fixed-wing planes running Betaflight, INAV, or ArduPilot, flight controllers expect the throttle channel to sit at an exact known microsecond value (typically $1000\,\mu\text{s}$) when disarmed.
+In modern quadcopters and fixed-wing planes running Betaflight, INAV, or ArduPilot, flight controllers expect the throttle channel to sit at an exact known microsecond value (typically 1000 µs) when disarmed.
 
 - **The Problem in Stock & OpenI6X**:
-  Accidentally bumping the Throttle Trim rocker switch downwards lowers the throttle pulse below $1000\,\mu\text{s}$ (e.g. $950\,\mu\text{s}$). On Betaflight/INAV, this can trigger an unintentional Failsafe or prevent the drone from arming. Bumping it upwards can cause motors to spin immediately upon arming.
+  Accidentally bumping the Throttle Trim rocker switch downwards lowers the throttle pulse below 1000 µs (e.g. 950 µs). On Betaflight/INAV, this can trigger an unintentional Failsafe or prevent the drone from arming. Bumping it upwards can cause motors to spin immediately upon arming.
 - **The Solution in `flysky-i6x-rs`**:
   `flysky-i6x-rs` implements **Option 2 Throttle Trim Safety Lock**:
   - By default, throttle trim adjustment is **locked out** at the firmware level. Bumping the throttle rocker produces an audible warning tone without changing the throttle output, protecting modern flight controllers.
@@ -119,7 +119,7 @@ Older community guides for OpenI6X suggested soldering to `PB1`. However, hardwa
 - **Pin `PC9`** is configured as Alternate Function 0 (`TIM3_CH4`) running **1 kHz hardware PWM**.
 - **Pin `PF3`** is simultaneously controlled for stock unmodded factory backlight switching.
 - **Unified Controls**: In the `Radio Setup` menu, pilots can adjust backlight brightness from **10% to 100%** in 10% steps, and configure auto-timeout (**Always On, 15s, 30s, 60s**).
-- When a timeout is configured, any key press or stick movement ($> 30$ ADC counts) immediately wakes the display.
+- When a timeout is configured, any key press or stick movement (> 30 ADC counts) immediately wakes the display.
 
 ---
 
@@ -128,10 +128,10 @@ Older community guides for OpenI6X suggested soldering to `PB1`. However, hardwa
 A common complaint with stock firmware and OpenI6X is unclear stick calibration where bars stop short of the screen edges or require guesswork.
 
 ### Potentiometer Physical Mechanics
-- The STM32 12-bit ADC spans $0 \dots 4095$ counts ($0.0\text{V} \dots 3.3\text{V}$).
-- Gimbal potentiometers have a $270^\circ$ electrical track, but the transmitter stick physically only tilts $\pm 25^\circ$ ($50^\circ$ total).
-- The wiper voltage physically swings only between $\approx 0.35\text{V}$ and $\approx 2.95\text{V}$ ($\sim 380 \dots 3720$ counts). The hardware physically cannot produce 0 or 4095.
-- Rotary pots `VRA` and `VRB` have series voltage divider resistors and swing $\sim 800 \dots 3300$ counts.
+- The STM32 12-bit ADC spans `0..4095` counts (0.0V..3.3V).
+- Gimbal potentiometers have a 270° electrical track, but the transmitter stick physically only tilts ±25° (50° total).
+- The wiper voltage physically swings only between approx 0.35V and approx 2.95V (~380..3720 counts). The hardware physically cannot produce 0 or 4095.
+- Rotary pots `VRA` and `VRB` have series voltage divider resistors and swing ~800..3300 counts.
 
 ### `flysky-i6x-rs` Guided Calibration Wizard
 - **Step 1 (Neutral Center)**: User centers sticks, sets throttle to 50%, and centers pots. Pressing `[OK]` captures resting neutral points.
@@ -139,7 +139,7 @@ A common complaint with stock firmware and OpenI6X is unclear stick calibration 
   - Horizontal sticks (`A`, `R`) reach full travel at 1350 counts.
   - Vertical sticks (`E`, `T`) reach full travel at 1250 counts.
   - Rotary pots (`V1`, `V2`) reach full travel at 900 counts.
-- **OpenTX Tolerance Margin**: Applies exact `(span * 63) / 64` (~1.6% margin matching OpenTX `STICK_TOLERANCE 64`) so that $\pm 100\%$ channel travel is reached at the mechanical bezel stop without straining gimbal arms.
+- **OpenTX Tolerance Margin**: Applies exact `(span * 63) / 64` (~1.6% margin matching OpenTX `STICK_TOLERANCE 64`) so that ±100% channel travel is reached at the mechanical bezel stop without straining gimbal arms.
 
 ---
 
@@ -148,9 +148,9 @@ A common complaint with stock firmware and OpenI6X is unclear stick calibration 
 `flysky-i6x-rs` provides tools previously unavailable or deeply buried in submenus:
 
 1. **Channel Monitor**:
-   - Live 14-channel view showing graphical progress bars and exact microsecond pulse readouts ($1000 \dots 2000\,\mu\text{s}$).
+   - Live 14-channel view showing graphical progress bars and exact microsecond pulse readouts (1000..2000 µs).
 2. **Analog Diagnostics (`Diag Anas`)**:
-   - Live numerical display of the raw 12-bit ADC values ($0 \dots 4095$) for all 11 pins:
+   - Live numerical display of the raw 12-bit ADC values (0..4095) for all 11 pins:
      - Gimbals: `RH` (PA0), `RV` (PA1), `LV` (PA2), `LH` (PA3)
      - Pots: `V1` (PA6), `V2` (PA7)
      - Switches: `SA` (PA4), `SB` (PA5), `SC` (PB0), `SD` (PB1) with decoded `U` / `M` / `D` states.

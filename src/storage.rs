@@ -8,7 +8,7 @@
 pub const FLASH_STORAGE_ADDR: usize = 0x0801_F000;
 pub const FLASH_LEGACY_ADDR: usize = 0x0801_F800;
 pub const FLASH_MAGIC: u32 = 0x4653_4B59; // "FSKY"
-pub const CONFIG_VERSION: u32 = 3;
+pub const CONFIG_VERSION: u32 = 4;
 pub const NUM_MODELS: usize = 20;
 
 const FLASH_KEYR: *mut u32 = 0x4002_2004 as *mut u32;
@@ -203,6 +203,75 @@ impl RadioStorage {
         let idx = (self.radio.active_model as usize).min(NUM_MODELS - 1);
         &mut self.models[idx]
     }
+
+    /// Sanitize all radio and model parameters to valid operating bounds.
+    /// Prevents uninitialized Flash bytes or corrupted rates/mixes from impairing flight controls.
+    pub fn sanitize(&mut self) {
+        self.radio.magic = FLASH_MAGIC;
+        self.radio.version = CONFIG_VERSION;
+        if self.radio.vbat_warn_deci < 35 || self.radio.vbat_warn_deci > 60 {
+            self.radio.vbat_warn_deci = 44;
+        }
+        if self.radio.active_model >= NUM_MODELS as u8 {
+            self.radio.active_model = 0;
+        }
+        if self.radio.backlight_brightness == 0 || self.radio.backlight_brightness > 10 {
+            self.radio.backlight_brightness = 10;
+        }
+
+        for (idx, m) in self.models.iter_mut().enumerate() {
+            for axis in 0..3 {
+                if m.dr_high[axis] < 30 || m.dr_high[axis] > 100 {
+                    m.dr_high[axis] = 100;
+                }
+                if m.dr_low[axis] < 30 || m.dr_low[axis] > 100 {
+                    m.dr_low[axis] = 70;
+                }
+                if m.expo_high[axis] < -100 || m.expo_high[axis] > 100 {
+                    m.expo_high[axis] = 0;
+                }
+                if m.expo_low[axis] < -100 || m.expo_low[axis] > 100 {
+                    m.expo_low[axis] = 0;
+                }
+            }
+            if m.dr_switch > 4 {
+                m.dr_switch = 0;
+            }
+            if m.wing_tail_mix > 3 {
+                m.wing_tail_mix = 0;
+            }
+            if m.template_diff < -100 || m.template_diff > 100 {
+                m.template_diff = 0;
+            }
+            if m.failsafe_thr < 900 || m.failsafe_thr > 2100 {
+                m.failsafe_thr = 1000;
+            }
+            // If aux_channels are all 0 (uninitialized Flash from v0.9.x and earlier), restore defaults
+            if m.aux_channels[0..6] == [0; 6] {
+                m.aux_channels = [7, 8, 5, 6, 9, 10, 0, 0, 0, 0];
+            }
+            for src in m.aux_channels.iter_mut() {
+                if *src > 25 {
+                    *src = 0;
+                }
+            }
+            for mix in m.mixes.iter_mut() {
+                if mix.target_ch > 14 || mix.source > 25 || mix.mode > 2 || mix.switch > 10 {
+                    *mix = MixLine::disabled();
+                }
+            }
+            if m.thr_curve_pts != 5 && m.thr_curve_pts != 9 {
+                m.thr_curve_pts = 5;
+                m.thr_curve = [0, 25, 50, 75, 100, 0, 0, 0, 0];
+            }
+            if m.name[0] == 0 || m.name[0] == 0xFF {
+                let num = (idx + 1) as u8;
+                let digit1 = b'0' + (num / 10);
+                let digit2 = b'0' + (num % 10);
+                m.name = [b'M', b'O', b'D', b'E', b'L', b' ', digit1, digit2, b' ', b' '];
+            }
+        }
+    }
 }
 
 // Compile-time size guarantees
@@ -210,13 +279,13 @@ const _: () = assert!(core::mem::size_of::<RadioConfig>() == 128);
 const _: () = assert!(core::mem::size_of::<ModelConfig>() == 128);
 const _: () = assert!(core::mem::size_of::<RadioStorage>() == 2688);
 
-/// Load complete storage from Flash (with automatic migration from legacy v1/v2).
+/// Load complete storage from Flash (with automatic migration from legacy v1/v2/v3).
 pub fn load_storage() -> RadioStorage {
     unsafe {
         let magic = core::ptr::read_volatile(FLASH_STORAGE_ADDR as *const u32);
         let version = core::ptr::read_volatile((FLASH_STORAGE_ADDR + 4) as *const u32);
 
-        if magic == FLASH_MAGIC && version == CONFIG_VERSION {
+        if magic == FLASH_MAGIC && (version == CONFIG_VERSION || version == 3) {
             let mut storage = RadioStorage::default_factory();
             let src = FLASH_STORAGE_ADDR as *const u32;
             let dst = &mut storage as *mut RadioStorage as *mut u32;
@@ -224,8 +293,9 @@ pub fn load_storage() -> RadioStorage {
             for i in 0..word_count {
                 *dst.add(i) = core::ptr::read_volatile(src.add(i));
             }
-            if storage.radio.vbat_warn_deci < 35 || storage.radio.vbat_warn_deci > 60 {
-                storage.radio.vbat_warn_deci = 44;
+            storage.sanitize();
+            if version == 3 {
+                save_storage(&storage);
             }
             return storage;
         }

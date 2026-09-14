@@ -45,23 +45,31 @@ flowchart TD
 Before raw gimbal movements reach the mixer matrix, primary flight controls (Aileron, Elevator, Rudder) are conditioned with user-configurable **Dual Rates (D/R)** and **Exponential Curves (EXPO)**.
 
 ### Mathematical Formulation (Integer Arithmetic)
-To ensure deterministic execution without floating-point emulation overhead on the Cortex-M0 core, exponential curves are computed using an exact 64-bit integer cubic polynomial.
+To ensure deterministic execution without floating-point emulation overhead on the Cortex-M0 core, exponential curves are computed using an exact integer cubic polynomial.
 
-Given a normalized stick input $x \in [-1000, +1000]$ and active rate percentage $R \in [30, 100]\%$:
+Given a normalized stick input `x` in the range `[-1000, +1000]` and active rate percentage `R` in `[30, 100]%`:
 
-$$x_{\text{scaled}} = \frac{x \times R}{100}$$
+```text
+x_scaled = (x * R) / 100
+```
 
 Let the normalized cubic component be:
 
-$$x_{\text{cubic}} = \frac{x_{\text{scaled}}^3}{1\,000\,000} \in [-1000, +1000]$$
+```text
+x_cubic = (x_scaled^3) / 1,000,000   (in range [-1000, +1000])
+```
 
-1. **Positive Expo ($\text{Expo} > 0$): Softens Center Sensitivity**
+1. **Positive Expo (Expo > 0): Softens Center Sensitivity**
    Decreases stick sensitivity around the neutral stick position for smooth scale flying, while retaining 100% mechanical throw at gimbal endpoints:
-   $$\text{Output} = \frac{x_{\text{scaled}} \times (100 - \text{Expo}) + x_{\text{cubic}} \times \text{Expo}}{100}$$
+   ```text
+   Output = (x_scaled * (100 - Expo) + x_cubic * Expo) / 100
+   ```
 
-2. **Negative Expo ($\text{Expo} < 0$): Heightens Center Sensitivity**
+2. **Negative Expo (Expo < 0): Heightens Center Sensitivity**
    Increases stick sensitivity near center for aggressive 3D aerobatic maneuvers:
-   $$\text{Output} = x_{\text{scaled}} + \frac{(x_{\text{scaled}} - x_{\text{cubic}}) \times |\text{Expo}|}{100}$$
+   ```text
+   Output = x_scaled + ((x_scaled - x_cubic) * |Expo|) / 100
+   ```
 
 Implemented in [`src/mixer.rs`](../src/mixer.rs#L44-L64).
 
@@ -73,7 +81,7 @@ In the **Dual Rate / Expo** menu, the pilot selects an assigned hardware switch:
 - `SC`: 3-position switch (UP = High Rate, MID/DOWN = Low Rate).
 - `SD`: 2-position switch (UP = High Rate, DOWN = Low Rate).
 
-Independent High and Low rates ($30\%\dots 100\%$) and Expo ($-100\%\dots +100\%$) can be configured per channel (Roll, Pitch, and Yaw).
+Independent High and Low rates (30%..100%) and Expo (-100%..+100%) can be configured per channel (Roll, Pitch, and Yaw).
 
 ---
 
@@ -89,23 +97,29 @@ For standard aircraft configurations, the firmware provides pre-configured wing 
 
 ### 2. Elevon / Delta Wing (Flying Wings & Pusher Jets)
 Combines Elevator and Aileron into two elevon surfaces on the trailing edge of the wing:
-$$\text{CH1 (Left Elevon)} = \frac{\text{Pitch} - \text{Roll}}{2}$$
-$$\text{CH2 (Right Elevon)} = \frac{\text{Pitch} + \text{Roll}}{2}$$
+```text
+CH1 (Left Elevon)  = (Pitch - Roll) / 2
+CH2 (Right Elevon) = (Pitch + Roll) / 2
+```
 - When pulling back on the pitch stick (Up Elevator), both surfaces raise together.
 - When deflecting the roll stick right, the right elevon raises and left elevon lowers.
 
 ### 3. V-Tail (V-Tail Gliders & Scale Planes)
 Combines Elevator and Rudder into two angled tail surfaces:
-$$\text{CH2 (Left V-Tail)} = \frac{\text{Pitch} + \text{Yaw}}{2}$$
-$$\text{CH4 (Right V-Tail)} = \frac{\text{Pitch} - \text{Yaw}}{2}$$
+```text
+CH2 (Left V-Tail)  = (Pitch + Yaw) / 2
+CH4 (Right V-Tail) = (Pitch - Yaw) / 2
+```
 - **CH1**: Standard Aileron control.
 - When pulling back on pitch, both V-tail surfaces deflect upward.
 - When yawing right, the left surface moves up and right surface moves down.
 
 ### 4. Flaperon (Dual Ailerons with Integrated Flaps)
 Controls two independent wing servos for full-span ailerons and camber/flap control:
-$$\text{CH1 (Left Aileron)} = \text{Roll} + \frac{\text{Flap}}{2}$$
-$$\text{CH6 (Right Aileron)} = -\text{Roll} + \frac{\text{Flap}}{2}$$
+```text
+CH1 (Left Aileron)  = Roll + (Flap / 2)
+CH6 (Right Aileron) = -Roll + (Flap / 2)
+```
 - Flap deployment is driven by the physical source assigned to **CH6** in the `Aux Channels` menu (e.g. switch `SB` for 3-position flaps, or rotary knob `VRA` for variable camber).
 
 ---
@@ -116,17 +130,17 @@ All 10 auxiliary channels (CH5 through CH14) can be independently assigned to an
 
 | Source ID | Label | Description | Output Range |
 | :--- | :--- | :--- | :--- |
-| **0** | `None` | Neutral output (no input source) | $1500\,\mu\text{s}$ |
-| **1** | `Roll` | Conditioned Aileron stick input | $1000 \dots 2000\,\mu\text{s}$ |
-| **2** | `Pitch`| Conditioned Elevator stick input | $1000 \dots 2000\,\mu\text{s}$ |
-| **3** | `Thr`  | Spline-curved Throttle stick input | $1000 \dots 2000\,\mu\text{s}$ |
-| **4** | `Yaw`  | Conditioned Rudder stick input | $1000 \dots 2000\,\mu\text{s}$ |
-| **5** | `VRA`  | Left rotary dial potentiometer | $1000 \dots 2000\,\mu\text{s}$ |
-| **6** | `VRB`  | Right rotary dial potentiometer | $1000 \dots 2000\,\mu\text{s}$ |
-| **7** | `SA`   | 2-position toggle switch | UP: $1000\,\mu\text{s}$ / DN: $2000\,\mu\text{s}$ |
-| **8** | `SB`   | 3-position toggle switch | UP: $1000\,\mu\text{s}$ / MID: $1500\,\mu\text{s}$ / DN: $2000\,\mu\text{s}$ |
-| **9** | `SC`   | 3-position toggle switch | UP: $1000\,\mu\text{s}$ / MID: $1500\,\mu\text{s}$ / DN: $2000\,\mu\text{s}$ |
-| **10**| `SD`   | 2-position toggle switch | UP: $1000\,\mu\text{s}$ / DN: $2000\,\mu\text{s}$ |
+| **0** | `None` | Neutral output (no input source) | 1500 µs |
+| **1** | `Roll` | Conditioned Aileron stick input | 1000..2000 µs |
+| **2** | `Pitch`| Conditioned Elevator stick input | 1000..2000 µs |
+| **3** | `Thr`  | Spline-curved Throttle stick input | 1000..2000 µs |
+| **4** | `Yaw`  | Conditioned Rudder stick input | 1000..2000 µs |
+| **5** | `VRA`  | Left rotary dial potentiometer | 1000..2000 µs |
+| **6** | `VRB`  | Right rotary dial potentiometer | 1000..2000 µs |
+| **7** | `SA`   | 2-position toggle switch | UP: 1000 µs / DN: 2000 µs |
+| **8** | `SB`   | 3-position toggle switch | UP: 1000 µs / MID: 1500 µs / DN: 2000 µs |
+| **9** | `SC`   | 3-position toggle switch | UP: 1000 µs / MID: 1500 µs / DN: 2000 µs |
+| **10**| `SD`   | 2-position toggle switch | UP: 1000 µs / DN: 2000 µs |
 
 ### Factory Default Auxiliary Mapping
 - `CH5`: **SA** (Arming switch / Flight mode)
@@ -135,7 +149,7 @@ All 10 auxiliary channels (CH5 through CH14) can be independently assigned to an
 - `CH8`: **VRB** (Payload release / Volume)
 - `CH9`: **SC** (3-position auxiliary: Beeper / OSD switch)
 - `CH10`: **SD** (Throttle cut / Rescue switch)
-- `CH11..CH14`: `None` (Centered $1500\,\mu\text{s}$)
+- `CH11..CH14`: `None` (Centered 1500 µs)
 
 ---
 
@@ -160,11 +174,17 @@ pub struct MixLine {
 ### Multiplex Modes
 When a mix line is active, it modifies the target channel based on its configured mode:
 1. **`ADD (+)`**: Adds the weighted source to the current channel value:
-   $$\text{Channel}_{\text{new}} = \text{Channel}_{\text{current}} + \left(\frac{\text{Source} \times \text{Weight}}{100}\right) + (\text{Offset} \times 10)$$
+   ```text
+   Channel_new = Channel_current + ((Source * Weight) / 100) + (Offset * 10)
+   ```
 2. **`MULTIPLY (*)`**: Scales the current channel value by the source (e.g. gain knobs, variable differential):
-   $$\text{Channel}_{\text{new}} = \frac{\text{Channel}_{\text{current}} \times \text{Term}}{1000}$$
+   ```text
+   Channel_new = (Channel_current * Term) / 1000
+   ```
 3. **`REPLACE (:=)`**: Overrides and replaces the target channel completely (e.g. throttle cut, emergency level/rescue switch):
-   $$\text{Channel}_{\text{new}} = \left(\frac{\text{Source} \times \text{Weight}}{100}\right) + (\text{Offset} \times 10)$$
+   ```text
+   Channel_new = ((Source * Weight) / 100) + (Offset * 10)
+   ```
 
 ### Switch Conditions
 A mix line can be gated by a hardware switch:
@@ -181,7 +201,7 @@ A mix line can be gated by a hardware switch:
 Here are proven mixer setups used by RC pilots:
 
 ### Recipe 1: Throttle Cut Safety Switch
-*Prevents accidental motor start by locking CH3 to minimum pulse ($1000\,\mu\text{s}$) whenever switch `SD` is flipped DOWN:*
+*Prevents accidental motor start by locking CH3 to minimum pulse (1000 µs) whenever switch `SD` is flipped DOWN:*
 - **Target**: `CH3`
 - **Source**: `MAX`
 - **Weight**: `-100%`

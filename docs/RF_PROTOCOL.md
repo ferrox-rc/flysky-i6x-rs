@@ -42,7 +42,7 @@ for i in 0..16 {
 }
 ```
 
-Timing: The radio hops to the next channel in the table every **3.850 ms** ($259.74\text{ Hz}$), driven by the calibrated `TIM16` timer (`PSC = 47`, `ARR = 3849`).
+Timing: The radio hops to the next channel in the table every **3.850 ms** (259.74 Hz), driven by the calibrated `TIM16` timer (`PSC = 47`, `ARR = 3849`).
 
 ---
 
@@ -62,7 +62,7 @@ All AFHDS 2A frames start with a 38-byte payload:
 
 | Command | Name | Description |
 | :--- | :--- | :--- |
-| `0x58` | **PACKET_STICKS** | Transmits 14 channels encoded as 16-bit microsecond pulse widths ($1000 \dots 2000\,\mu\text{s}$) |
+| `0x58` | **PACKET_STICKS** | Transmits 14 channels encoded as 16-bit microsecond pulse widths (1000..2000 µs) |
 | `0x56` | **PACKET_FAILSAFE** | Broadcasts failsafe pulse positions for all channels |
 | `0xAA` | **PACKET_SETTINGS** | Configures receiver output modes (i-BUS, S.BUS, PWM, PPM) |
 | `0xBB` | **PACKET_BIND1** | Transmits TX ID and prompts receiver for handshake |
@@ -114,6 +114,6 @@ AFHDS 2A transmitters only filter telemetry downlink frames using the 32-bit `rx
 ## 6. Downlink Telemetry (i-BUS Telemetry)
 
 Immediately following transmission of each stick packet, the A7105 is switched to RX mode for a short reception window (~1.2 ms):
-- **RSSI**: Signal strength percentage ($0 \dots 100\%$).
+- **RSSI**: Signal strength percentage (0..100%).
 - **RX Battery Voltage**: Receiver bus voltage parsed from incoming telemetry frames, displayed as `RX: X.XXV` on the flight dashboard.
-- **Lost Packet Counter**: If no valid telemetry packets are received for &gt; 52 consecutive frames (~200 ms), telemetry is marked disconnected.
+- **Lost Packet Counter**: If no valid telemetry packets are received for > 52 consecutive frames (~200 ms), telemetry is marked disconnected.
