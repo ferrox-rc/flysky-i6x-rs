@@ -219,8 +219,7 @@ Comprehensive technical documentation is maintained in the [`docs/`](docs/) dire
 | **Initiate Receiver Binding**| **Hold `BIND` ($\ge 1.0\text{s}$)** | Starts binding from any flight page (or hold during power-on) |
 | **Abort / Cancel Binding** | **Press `Cancel` (`ESC`)** | Exits binding mode immediately and restores normal RF |
 | **Tab / Advance Cursor** | **`OK` or `BIND` in Editors** | Advances character cursor in naming editor and point selection in curve editor |
-| **Enter DFU Bootloader** | **Inward Trims + Power ON** | Push Roll Left & Yaw Right inward while turning on |
-| **Fast DFU Jump (Runtime)**| **Hold Inward Trims for 100 ms** | Re-enters ST factory ROM bootloader from main screen |
+| **Enter DFU Bootloader (Boot)** | **Inward Trims + Power ON** | Push Roll Left & Yaw Right inward while switching on (Primary hardware recovery/flashing mode) |
 | **Digital Trims** | **4 Trim Rockers** | Single click + 90ms auto-repeat with audio pitch scaling |
 
 ---

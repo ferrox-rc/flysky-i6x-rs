@@ -333,7 +333,6 @@ fn main() -> ! {
     let text_style_small = MonoTextStyle::new(&FONT_4X6, BinaryColor::On);
     let sep_style = PrimitiveStyle::with_stroke(BinaryColor::On, 1);
 
-    let mut dfu_confirm_count = 0u8;
     let mut ok_hold_ms = 0u16;
     let mut bl_timer_ms: u32 = 30_000;
     let mut prev_stick_sample = 2048u16;
@@ -348,7 +347,7 @@ fn main() -> ! {
     let mut blink_phase: u8 = 0;
 
     // 8. Pre-flight Startup Safety Check: Throttle at idle and switches in safe (UP) positions
-    let startup_safety_cleared = calib_wizard.is_active() || boot::is_dfu_requested(initial_keys);
+    let startup_safety_cleared = calib_wizard.is_active();
     let mut preflight_beep_timer: u16 = 800;
 
     while !startup_safety_cleared {
@@ -621,25 +620,6 @@ fn main() -> ! {
                 cortex_m::asm::nop();
             }
             continue;
-        }
-
-        if boot::is_dfu_requested(keys) {
-            dfu_confirm_count += 1;
-            if dfu_confirm_count >= 5 {
-                lcd.clear(BinaryColor::Off).ok();
-                Text::new("ENTERING DFU...", Point::new(18, 32), text_style)
-                    .draw(&mut lcd)
-                    .ok();
-                lcd.flush();
-
-                for _ in 0..300_000 {
-                    cortex_m::asm::nop();
-                }
-
-                chip::enter_dfu_bootloader(&mcu_profile);
-            }
-        } else {
-            dfu_confirm_count = 0;
         }
 
         // Render live flight screen
