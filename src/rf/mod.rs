@@ -47,6 +47,27 @@ pub fn get_last_chip_id() -> u8 {
     unsafe { a7105::LAST_CHIP_ID }
 }
 
+static mut RF_SILENCED: bool = false;
+
+/// Put RF frontend and A7105 into standby (silent running) during USB Joystick simulator mode.
+pub fn set_silenced(silenced: bool) {
+    cortex_m::interrupt::free(|_| unsafe {
+        if RF_SILENCED != silenced {
+            RF_SILENCED = silenced;
+            if silenced {
+                a7105::strobe(a7105::STROBE_STANDBY);
+                spi::set_tx_rx_mode(spi::RF_MODE_OFF);
+            }
+        }
+    });
+}
+
+/// Check if RF transmission is silenced.
+#[allow(dead_code)]
+pub fn is_silenced() -> bool {
+    unsafe { RF_SILENCED }
+}
+
 /// Update channel outputs (CH1..CH14) in microseconds (1000..2000 µs).
 pub fn set_channels(channels: &[u16; NUM_CHANNELS]) {
     cortex_m::interrupt::free(|_| {
@@ -131,6 +152,10 @@ pub fn get_telemetry() -> TelemetryData {
 #[interrupt]
 fn TIM16() {
     spi::clear_tim16_flag();
+
+    if unsafe { RF_SILENCED } {
+        return;
+    }
 
     if let Some(ref mut driver) = unsafe { RF_DRIVER.as_mut() } {
         let chs = unsafe { &PENDING_CHANNELS };

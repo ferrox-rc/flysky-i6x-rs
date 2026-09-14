@@ -109,6 +109,11 @@ pub fn init_system_clock() {
             while (ptr::read_volatile(RCC_CFGR) & 0x0C) != 0x08 && timeout > 0 {
                 timeout -= 1;
             }
+
+            // 9. Select PLL (48 MHz) as USB clock source (USBSW = 1 in RCC_CFGR3 bit 7)
+            const RCC_CFGR3: *mut u32 = 0x4002_1030 as *mut u32;
+            let cfgr3 = ptr::read_volatile(RCC_CFGR3);
+            ptr::write_volatile(RCC_CFGR3, cfgr3 | (1 << 7));
         }
     }
 }

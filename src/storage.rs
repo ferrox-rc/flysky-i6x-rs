@@ -50,7 +50,7 @@ pub struct RadioConfig {
     pub backlight_brightness: u8,  // 12 (1..10)
     pub vbat_warn_deci: u8,        // 13 (40..50 = 4.0V..5.0V, default 44 = 4.4V)
     pub lcd_contrast: u8,          // 14 (15..55, default 37 / 0x25)
-    pub _pad0: u8,                 // 15 (align sticks to 16)
+    pub usb_mode: u8,              // 15 (0: Joystick, 1: Serial, 2: Composite, 3: Off)
     pub sticks: [ChannelCalib; 4], // 16..48 (32 bytes: Roll, Pitch, Throttle, Yaw)
     pub pots: [ChannelCalib; 2],   // 48..64 (16 bytes: VRA, VRB)
     pub _reserved: [u8; 64],       // 64..128
@@ -68,7 +68,7 @@ impl RadioConfig {
             backlight_brightness: 10,
             vbat_warn_deci: 44,
             lcd_contrast: 37,
-            _pad0: 0,
+            usb_mode: 0,
             sticks: [
                 ChannelCalib::new(2048 - 1670, 2048, 2048 + 1670), // Roll (Horizontal)
                 ChannelCalib::new(2048 - 1580, 2048, 2048 + 1580), // Pitch (Vertical)
@@ -137,7 +137,8 @@ pub struct ModelConfig {
     pub mixes: [MixLine; 8],       // 64..112: 8 freeform mix rules (8 * 6 = 48 bytes)
     pub failsafe_mode: u8,         // 112: 0: Hold last, 1: Custom pulses
     pub failsafe_timeout: u8,      // 113: 10..50 (1.0s..5.0s)
-    pub _reserved: [u8; 14],       // 114..128: 14 reserved bytes
+    pub rf_protocol: u8,           // 114: 0: AFHDS 2A, 1: CRSF / ELRS
+    pub _reserved: [u8; 13],       // 115..128: 13 reserved bytes
 }
 
 impl ModelConfig {
@@ -171,7 +172,8 @@ impl ModelConfig {
             mixes: [MixLine::disabled(); 8],
             failsafe_mode: 0,
             failsafe_timeout: 20,
-            _reserved: [0; 14],
+            rf_protocol: 0,
+            _reserved: [0; 13],
         }
     }
 }
@@ -223,8 +225,14 @@ impl RadioStorage {
         if self.radio.lcd_contrast < 15 || self.radio.lcd_contrast > 55 {
             self.radio.lcd_contrast = 37;
         }
+        if self.radio.usb_mode > 3 {
+            self.radio.usb_mode = 0;
+        }
 
         for (idx, m) in self.models.iter_mut().enumerate() {
+            if m.rf_protocol > 1 {
+                m.rf_protocol = 0;
+            }
             for axis in 0..3 {
                 if m.dr_high[axis] < 30 || m.dr_high[axis] > 100 {
                     m.dr_high[axis] = 100;

@@ -14,7 +14,7 @@ The standard OpenTX/EdgeTX port for the FS-i6X ([OpenI6X](https://github.com/Ope
 - **Zero-cost abstractions:** Microcontroller-native, static allocation, no heap allocations (`no_std`).
 - **Hard Real-Time Concurrency:** Priority-driven hardware interrupt scheduling (`TIM16` 260 Hz packet sync, `EXTI2` RF ready) paired with a high-rate decoupled flight pipeline and throttled 30 Hz display loop.
 - **Strict Scope:** Dedicated support for the built-in hardware (A7105 AFHDS2A + i-BUS), 4-axis gimbals, switches, trims, 20-model storage, 14-channel matrix mixer, and a 128×64 monochrome UI.
-- **Measured Footprint:** **52.9 KB Flash** (54,204 bytes, leaving >73 KB free / ~58% headroom) and **236 bytes static RAM** + 1 KB LCD framebuffer (leaving >90% SRAM free).
+- **Measured Footprint:** **67.5 KB Flash** (69,168 bytes, leaving >58 KB free / 45.5% headroom) and **1.7 KB static RAM** + 1 KB LCD framebuffer (leaving >89% SRAM free).
 
 ---
 
@@ -219,15 +219,25 @@ Comprehensive technical documentation is maintained in the [`docs/`](docs/) dire
 - [x] Elimination of 64-bit software division emulation (`__aeabi_ldivmod`) across all mixing and expo math.
 - [x] Automated Flash storage sanitization (`RadioStorage::sanitize`) enforcing valid operating limits.
 
-### Phase 11: Display & Telemetry Enhancements (COMPLETED)
-- [x] LCD Electronic Volume (EV) contrast adjustment (`15..=55`, default 37 / `0x25`) in `Radio Setup` with instant live preview and Flash persistence.
-- [x] Dedicated full-screen telemetry sensor dashboard (Page 4/4) displaying live packet counters (`TX`, `RX`), link state (`OK` / `DISC`), battery voltages (`RX`, `TX`), and session minimums (`mRSS`, `mRX`).
-- [x] Scrollable 4-item viewport in `Radio Setup` with clean 9px row spacing and vertical scrolling.
-- [x] Dynamic compile-time firmware versioning (`CARGO_PKG_VERSION`) displayed in `System Info` menu.
+### Phase 12: Code Review Hardening & Radio Link Safety (COMPLETED)
+- [x] Bounded SPI1 and A7105 hardware wait loops with loop counters to prevent CPU lockup.
+- [x] Re-ordered A7105 FIFO writes to force `STANDBY` before loading payload, preventing FIFO pointer corruption.
+- [x] Autonomous failsafe frame broadcast every 1,569 packets (~6.0s) ensuring receiver failsafe synchronization.
+- [x] Front-end LNA saturation mitigation during binding (`RF_MODE_OFF`).
+- [x] Collision iteration bounds on pseudo-random frequency hopping table generation.
+- [x] Protected Flash page erase and halfword programming with critical sections in `src/storage.rs`.
+
+### Phase 13: USB Subsystem & Protocol Engine (COMPLETED)
+- [x] Hardware USB Full-Speed (12 Mbps) peripheral on `PA11` / `PA12` with internal 1.5 kΩ pull-up resistor.
+- [x] Native USB Gamepad / Joystick class (HID) at 100 Hz for flight simulators (Liftoff, Velocidrone, RealFlight) with OpenI6X/EdgeTX descriptor mapping (8 axes, 16 buttons).
+- [x] Virtual COM Port (CDC-ACM) streaming live telemetry and interactive CLI commands (`help`, `status`, `channels`, `telemetry`, `reboot`).
+- [x] Silent RF standby running in Joystick mode: A7105 transceiver and PA/LNA frontend are placed in standby (zero RF radiation, cool running) with `U:SIM` status indicator.
+- [x] Non-volatile `USB Mode` setting in `Radio Setup` (`JOYSTICK`, `SERIAL`, `COMPOSITE`, `OFF`).
+- [x] Main Menu Item 9 repurposed as `Protocol Setup` supporting `AFHDS 2A` internal RF and preparatory support for external `CRSF / ELRS` transmitter modules.
 
 ### Current Firmware Footprint
-- **Flash ROM**: **52.9 KB** (54,204 bytes) used out of **128 KB** available (~58% / >73 KB free headroom).
-- **Static RAM**: **236 bytes** (`.data` 200B + `.bss` 36B) out of **16 KB** available (**>90% SRAM free**).
+- **Flash ROM**: **67.5 KB** (69,168 bytes) used out of **128 KB** available (>58 KB / 45.5% free headroom).
+- **Static RAM**: **1.7 KB** (`.data` 1,388B + `.bss` 364B) out of **16 KB** available (**>89% SRAM free**).
 - **Non-Volatile Storage**: **2,688 bytes** allocated across Pages 62 & 63 (1,408 bytes free headroom).
 
 ---

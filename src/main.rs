@@ -27,6 +27,7 @@ mod rf;
 mod storage;
 mod time;
 mod trim;
+mod usb;
 
 use display::St7567;
 
@@ -321,6 +322,9 @@ fn main() -> ! {
     buzzer.enabled = storage.radio.audio_enabled != 0;
     buzzer.click(); // Power-on audible confirmation
 
+    // Initialize USB peripheral (Joystick / Serial / Composite / Off)
+    usb::init(storage.radio.usb_mode);
+
     let mut trims = trim::TrimController::new();
     trims.throttle_enabled = storage.radio.throttle_trim != 0;
 
@@ -547,10 +551,19 @@ fn main() -> ! {
             &trims,
             storage.radio.throttle_trim,
         );
-        rf::set_channels(&rf_chs);
 
         let telem = rf::get_telemetry();
         let is_binding = rf::is_binding();
+
+        // Poll USB subsystem (Joystick HID @ 100Hz, Serial CLI / Telemetry)
+        usb::poll(now, &rf_chs, &state.switches, &telem, state.battery_mv);
+
+        // In USB Joystick simulator mode, silence RF emissions to run cool and eliminate 2.4GHz radiation
+        let sim_mode = usb::is_sim_mode();
+        rf::set_silenced(sim_mode);
+        if !sim_mode {
+            rf::set_channels(&rf_chs);
+        }
 
         // Check dedicated Bind key (PF2) and Cancel key (bit 11) for binding and page navigation
         let bind_key_raw = (keys & (1 << 12)) != 0;
@@ -686,6 +699,10 @@ fn main() -> ! {
                 .ok();
         } else if is_binding {
             Text::new("BIND", Point::new(68, 9), text_style)
+                .draw(&mut lcd)
+                .ok();
+        } else if usb::is_sim_mode() {
+            Text::new("U:SIM", Point::new(65, 9), text_style)
                 .draw(&mut lcd)
                 .ok();
         } else if telem.connected {

@@ -284,7 +284,7 @@ impl MenuController {
                     "6. Aux Channels",
                     "7. Ch Reverse",
                     "8. Radio Setup",
-                    "9. RX Setup & Bind",
+                    "9. Protocol Setup",
                     "10. Channel Monitor",
                     "11. Calibration",
                     "12. Analog Diag",
@@ -1604,7 +1604,7 @@ impl MenuController {
                     buzzer.click();
                     return;
                 }
-                const SETUP_ITEMS: usize = 6;
+                const SETUP_ITEMS: usize = 7;
 
                 if down_pressed {
                     if self.selected_item + 1 < SETUP_ITEMS {
@@ -1678,6 +1678,12 @@ impl MenuController {
                             } else {
                                 storage.radio.vbat_warn_deci + 1
                             };
+                            storage::save_storage(storage);
+                        }
+                        6 => {
+                            // Cycle USB Mode: 0=JOYSTICK, 1=SERIAL, 2=COMPOSITE, 3=OFF
+                            storage.radio.usb_mode = (storage.radio.usb_mode + 1) % 4;
+                            crate::usb::init(storage.radio.usb_mode);
                             storage::save_storage(storage);
                         }
                         _ => {}
@@ -1759,6 +1765,16 @@ impl MenuController {
                             Text::new("Bat Warn:", Point::new(4, y + 7), style).draw(lcd).ok();
                             Text::new(v_str, Point::new(62, y + 7), style).draw(lcd).ok();
                         }
+                        6 => {
+                            let usb_str = match storage.radio.usb_mode {
+                                1 => "SERIAL",
+                                2 => "COMPOSITE",
+                                3 => "OFF",
+                                _ => "JOYSTICK",
+                            };
+                            Text::new("USB Mode:", Point::new(4, y + 7), style).draw(lcd).ok();
+                            Text::new(usb_str, Point::new(62, y + 7), style).draw(lcd).ok();
+                        }
                         _ => {}
                     }
                 }
@@ -1778,35 +1794,57 @@ impl MenuController {
                     return;
                 }
 
-                if ok_pressed {
-                    self.request_bind = true;
-                    self.state = MenuState::Closed; // Exit to main view to observe binding banner & cancel
-                    buzzer.click();
-                    return;
+                let active_idx = storage.radio.active_model as usize;
+
+                if up_pressed || down_pressed {
+                    // Toggle protocol between 0: AFHDS 2A and 1: CRSF / ELRS
+                    storage.models[active_idx].rf_protocol = if storage.models[active_idx].rf_protocol == 0 { 1 } else { 0 };
+                    storage::save_storage(storage);
+                    buzzer.play_tone(2200, 30);
                 }
 
-                let active_idx = storage.radio.active_model as usize;
-                Text::new("RX SETUP & BIND", Point::new(20, 9), text_style).draw(lcd).ok();
+                if ok_pressed {
+                    buzzer.click();
+                    if storage.models[active_idx].rf_protocol == 0 {
+                        self.request_bind = true;
+                        self.state = MenuState::Closed; // Exit to main view to observe binding banner & cancel
+                        return;
+                    }
+                }
+
+                let proto = storage.models[active_idx].rf_protocol;
+                Text::new("PROTOCOL SETUP", Point::new(18, 9), text_style).draw(lcd).ok();
                 Line::new(Point::new(0, 11), Point::new(127, 11)).into_styled(border_style).draw(lcd).ok();
 
-                Text::new("Protocol: AFHDS 2A", Point::new(4, 22), text_style).draw(lcd).ok();
+                let text_style_small = MonoTextStyle::new(&FONT_4X6, BinaryColor::On);
 
-                let mut name_buf = *b"M00: ";
-                name_buf[1] = b'0' + ((active_idx + 1) / 10) as u8;
-                name_buf[2] = b'0' + ((active_idx + 1) % 10) as u8;
-                let pre_str = core::str::from_utf8(&name_buf).unwrap_or("M??: ");
-                Text::new(pre_str, Point::new(4, 32), text_style).draw(lcd).ok();
-                let m_str = core::str::from_utf8(&storage.models[active_idx].name).unwrap_or("MODEL");
-                Text::new(m_str, Point::new(34, 32), text_style).draw(lcd).ok();
+                if proto == 0 {
+                    Text::new("Proto: AFHDS 2A", Point::new(4, 22), text_style).draw(lcd).ok();
 
-                let mut rx_buf = [b'0'; 8];
-                u32_to_hex(storage.models[active_idx].rx_id, &mut rx_buf);
-                Text::new("Rx ID: ", Point::new(4, 42), text_style).draw(lcd).ok();
-                let rx_str = core::str::from_utf8(&rx_buf).unwrap_or("00000000");
-                Text::new(rx_str, Point::new(46, 42), text_style).draw(lcd).ok();
+                    let mut name_buf = *b"M00: ";
+                    name_buf[1] = b'0' + ((active_idx + 1) / 10) as u8;
+                    name_buf[2] = b'0' + ((active_idx + 1) % 10) as u8;
+                    let pre_str = core::str::from_utf8(&name_buf).unwrap_or("M??: ");
+                    Text::new(pre_str, Point::new(4, 32), text_style).draw(lcd).ok();
+                    let m_str = core::str::from_utf8(&storage.models[active_idx].name).unwrap_or("MODEL");
+                    Text::new(m_str, Point::new(34, 32), text_style).draw(lcd).ok();
 
-                Line::new(Point::new(0, 52), Point::new(127, 52)).into_styled(border_style).draw(lcd).ok();
-                Text::new("[OK] Bind RX  [ESC] Back", Point::new(2, 62), text_style).draw(lcd).ok();
+                    let mut rx_buf = [b'0'; 8];
+                    u32_to_hex(storage.models[active_idx].rx_id, &mut rx_buf);
+                    Text::new("Rx ID: ", Point::new(4, 42), text_style).draw(lcd).ok();
+                    let rx_str = core::str::from_utf8(&rx_buf).unwrap_or("00000000");
+                    Text::new(rx_str, Point::new(46, 42), text_style).draw(lcd).ok();
+
+                    Line::new(Point::new(0, 52), Point::new(127, 52)).into_styled(border_style).draw(lcd).ok();
+                    Text::new("[OK] Bind  [UP/DN] Proto", Point::new(2, 62), text_style_small).draw(lcd).ok();
+                } else {
+                    Text::new("Proto: CRSF / ELRS", Point::new(4, 22), text_style).draw(lcd).ok();
+                    Text::new("Port: Rear Bay (PD5)", Point::new(4, 32), text_style).draw(lcd).ok();
+                    Text::new("Baud: 416666 (8N1)", Point::new(4, 42), text_style).draw(lcd).ok();
+
+                    Line::new(Point::new(0, 52), Point::new(127, 52)).into_styled(border_style).draw(lcd).ok();
+                    Text::new("[UP/DN] Proto  [ESC] Back", Point::new(2, 62), text_style_small).draw(lcd).ok();
+                }
             }
 
             MenuState::ChannelMonitor => {
