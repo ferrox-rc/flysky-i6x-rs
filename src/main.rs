@@ -330,6 +330,7 @@ fn main() -> ! {
     }
 
     let text_style = MonoTextStyle::new(&FONT_6X10, BinaryColor::On);
+    let text_style_small = MonoTextStyle::new(&FONT_4X6, BinaryColor::On);
     let sep_style = PrimitiveStyle::with_stroke(BinaryColor::On, 1);
 
     let mut dfu_confirm_count = 0u8;
@@ -637,20 +638,14 @@ fn main() -> ! {
                 let p4 = format_percent(state.sticks.yaw, &mut pct_buf);
                 Text::new(p4, Point::new(92, 43), text_style).draw(&mut lcd).ok();
 
-                // Separator above lower status
-                Line::new(Point::new(0, 46), Point::new(127, 46))
-                    .into_styled(sep_style)
-                    .draw(&mut lcd)
-                    .ok();
-
-                // Switches & Pots Line (y = 48..54)
+                // Switches & Pots Line (y = 47..53)
                 let mut sw_buf = *b"A:U B:U C:U D:U";
                 sw_buf[2] = state.switches.sa.as_char() as u8;
                 sw_buf[6] = state.switches.sb.as_char() as u8;
                 sw_buf[10] = state.switches.sc.as_char() as u8;
                 sw_buf[14] = state.switches.sd.as_char() as u8;
                 let sw_str = core::str::from_utf8(&sw_buf).unwrap_or("SW");
-                Text::new(sw_str, Point::new(2, 54), text_style).draw(&mut lcd).ok();
+                Text::new(sw_str, Point::new(2, 53), text_style).draw(&mut lcd).ok();
 
                 // Pots: V1 / V2 on right (scaled 0..9 across full turn)
                 let mut pot_buf = *b"V:0/0";
@@ -659,11 +654,17 @@ fn main() -> ! {
                 pot_buf[2] = b'0' + p1;
                 pot_buf[4] = b'0' + p2;
                 let pot_str = core::str::from_utf8(&pot_buf).unwrap_or("V:0/0");
-                Text::new(pot_str, Point::new(96, 54), text_style).draw(&mut lcd).ok();
+                Text::new(pot_str, Point::new(96, 53), text_style).draw(&mut lcd).ok();
+
+                // Separator above footer
+                Line::new(Point::new(0, 55), Point::new(127, 55))
+                    .into_styled(sep_style)
+                    .draw(&mut lcd)
+                    .ok();
 
                 // Bottom Diagnostic / Key Line (y = 56..63)
                 if is_binding {
-                    Text::new("[ESC] Finish Bind", Point::new(12, 63), text_style).draw(&mut lcd).ok();
+                    Text::new("[ESC] Finish Bind", Point::new(26, 62), text_style_small).draw(&mut lcd).ok();
                 } else if trims.last_active != trim::ActiveTrim::None {
                     let mut trm_buf = [0u8; 9];
                     let val = match trims.last_active {
@@ -674,10 +675,11 @@ fn main() -> ! {
                         trim::ActiveTrim::None => 0,
                     };
                     let trm_str = format_trim(trims.last_active, val, &mut trm_buf);
-                    Text::new(trm_str, Point::new(2, 63), text_style).draw(&mut lcd).ok();
+                    Text::new(trm_str, Point::new(2, 62), text_style_small).draw(&mut lcd).ok();
+                    Text::new("Hold OK:Menu", Point::new(50, 62), text_style_small).draw(&mut lcd).ok();
                 } else {
-                    Text::new("P1/3", Point::new(2, 63), text_style).draw(&mut lcd).ok();
-                    Text::new("Hold OK:Menu", Point::new(46, 63), text_style).draw(&mut lcd).ok();
+                    Text::new("P1/3", Point::new(2, 62), text_style_small).draw(&mut lcd).ok();
+                    Text::new("Hold OK:Menu", Point::new(50, 62), text_style_small).draw(&mut lcd).ok();
                 }
             }
 
@@ -799,17 +801,17 @@ fn main() -> ! {
                 }
 
                 // Separator above footer
-                Line::new(Point::new(0, 54), Point::new(127, 54))
+                Line::new(Point::new(0, 55), Point::new(127, 55))
                     .into_styled(sep_style)
                     .draw(&mut lcd)
                     .ok();
 
                 // Footer
                 if is_binding {
-                    Text::new("[ESC] Finish Bind", Point::new(12, 63), text_style).draw(&mut lcd).ok();
+                    Text::new("[ESC] Finish Bind", Point::new(26, 62), text_style_small).draw(&mut lcd).ok();
                 } else {
-                    Text::new("P3/3", Point::new(2, 63), text_style).draw(&mut lcd).ok();
-                    Text::new("MODEL DASHBOARD", Point::new(28, 63), text_style).draw(&mut lcd).ok();
+                    Text::new("P3/3", Point::new(2, 62), text_style_small).draw(&mut lcd).ok();
+                    Text::new("MODEL DASHBOARD", Point::new(36, 62), text_style_small).draw(&mut lcd).ok();
                 }
             }
         }

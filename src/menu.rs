@@ -6,7 +6,7 @@
 //! and raw ADC diagnostics.
 
 use embedded_graphics::{
-    mono_font::{ascii::FONT_6X10, MonoTextStyle},
+    mono_font::{ascii::FONT_4X6, ascii::FONT_6X10, MonoTextStyle},
     pixelcolor::BinaryColor,
     prelude::*,
     primitives::{Line, PrimitiveStyle, Rectangle},
@@ -881,7 +881,8 @@ impl MenuController {
                         Text::new(p_str, Point::new(4, 44), text_style).draw(lcd).ok();
                     }
                 } else {
-                    Text::new("Pts: 1..5", Point::new(4, 44), text_style).draw(lcd).ok();
+                    let pts_range_str = if pts_count == 9 { "Pts: 1..9" } else { "Pts: 1..5" };
+                    Text::new(pts_range_str, Point::new(4, 44), text_style).draw(lcd).ok();
                 }
 
                 // Right side: Graph box (x = 76..124, y = 13..49)
@@ -1132,19 +1133,21 @@ impl MenuController {
                     ["8:VR2", "9:SC ", "10:SD", "11:CH", "12:CH", "13:CH", "14:CH"]
                 };
 
+                let text_style_small = MonoTextStyle::new(&FONT_4X6, BinaryColor::On);
+
                 for (i, name) in ch_names.iter().enumerate().take(7) {
                     let ch = start_ch + i;
-                    let y = 13 + (i as i32 * 6);
-                    Text::new(name, Point::new(2, y + 5), text_style).draw(lcd).ok();
+                    let y = 12 + (i as i32 * 6);
+                    Text::new(name, Point::new(2, y + 5), text_style_small).draw(lcd).ok();
 
                     let us = rf_chs[ch].clamp(1000, 2000);
-                    Rectangle::new(Point::new(44, y), Size::new(40, 5))
+                    Rectangle::new(Point::new(44, y + 1), Size::new(40, 5))
                         .into_styled(border_style)
                         .draw(lcd)
                         .ok();
                     let fill_w = (((us - 1000) as u32 * 38) / 1000).min(38);
                     if fill_w > 0 {
-                        Rectangle::new(Point::new(45, y + 1), Size::new(fill_w, 3))
+                        Rectangle::new(Point::new(45, y + 2), Size::new(fill_w, 3))
                             .into_styled(fill_style)
                             .draw(lcd)
                             .ok();
@@ -1153,11 +1156,11 @@ impl MenuController {
                     let mut val_buf = [0u8; 4];
                     u16_to_dec_4(us, &mut val_buf);
                     let val_str = core::str::from_utf8(&val_buf).unwrap_or("1500");
-                    Text::new(val_str, Point::new(90, y + 5), text_style).draw(lcd).ok();
+                    Text::new(val_str, Point::new(90, y + 5), text_style_small).draw(lcd).ok();
                 }
 
                 Line::new(Point::new(0, 55), Point::new(127, 55)).into_styled(border_style).draw(lcd).ok();
-                Text::new("[UP/DN] Page  [ESC] Back", Point::new(2, 63), text_style).draw(lcd).ok();
+                Text::new("[UP/DN] Page  [ESC] Back", Point::new(2, 62), text_style_small).draw(lcd).ok();
             }
 
             MenuState::DiagAnas => {
@@ -1168,35 +1171,51 @@ impl MenuController {
                     return;
                 }
 
-                Text::new("ANALOG DIAGNOSTICS", Point::new(10, 9), text_style).draw(lcd).ok();
+                if up_pressed || down_pressed {
+                    self.page_idx = if self.page_idx == 0 { 1 } else { 0 };
+                    buzzer.play_tone(2200, 30);
+                }
+
+                // Render Header
+                let title = if self.page_idx == 0 { "ANALOG (1-6)" } else { "ANALOG (7-11)" };
+                Text::new(title, Point::new(24, 9), text_style).draw(lcd).ok();
                 Line::new(Point::new(0, 11), Point::new(127, 11)).into_styled(border_style).draw(lcd).ok();
 
-                let names = [
-                    "RH:AIL", "RV:ELE", "LV:THR", "LH:RUD",
-                    "SW:SA ", "SW:SB ", "POT:V1", "POT:V2",
-                    "SW:SC ", "SW:SD ", "VBAT  ",
-                ];
+                let text_style_small = MonoTextStyle::new(&FONT_4X6, BinaryColor::On);
 
-                for i in 0..6 {
-                    let y = 14 + (i as i32 * 6);
-                    Text::new(names[i], Point::new(2, y + 5), text_style).draw(lcd).ok();
-                    let mut b = [0u8; 4];
-                    u16_to_dec_4(raw_adc[i], &mut b);
-                    let s = core::str::from_utf8(&b).unwrap_or("0000");
-                    Text::new(s, Point::new(44, y + 5), text_style).draw(lcd).ok();
+                let start_idx = if self.page_idx == 0 { 0 } else { 6 };
+                let names: &[&str] = if self.page_idx == 0 {
+                    &["RH:AIL", "RV:ELE", "LV:THR", "LH:RUD", "SW:SA ", "SW:SB "]
+                } else {
+                    &["POT:V1", "POT:V2", "SW:SC ", "SW:SD ", "VBAT  "]
+                };
+
+                for (i, &name) in names.iter().enumerate() {
+                    let adc_idx = start_idx + i;
+                    let y = 12 + (i as i32 * 7);
+                    Text::new(name, Point::new(2, y + 5), text_style_small).draw(lcd).ok();
+
+                    let raw = raw_adc[adc_idx].min(4095);
+                    Rectangle::new(Point::new(44, y + 1), Size::new(40, 5))
+                        .into_styled(border_style)
+                        .draw(lcd)
+                        .ok();
+                    let fill_w = ((raw as u32 * 38) / 4095).min(38);
+                    if fill_w > 0 {
+                        Rectangle::new(Point::new(45, y + 2), Size::new(fill_w, 3))
+                            .into_styled(fill_style)
+                            .draw(lcd)
+                            .ok();
+                    }
+
+                    let mut val_buf = [0u8; 4];
+                    u16_to_dec_4(raw, &mut val_buf);
+                    let val_str = core::str::from_utf8(&val_buf).unwrap_or("0000");
+                    Text::new(val_str, Point::new(90, y + 5), text_style_small).draw(lcd).ok();
                 }
 
-                for i in 6..11 {
-                    let y = 14 + ((i - 6) as i32 * 6);
-                    Text::new(names[i], Point::new(70, y + 5), text_style).draw(lcd).ok();
-                    let mut b = [0u8; 4];
-                    u16_to_dec_4(raw_adc[i], &mut b);
-                    let s = core::str::from_utf8(&b).unwrap_or("0000");
-                    Text::new(s, Point::new(102, y + 5), text_style).draw(lcd).ok();
-                }
-
-                Line::new(Point::new(0, 52), Point::new(127, 52)).into_styled(border_style).draw(lcd).ok();
-                Text::new("[ESC] Back", Point::new(38, 62), text_style).draw(lcd).ok();
+                Line::new(Point::new(0, 55), Point::new(127, 55)).into_styled(border_style).draw(lcd).ok();
+                Text::new("[UP/DN] Page  [ESC] Back", Point::new(2, 62), text_style_small).draw(lcd).ok();
             }
 
             MenuState::SystemInfo => {

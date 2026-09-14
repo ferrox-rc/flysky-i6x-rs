@@ -287,7 +287,18 @@ pub fn poll() -> InputState {
         sd: decode_switch(raw[9]), // PB1
     };
 
-    let battery_mv = calculate_battery_mv(raw[10]); // PC0
+    static mut FILTERED_BATTERY_MV: u32 = 0;
+    let instant_mv = calculate_battery_mv(raw[10]); // PC0
+    let battery_mv = unsafe {
+        if FILTERED_BATTERY_MV == 0 {
+            FILTERED_BATTERY_MV = (instant_mv as u32) << 8;
+            instant_mv
+        } else {
+            // Exponential moving average filter (alpha = 1/32) to stabilize hundredths digit
+            FILTERED_BATTERY_MV = FILTERED_BATTERY_MV - (FILTERED_BATTERY_MV >> 5) + ((instant_mv as u32) << 3);
+            (FILTERED_BATTERY_MV >> 8) as u16
+        }
+    };
 
     InputState {
         sticks,
