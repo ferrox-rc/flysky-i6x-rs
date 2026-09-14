@@ -149,14 +149,17 @@ Hold **`[OK]` for 1.2 seconds** from the main flight screen to open the Settings
 |------------------------------------|
 | > 1. MODEL SELECT                  |
 |   2. MODEL SETUP                   |
-|   3. CH REVERSE                    |
+|   3. DUAL RATE/EXPO                |
 |   4. THR CURVE                     |
-|   5. RADIO SETUP                   |
-|   6. STICK CALIB                   |
-|   7. RX SETUP & BIND               |
-|   8. CHANNEL MONITOR               |
-|   9. DIAG ANAS                     |
-|  10. SYSTEM INFO                   |
+|   5. WING/MIXER                    |
+|   6. AUX CHANNELS                  |
+|   7. CH REVERSE                    |
+|   8. RADIO SETUP                   |
+|   9. RX SETUP & BIND               |
+|  10. CHANNEL MONITOR               |
+|  11. CALIBRATION                   |
+|  12. ANALOG DIAG                   |
+|  13. SYSTEM INFO                   |
 |------------------------------------|
 | [UP/DN] Move  [OK] Sel  [ESC] Exit |
 +------------------------------------+
@@ -183,7 +186,29 @@ Hold **`[OK]` for 1.2 seconds** from the main flight screen to open the Settings
 - **Field 3: Reset Defaults**:
   - Press **`[OK]`** on `[OK Defaults]` to restore default trims, standard channel directions, and linear curves for this model slot.
 
-### Submenu 3: Channel Reverse (`CH REVERSE`)
+### Submenu 3: Dual Rate & Expo (`DUAL RATE/EXPO`)
+Configures stick throw authority and center sensitivity for primary controls:
+- **Switch**: Select physical hardware switch (`None`, `SA`, `SB`, `SC`, `SD`) to toggle between High Rates (UP) and Low Rates (MID/DOWN).
+- **Channel**: Select axis to adjust (`Roll`, `Pitch`, `Yaw`).
+- **Hi Rate / Lo Rate**: Adjust throw authority ($30\%\dots 100\%$ in $5\%$ steps).
+- **Hi Expo / Lo Expo**: Adjust center sensitivity ($-100\%\dots +100\%$ in $5\%$ steps). Positive expo softens stick sensitivity around center for smooth flight.
+
+### Submenu 4: Throttle Curve Editor (`THR CURVE`)
+Interactive curve engine with real-time on-screen curve visualization ($49 \times 37$ pixel plot) and selected-point indicator dot.
+
+### Submenu 5: Wing & Tail Mixer (`WING/MIXER`)
+- **Wing Template**: Cycle between `NORMAL`, `ELEVON/DELTA` (flying wings/jets: mixes Pitch & Roll on CH1/CH2), `V-TAIL` (gliders: mixes Pitch & Yaw on CH2/CH4), and `FLAPERON` (dual ailerons on CH1 & CH6 with flap input).
+- **Freeform Mix Lines (`M1` .. `M8`)**: Press **`[OK]`** to edit any mix line:
+  - **Target**: Output channel (`CH1`..`CH14` or `Disabled`).
+  - **Source**: Control source (`Roll`, `Pitch`, `Thr`, `Yaw`, `VRA`, `VRB`, `SA..SD`, `MAX`, `CH1..CH14`).
+  - **Weight / Offset**: Percentage scaling ($-100\%\dots +100\%$).
+  - **Switch**: Activation condition (`ON`, `SA^`, `SAv`, `SB^`, `SB-`, `SBv`, `SC^`, `SC-`, `SCv`, `SD^`, `SDv`).
+  - **Mode**: Multiplex method (`ADD (+)`, `MULT (*)`, `REPL (:=)`).
+
+### Submenu 6: Auxiliary Channels (`AUX CHANNELS`)
+Assigns physical controls (switches `SA..SD`, pots `VRA/VRB`, sticks, or `None`) to channels `CH5` through `CH14`.
+
+### Submenu 7: Channel Reverse (`CH REVERSE`)
 - Lists all 14 channels (CH1:ROL, CH2:PIT, CH3:THR, CH4:YAW, SwA..SwD, VR1, VR2).
 - Press **`[OK]`** to toggle between **`NOR`** (Normal) and **`REV`** (Reversed).
 - Calculations use hardware-standard inversion: $\text{pulse} = 3000 - \text{pulse}$.
@@ -218,33 +243,33 @@ Interactive curve engine with real-time on-screen curve visualization ($49 \time
     - **`[CANCEL]` (`[ESC]`)**: Exits point-editing mode.
   - A real-time $3 \times 3$ pixel dot indicator is plotted directly on the curve graph at the coordinates of the actively selected point.
 
-### Submenu 5: Radio Setup (`RADIO SETUP`)
+### Submenu 8: Radio Setup (`RADIO SETUP`)
 - **`Thr Trim:`**: Toggle between `OFF (Lock)`, `IDLE`, and `LINEAR`.
 - **`Audio:`**: Toggle beeper sound between `ENABLED` and `MUTED`.
 - **`BL Timer:`**: LCD backlight auto-shutoff timeout: `ALWAYS ON`, `15 SEC`, `30 SEC`, or `60 SEC`. Touching any key or moving any stick wakes the backlight instantly.
 - **`BL Level:`**: Backlight brightness level from `10%` to `100%` in 10% steps (supports both stock transistors and the `PC9` hardware PWM dimming mod).
 - **`Bat Warn:`**: Low battery alarm threshold from `4.0V` to `5.0V` in 0.1V steps (default: **`4.4V`**, or 1.10V/cell for 4×AA). When battery drops below this voltage, the status bar badge flashes inverted and an audible double-chirp alarm sounds every 8 seconds.
 
-### Submenu 6: Stick Calibration (`STICK CALIB`)
-Launches the interactive 2-step calibration wizard (see Section 5 below).
-
-### Submenu 7: RX Setup & Bind (`RX SETUP & BIND`)
+### Submenu 9: RX Setup & Bind (`RX SETUP & BIND`)
 - Displays current RF protocol (`AFHDS 2A`).
 - Displays active model index and bound receiver ID (e.g. `Rx ID: 1A2B3C4D`).
 - Press **`[OK]`** to trigger receiver binding mode directly.
 
-### Submenu 8: Channel Monitor (`CHANNEL MONITOR`)
+### Submenu 10: Channel Monitor (`CHANNEL MONITOR`)
 - Displays live pulse widths ($1000 \dots 2000\,\mu\text{s}$) across all 14 channels with 40-pixel horizontal graphic bar indicators and exact microsecond numbers.
 - Press **`[UP]`** / **`[DOWN]`** to toggle between Page 1 (CH1..CH7) and Page 2 (CH8..CH14).
 
-### Submenu 9: Analog Diagnostics (`DIAG ANAS`)
+### Submenu 11: Stick Calibration (`STICK CALIB`)
+Launches the interactive 2-step calibration wizard (see Section 5 below).
+
+### Submenu 12: Analog Diagnostics (`DIAG ANAS`)
 - Multi-page graphic diagnostics screen matching the `CHANNEL MONITOR` layout with 40-pixel graphic fill bars and exact 4-digit raw decimal ADC counts ($0 \dots 4095$):
   - **Page 1 (`ANALOG (1-6)`)**: Stick gimbals & switches: `RH:AIL`, `RV:ELE`, `LV:THR`, `LH:RUD`, `SW:SA`, `SW:SB`.
   - **Page 2 (`ANALOG (7-11)`)**: Rotary pots, switches, & battery: `POT:V1`, `POT:V2`, `SW:SC`, `SW:SD`, `VBAT`.
 - Press **`[UP]`** / **`[DOWN]`** to switch between Page 1 and Page 2.
 - Press **`[CANCEL]` (`[ESC]`)** to return to the Main Menu.
 
-### Submenu 10: System Information (`SYSTEM INFO`)
+### Submenu 13: System Information (`SYSTEM INFO`)
 - Displays MCU type (`STM32F072VB` or `APM32F072VB`), 96-bit silicon UID, firmware version, Flash memory map, and storage statistics.
 
 ---

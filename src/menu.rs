@@ -62,14 +62,78 @@ fn prev_ascii(c: u8) -> u8 {
     }
 }
 
+pub const SOURCE_NAMES: [&str; 26] = [
+    "None", "Roll", "Pitch", "Thr", "Yaw",
+    "VRA", "VRB", "SA", "SB", "SC", "SD", "MAX",
+    "CH1", "CH2", "CH3", "CH4", "CH5", "CH6", "CH7",
+    "CH8", "CH9", "CH10", "CH11", "CH12", "CH13", "CH14",
+];
+
+pub const SWITCH_COND_NAMES: [&str; 11] = [
+    "ON", "SA^", "SAv", "SB^", "SB-", "SBv",
+    "SC^", "SC-", "SCv", "SD^", "SDv",
+];
+
+pub const MODE_NAMES: [&str; 3] = ["ADD (+)", "MULT (*)", "REPL (:=)"];
+pub const TEMPLATE_NAMES: [&str; 4] = ["NORMAL", "ELEVON/DELTA", "V-TAIL", "FLAPERON"];
+pub const DR_SWITCH_NAMES: [&str; 5] = ["None", "SA", "SB", "SC", "SD"];
+pub const AXIS_NAMES: [&str; 3] = ["Roll", "Pitch", "Yaw"];
+
+fn i8_to_dec(val: i8, buf: &mut [u8; 6]) -> &str {
+    let mut i = 0;
+    let abs_val = if val < 0 {
+        buf[i] = b'-';
+        i += 1;
+        (-val) as u8
+    } else {
+        buf[i] = b'+';
+        i += 1;
+        val as u8
+    };
+    if abs_val >= 100 {
+        buf[i] = b'0' + (abs_val / 100);
+        i += 1;
+    }
+    if abs_val >= 10 {
+        buf[i] = b'0' + ((abs_val / 10) % 10);
+        i += 1;
+    }
+    buf[i] = b'0' + (abs_val % 10);
+    i += 1;
+    buf[i] = b'%';
+    i += 1;
+    core::str::from_utf8(&buf[..i]).unwrap_or("+0%")
+}
+
+fn u8_to_dec(val: u8, buf: &mut [u8; 5]) -> &str {
+    let mut i = 0;
+    if val >= 100 {
+        buf[i] = b'0' + (val / 100);
+        i += 1;
+    }
+    if val >= 10 {
+        buf[i] = b'0' + ((val / 10) % 10);
+        i += 1;
+    }
+    buf[i] = b'0' + (val % 10);
+    i += 1;
+    buf[i] = b'%';
+    i += 1;
+    core::str::from_utf8(&buf[..i]).unwrap_or("0%")
+}
+
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum MenuState {
     Closed,
     MainMenu,
     ModelSelect,
     ModelSetup,
-    ChannelReverse,
+    DualRateExpo,
     ThrottleCurve,
+    WingMixer,
+    MixerLineEdit,
+    AuxChannels,
+    ChannelReverse,
     RadioSetup,
     RxSetup,
     ChannelMonitor,
@@ -210,18 +274,21 @@ impl MenuController {
             MenuState::Closed => {}
 
             MenuState::MainMenu => {
-                const ITEM_COUNT: usize = 10;
+                const ITEM_COUNT: usize = 13;
                 let items = [
                     "1. Model Select",
                     "2. Model Setup",
-                    "3. Ch Reverse",
+                    "3. Dual Rate/Expo",
                     "4. Thr Curve",
-                    "5. Radio Setup",
-                    "6. RX Setup & Bind",
-                    "7. Channel Monitor",
-                    "8. Calibration",
-                    "9. Analog Diag",
-                    "10. System Info",
+                    "5. Wing/Mixer",
+                    "6. Aux Channels",
+                    "7. Ch Reverse",
+                    "8. Radio Setup",
+                    "9. RX Setup & Bind",
+                    "10. Channel Monitor",
+                    "11. Calibration",
+                    "12. Analog Diag",
+                    "13. System Info",
                 ];
 
                 if cancel_pressed {
@@ -271,35 +338,51 @@ impl MenuController {
                             self.sub_idx = 0;
                         }
                         2 => {
-                            self.state = MenuState::ChannelReverse;
+                            self.state = MenuState::DualRateExpo;
                             self.selected_item = 0;
                             self.scroll_offset = 0;
+                            self.sub_idx = 0;
                         }
                         3 => {
                             self.state = MenuState::ThrottleCurve;
                             self.selected_item = 0;
                         }
                         4 => {
+                            self.state = MenuState::WingMixer;
+                            self.selected_item = 0;
+                            self.scroll_offset = 0;
+                        }
+                        5 => {
+                            self.state = MenuState::AuxChannels;
+                            self.selected_item = 0;
+                            self.scroll_offset = 0;
+                        }
+                        6 => {
+                            self.state = MenuState::ChannelReverse;
+                            self.selected_item = 0;
+                            self.scroll_offset = 0;
+                        }
+                        7 => {
                             self.state = MenuState::RadioSetup;
                             self.selected_item = 0;
                         }
-                        5 => {
+                        8 => {
                             self.state = MenuState::RxSetup;
                             self.selected_item = 0;
                         }
-                        6 => {
+                        9 => {
                             self.state = MenuState::ChannelMonitor;
                             self.page_idx = 0;
                         }
-                        7 => {
+                        10 => {
                             self.request_calibration = true;
                             self.state = MenuState::Closed;
                             return;
                         }
-                        8 => {
+                        11 => {
                             self.state = MenuState::DiagAnas;
                         }
-                        9 => {
+                        12 => {
                             self.state = MenuState::SystemInfo;
                         }
                         _ => {}
@@ -615,6 +698,187 @@ impl MenuController {
                 }
             }
 
+            MenuState::DualRateExpo => {
+                let active_idx = storage.radio.active_model as usize;
+                const FIELD_COUNT: usize = 6;
+
+                if cancel_pressed {
+                    if self.editing {
+                        self.editing = false;
+                    } else {
+                        storage::save_storage(storage);
+                        self.state = MenuState::MainMenu;
+                        self.selected_item = 2;
+                        self.scroll_offset = 0;
+                        self.waiting_release = true;
+                        buzzer.click();
+                        return;
+                    }
+                }
+
+                let axis = self.sub_idx.min(2); // 0: Roll, 1: Pitch, 2: Yaw
+
+                if !self.editing {
+                    if down_pressed {
+                        if self.selected_item + 1 < FIELD_COUNT {
+                            self.selected_item += 1;
+                            if self.selected_item >= self.scroll_offset + 4 {
+                                self.scroll_offset = self.selected_item - 3;
+                            }
+                        } else {
+                            self.selected_item = 0;
+                            self.scroll_offset = 0;
+                        }
+                        buzzer.play_tone(2200, 30);
+                    }
+
+                    if up_pressed {
+                        if self.selected_item > 0 {
+                            self.selected_item -= 1;
+                            if self.selected_item < self.scroll_offset {
+                                self.scroll_offset = self.selected_item;
+                            }
+                        } else {
+                            self.selected_item = FIELD_COUNT - 1;
+                            self.scroll_offset = FIELD_COUNT.saturating_sub(4);
+                        }
+                        buzzer.play_tone(2200, 30);
+                    }
+
+                    if ok_pressed {
+                        self.editing = true;
+                        buzzer.click();
+                    }
+                } else {
+                    // Editing value
+                    match self.selected_item {
+                        0 => {
+                            // Switch (0..4)
+                            if up_pressed {
+                                storage.models[active_idx].dr_switch = (storage.models[active_idx].dr_switch + 1) % 5;
+                                buzzer.play_tone(2200, 20);
+                            } else if down_pressed {
+                                storage.models[active_idx].dr_switch = if storage.models[active_idx].dr_switch == 0 { 4 } else { storage.models[active_idx].dr_switch - 1 };
+                                buzzer.play_tone(2200, 20);
+                            }
+                        }
+                        1 => {
+                            // Axis (0..2)
+                            if up_pressed || down_pressed {
+                                self.sub_idx = (self.sub_idx + 1) % 3;
+                                buzzer.play_tone(2200, 20);
+                            }
+                        }
+                        2 => {
+                            // Hi Rate (50..100%, step 5%)
+                            let cur = storage.models[active_idx].dr_high[axis];
+                            if up_pressed && cur <= 95 {
+                                storage.models[active_idx].dr_high[axis] = cur + 5;
+                                buzzer.play_tone(2200, 20);
+                            } else if down_pressed && cur >= 55 {
+                                storage.models[active_idx].dr_high[axis] = cur - 5;
+                                buzzer.play_tone(2200, 20);
+                            }
+                        }
+                        3 => {
+                            // Lo Rate (30..100%, step 5%)
+                            let cur = storage.models[active_idx].dr_low[axis];
+                            if up_pressed && cur <= 95 {
+                                storage.models[active_idx].dr_low[axis] = cur + 5;
+                                buzzer.play_tone(2200, 20);
+                            } else if down_pressed && cur >= 35 {
+                                storage.models[active_idx].dr_low[axis] = cur - 5;
+                                buzzer.play_tone(2200, 20);
+                            }
+                        }
+                        4 => {
+                            // Hi Expo (-100..+100%, step 5%)
+                            let cur = storage.models[active_idx].expo_high[axis];
+                            if up_pressed && cur <= 95 {
+                                storage.models[active_idx].expo_high[axis] = cur + 5;
+                                buzzer.play_tone(2200, 20);
+                            } else if down_pressed && cur >= -95 {
+                                storage.models[active_idx].expo_high[axis] = cur - 5;
+                                buzzer.play_tone(2200, 20);
+                            }
+                        }
+                        5 => {
+                            // Lo Expo (-100..+100%, step 5%)
+                            let cur = storage.models[active_idx].expo_low[axis];
+                            if up_pressed && cur <= 95 {
+                                storage.models[active_idx].expo_low[axis] = cur + 5;
+                                buzzer.play_tone(2200, 20);
+                            } else if down_pressed && cur >= -95 {
+                                storage.models[active_idx].expo_low[axis] = cur - 5;
+                                buzzer.play_tone(2200, 20);
+                            }
+                        }
+                        _ => {}
+                    }
+
+                    if ok_pressed {
+                        self.editing = false;
+                        buzzer.click();
+                    }
+                }
+
+                // Render Header
+                Text::new("DUAL RATE / EXPO", Point::new(18, 9), text_style).draw(lcd).ok();
+                Line::new(Point::new(0, 11), Point::new(127, 11)).into_styled(border_style).draw(lcd).ok();
+
+                let mut b5 = [0u8; 5];
+                let mut b6 = [0u8; 6];
+                for slot in 0..4 {
+                    let idx = self.scroll_offset + slot;
+                    if idx >= FIELD_COUNT { break; }
+                    let y = 14 + (slot as i32 * 9);
+                    let is_sel = idx == self.selected_item;
+                    let style = if is_sel {
+                        Rectangle::new(Point::new(2, y), Size::new(124, 9)).into_styled(fill_style).draw(lcd).ok();
+                        MonoTextStyle::new(&FONT_6X10, BinaryColor::Off)
+                    } else {
+                        text_style
+                    };
+
+                    match idx {
+                        0 => {
+                            let sw_name = DR_SWITCH_NAMES[(storage.models[active_idx].dr_switch as usize).min(4)];
+                            Text::new("Switch:", Point::new(4, y + 7), style).draw(lcd).ok();
+                            Text::new(sw_name, Point::new(60, y + 7), style).draw(lcd).ok();
+                        }
+                        1 => {
+                            Text::new("Channel:", Point::new(4, y + 7), style).draw(lcd).ok();
+                            Text::new(AXIS_NAMES[axis], Point::new(60, y + 7), style).draw(lcd).ok();
+                        }
+                        2 => {
+                            let str_val = u8_to_dec(storage.models[active_idx].dr_high[axis], &mut b5);
+                            Text::new("Hi Rate:", Point::new(4, y + 7), style).draw(lcd).ok();
+                            Text::new(str_val, Point::new(60, y + 7), style).draw(lcd).ok();
+                        }
+                        3 => {
+                            let str_val = u8_to_dec(storage.models[active_idx].dr_low[axis], &mut b5);
+                            Text::new("Lo Rate:", Point::new(4, y + 7), style).draw(lcd).ok();
+                            Text::new(str_val, Point::new(60, y + 7), style).draw(lcd).ok();
+                        }
+                        4 => {
+                            let str_val = i8_to_dec(storage.models[active_idx].expo_high[axis], &mut b6);
+                            Text::new("Hi Expo:", Point::new(4, y + 7), style).draw(lcd).ok();
+                            Text::new(str_val, Point::new(60, y + 7), style).draw(lcd).ok();
+                        }
+                        5 => {
+                            let str_val = i8_to_dec(storage.models[active_idx].expo_low[axis], &mut b6);
+                            Text::new("Lo Expo:", Point::new(4, y + 7), style).draw(lcd).ok();
+                            Text::new(str_val, Point::new(60, y + 7), style).draw(lcd).ok();
+                        }
+                        _ => {}
+                    }
+                }
+
+                Line::new(Point::new(0, 52), Point::new(127, 52)).into_styled(border_style).draw(lcd).ok();
+                let footer = if self.editing { "[OK] Done   [UP/DN] Value" } else { "[OK] Edit   [ESC] Exit" };
+                Text::new(footer, Point::new(2, 62), text_style).draw(lcd).ok();
+            }
+
             MenuState::ChannelReverse => {
                 const CH_COUNT: usize = 14;
                 let active_idx = storage.radio.active_model as usize;
@@ -622,7 +886,7 @@ impl MenuController {
                 if cancel_pressed {
                     storage::save_storage(storage);
                     self.state = MenuState::MainMenu;
-                    self.selected_item = 2;
+                    self.selected_item = 6;
                     self.scroll_offset = 0;
                     self.waiting_release = true;
                     buzzer.click();
@@ -925,10 +1189,415 @@ impl MenuController {
                 }
             }
 
+            MenuState::WingMixer => {
+                let active_idx = storage.radio.active_model as usize;
+                const MIX_ITEMS: usize = 9; // 0: Template, 1..8: Mix 1..8
+
+                if cancel_pressed {
+                    storage::save_storage(storage);
+                    self.state = MenuState::MainMenu;
+                    self.selected_item = 4;
+                    self.scroll_offset = 0;
+                    self.waiting_release = true;
+                    buzzer.click();
+                    return;
+                }
+
+                if down_pressed {
+                    if self.selected_item + 1 < MIX_ITEMS {
+                        self.selected_item += 1;
+                        if self.selected_item >= self.scroll_offset + 4 {
+                            self.scroll_offset = self.selected_item - 3;
+                        }
+                    } else {
+                        self.selected_item = 0;
+                        self.scroll_offset = 0;
+                    }
+                    buzzer.play_tone(2200, 30);
+                }
+
+                if up_pressed {
+                    if self.selected_item > 0 {
+                        self.selected_item -= 1;
+                        if self.selected_item < self.scroll_offset {
+                            self.scroll_offset = self.selected_item;
+                        }
+                    } else {
+                        self.selected_item = MIX_ITEMS - 1;
+                        self.scroll_offset = MIX_ITEMS.saturating_sub(4);
+                    }
+                    buzzer.play_tone(2200, 30);
+                }
+
+                if ok_pressed {
+                    buzzer.click();
+                    if self.selected_item == 0 {
+                        // Cycle Wing Template (0..3)
+                        storage.models[active_idx].wing_tail_mix = (storage.models[active_idx].wing_tail_mix + 1) % 4;
+                    } else {
+                        // Open Mix Line Editor
+                        self.page_idx = self.selected_item - 1; // 0..7
+                        self.selected_item = 0;
+                        self.scroll_offset = 0;
+                        self.editing = false;
+                        self.state = MenuState::MixerLineEdit;
+                        self.waiting_release = true;
+                        return;
+                    }
+                }
+
+                // Render Header
+                Text::new("WING & MIXER", Point::new(26, 9), text_style).draw(lcd).ok();
+                Line::new(Point::new(0, 11), Point::new(127, 11)).into_styled(border_style).draw(lcd).ok();
+
+                for slot in 0..4 {
+                    let idx = self.scroll_offset + slot;
+                    if idx >= MIX_ITEMS { break; }
+                    let y = 14 + (slot as i32 * 9);
+                    let is_sel = idx == self.selected_item;
+                    let style = if is_sel {
+                        Rectangle::new(Point::new(2, y), Size::new(124, 9)).into_styled(fill_style).draw(lcd).ok();
+                        MonoTextStyle::new(&FONT_6X10, BinaryColor::Off)
+                    } else {
+                        text_style
+                    };
+
+                    if idx == 0 {
+                        let t_idx = (storage.models[active_idx].wing_tail_mix as usize).min(3);
+                        Text::new("Wing:", Point::new(4, y + 7), style).draw(lcd).ok();
+                        Text::new(TEMPLATE_NAMES[t_idx], Point::new(36, y + 7), style).draw(lcd).ok();
+                    } else {
+                        let m_idx = idx - 1;
+                        let mix = storage.models[active_idx].mixes[m_idx];
+                        let mut m_buf = *b"M0: ";
+                        m_buf[1] = b'1' + m_idx as u8;
+                        let m_label = core::str::from_utf8(&m_buf).unwrap_or("M?: ");
+                        Text::new(m_label, Point::new(4, y + 7), style).draw(lcd).ok();
+
+                        if mix.target_ch == 0 {
+                            Text::new("[DISABLED]", Point::new(28, y + 7), style).draw(lcd).ok();
+                        } else {
+                            let mut ch_buf = *b"CH00";
+                            if mix.target_ch >= 10 {
+                                ch_buf[2] = b'1';
+                                ch_buf[3] = b'0' + (mix.target_ch - 10);
+                            } else {
+                                ch_buf[2] = b'0' + mix.target_ch;
+                                ch_buf[3] = b' ';
+                            }
+                            let ch_str = core::str::from_utf8(&ch_buf).unwrap_or("CH??");
+                            Text::new(ch_str, Point::new(24, y + 7), style).draw(lcd).ok();
+
+                            Text::new("<-", Point::new(54, y + 7), style).draw(lcd).ok();
+                            let s_idx = (mix.source as usize).min(25);
+                            Text::new(SOURCE_NAMES[s_idx], Point::new(70, y + 7), style).draw(lcd).ok();
+                        }
+                    }
+                }
+
+                Line::new(Point::new(0, 52), Point::new(127, 52)).into_styled(border_style).draw(lcd).ok();
+                Text::new("[OK] Select/Edit   [ESC] Back", Point::new(2, 62), text_style).draw(lcd).ok();
+            }
+
+            MenuState::MixerLineEdit => {
+                let active_idx = storage.radio.active_model as usize;
+                let mix_idx = self.page_idx.min(7);
+                const FIELD_COUNT: usize = 6;
+
+                if cancel_pressed {
+                    if self.editing {
+                        self.editing = false;
+                    } else {
+                        self.state = MenuState::WingMixer;
+                        self.selected_item = mix_idx + 1;
+                        self.scroll_offset = (mix_idx + 1).saturating_sub(3);
+                        self.waiting_release = true;
+                        buzzer.click();
+                        return;
+                    }
+                }
+
+                if !self.editing {
+                    if down_pressed {
+                        if self.selected_item + 1 < FIELD_COUNT {
+                            self.selected_item += 1;
+                            if self.selected_item >= self.scroll_offset + 4 {
+                                self.scroll_offset = self.selected_item - 3;
+                            }
+                        } else {
+                            self.selected_item = 0;
+                            self.scroll_offset = 0;
+                        }
+                        buzzer.play_tone(2200, 30);
+                    }
+
+                    if up_pressed {
+                        if self.selected_item > 0 {
+                            self.selected_item -= 1;
+                            if self.selected_item < self.scroll_offset {
+                                self.scroll_offset = self.selected_item;
+                            }
+                        } else {
+                            self.selected_item = FIELD_COUNT - 1;
+                            self.scroll_offset = FIELD_COUNT.saturating_sub(4);
+                        }
+                        buzzer.play_tone(2200, 30);
+                    }
+
+                    if ok_pressed {
+                        self.editing = true;
+                        buzzer.click();
+                    }
+                } else {
+                    let mix = &mut storage.models[active_idx].mixes[mix_idx];
+                    match self.selected_item {
+                        0 => {
+                            // Target CH: 0 (Off) .. 14
+                            if up_pressed {
+                                mix.target_ch = (mix.target_ch + 1) % 15;
+                                buzzer.play_tone(2200, 20);
+                            } else if down_pressed {
+                                mix.target_ch = if mix.target_ch == 0 { 14 } else { mix.target_ch - 1 };
+                                buzzer.play_tone(2200, 20);
+                            }
+                        }
+                        1 => {
+                            // Source: 0..25
+                            if up_pressed {
+                                mix.source = (mix.source + 1) % 26;
+                                buzzer.play_tone(2200, 20);
+                            } else if down_pressed {
+                                mix.source = if mix.source == 0 { 25 } else { mix.source - 1 };
+                                buzzer.play_tone(2200, 20);
+                            }
+                        }
+                        2 => {
+                            // Weight: -100..+100%, step 5%
+                            if up_pressed && mix.weight <= 95 {
+                                mix.weight += 5;
+                                buzzer.play_tone(2200, 20);
+                            } else if down_pressed && mix.weight >= -95 {
+                                mix.weight -= 5;
+                                buzzer.play_tone(2200, 20);
+                            }
+                        }
+                        3 => {
+                            // Offset: -100..+100%, step 5%
+                            if up_pressed && mix.offset <= 95 {
+                                mix.offset += 5;
+                                buzzer.play_tone(2200, 20);
+                            } else if down_pressed && mix.offset >= -95 {
+                                mix.offset -= 5;
+                                buzzer.play_tone(2200, 20);
+                            }
+                        }
+                        4 => {
+                            // Switch: 0..10
+                            if up_pressed {
+                                mix.switch = (mix.switch + 1) % 11;
+                                buzzer.play_tone(2200, 20);
+                            } else if down_pressed {
+                                mix.switch = if mix.switch == 0 { 10 } else { mix.switch - 1 };
+                                buzzer.play_tone(2200, 20);
+                            }
+                        }
+                        5 => {
+                            // Mode: 0..2
+                            if up_pressed {
+                                mix.mode = (mix.mode + 1) % 3;
+                                buzzer.play_tone(2200, 20);
+                            } else if down_pressed {
+                                mix.mode = if mix.mode == 0 { 2 } else { mix.mode - 1 };
+                                buzzer.play_tone(2200, 20);
+                            }
+                        }
+                        _ => {}
+                    }
+
+                    if ok_pressed {
+                        self.editing = false;
+                        buzzer.click();
+                    }
+                }
+
+                // Render Header
+                let mut title_buf = *b"EDIT MIX 0";
+                title_buf[9] = b'1' + mix_idx as u8;
+                let title_str = core::str::from_utf8(&title_buf).unwrap_or("EDIT MIX");
+                Text::new(title_str, Point::new(34, 9), text_style).draw(lcd).ok();
+                Line::new(Point::new(0, 11), Point::new(127, 11)).into_styled(border_style).draw(lcd).ok();
+
+                let mix = storage.models[active_idx].mixes[mix_idx];
+                let mut b6 = [0u8; 6];
+                for slot in 0..4 {
+                    let idx = self.scroll_offset + slot;
+                    if idx >= FIELD_COUNT { break; }
+                    let y = 14 + (slot as i32 * 9);
+                    let is_sel = idx == self.selected_item;
+                    let style = if is_sel {
+                        Rectangle::new(Point::new(2, y), Size::new(124, 9)).into_styled(fill_style).draw(lcd).ok();
+                        MonoTextStyle::new(&FONT_6X10, BinaryColor::Off)
+                    } else {
+                        text_style
+                    };
+
+                    match idx {
+                        0 => {
+                            Text::new("Target:", Point::new(4, y + 7), style).draw(lcd).ok();
+                            if mix.target_ch == 0 {
+                                Text::new("Disabled", Point::new(56, y + 7), style).draw(lcd).ok();
+                            } else {
+                                let mut ch_buf = *b"CH00";
+                                if mix.target_ch >= 10 {
+                                    ch_buf[2] = b'1';
+                                    ch_buf[3] = b'0' + (mix.target_ch - 10);
+                                } else {
+                                    ch_buf[2] = b'0' + mix.target_ch;
+                                    ch_buf[3] = b' ';
+                                }
+                                let ch_str = core::str::from_utf8(&ch_buf).unwrap_or("CH??");
+                                Text::new(ch_str, Point::new(56, y + 7), style).draw(lcd).ok();
+                            }
+                        }
+                        1 => {
+                            Text::new("Source:", Point::new(4, y + 7), style).draw(lcd).ok();
+                            let s_idx = (mix.source as usize).min(25);
+                            Text::new(SOURCE_NAMES[s_idx], Point::new(56, y + 7), style).draw(lcd).ok();
+                        }
+                        2 => {
+                            Text::new("Weight:", Point::new(4, y + 7), style).draw(lcd).ok();
+                            let w_str = i8_to_dec(mix.weight, &mut b6);
+                            Text::new(w_str, Point::new(56, y + 7), style).draw(lcd).ok();
+                        }
+                        3 => {
+                            Text::new("Offset:", Point::new(4, y + 7), style).draw(lcd).ok();
+                            let o_str = i8_to_dec(mix.offset, &mut b6);
+                            Text::new(o_str, Point::new(56, y + 7), style).draw(lcd).ok();
+                        }
+                        4 => {
+                            Text::new("Switch:", Point::new(4, y + 7), style).draw(lcd).ok();
+                            let sw_idx = (mix.switch as usize).min(10);
+                            Text::new(SWITCH_COND_NAMES[sw_idx], Point::new(56, y + 7), style).draw(lcd).ok();
+                        }
+                        5 => {
+                            Text::new("Mode:", Point::new(4, y + 7), style).draw(lcd).ok();
+                            let m_idx = (mix.mode as usize).min(2);
+                            Text::new(MODE_NAMES[m_idx], Point::new(56, y + 7), style).draw(lcd).ok();
+                        }
+                        _ => {}
+                    }
+                }
+
+                Line::new(Point::new(0, 52), Point::new(127, 52)).into_styled(border_style).draw(lcd).ok();
+                let footer = if self.editing { "[OK] Done   [UP/DN] Value" } else { "[OK] Edit   [ESC] Back" };
+                Text::new(footer, Point::new(2, 62), text_style).draw(lcd).ok();
+            }
+
+            MenuState::AuxChannels => {
+                let active_idx = storage.radio.active_model as usize;
+                const AUX_COUNT: usize = 10;
+
+                if cancel_pressed {
+                    if self.editing {
+                        self.editing = false;
+                    } else {
+                        storage::save_storage(storage);
+                        self.state = MenuState::MainMenu;
+                        self.selected_item = 5;
+                        self.scroll_offset = 0;
+                        self.waiting_release = true;
+                        buzzer.click();
+                        return;
+                    }
+                }
+
+                if !self.editing {
+                    if down_pressed {
+                        if self.selected_item + 1 < AUX_COUNT {
+                            self.selected_item += 1;
+                            if self.selected_item >= self.scroll_offset + 4 {
+                                self.scroll_offset = self.selected_item - 3;
+                            }
+                        } else {
+                            self.selected_item = 0;
+                            self.scroll_offset = 0;
+                        }
+                        buzzer.play_tone(2200, 30);
+                    }
+
+                    if up_pressed {
+                        if self.selected_item > 0 {
+                            self.selected_item -= 1;
+                            if self.selected_item < self.scroll_offset {
+                                self.scroll_offset = self.selected_item;
+                            }
+                        } else {
+                            self.selected_item = AUX_COUNT - 1;
+                            self.scroll_offset = AUX_COUNT.saturating_sub(4);
+                        }
+                        buzzer.play_tone(2200, 30);
+                    }
+
+                    if ok_pressed {
+                        self.editing = true;
+                        buzzer.click();
+                    }
+                } else {
+                    let cur = storage.models[active_idx].aux_channels[self.selected_item];
+                    if up_pressed {
+                        storage.models[active_idx].aux_channels[self.selected_item] = (cur + 1) % 11;
+                        buzzer.play_tone(2200, 20);
+                    } else if down_pressed {
+                        storage.models[active_idx].aux_channels[self.selected_item] = if cur == 0 { 10 } else { cur - 1 };
+                        buzzer.play_tone(2200, 20);
+                    }
+                    if ok_pressed {
+                        self.editing = false;
+                        buzzer.click();
+                    }
+                }
+
+                // Render Header
+                Text::new("AUX CHANNELS", Point::new(28, 9), text_style).draw(lcd).ok();
+                Line::new(Point::new(0, 11), Point::new(127, 11)).into_styled(border_style).draw(lcd).ok();
+
+                for slot in 0..4 {
+                    let idx = self.scroll_offset + slot;
+                    if idx >= AUX_COUNT { break; }
+                    let y = 14 + (slot as i32 * 9);
+                    let is_sel = idx == self.selected_item;
+                    let style = if is_sel {
+                        Rectangle::new(Point::new(2, y), Size::new(124, 9)).into_styled(fill_style).draw(lcd).ok();
+                        MonoTextStyle::new(&FONT_6X10, BinaryColor::Off)
+                    } else {
+                        text_style
+                    };
+
+                    let ch_num = 5 + idx;
+                    let mut ch_buf = *b"CH00: ";
+                    if ch_num >= 10 {
+                        ch_buf[2] = b'1';
+                        ch_buf[3] = b'0' + (ch_num - 10) as u8;
+                    } else {
+                        ch_buf[2] = b'0' + ch_num as u8;
+                        ch_buf[3] = b' ';
+                    }
+                    let ch_label = core::str::from_utf8(&ch_buf).unwrap_or("CH??: ");
+                    Text::new(ch_label, Point::new(4, y + 7), style).draw(lcd).ok();
+
+                    let src_idx = (storage.models[active_idx].aux_channels[idx] as usize).min(10);
+                    Text::new(SOURCE_NAMES[src_idx], Point::new(48, y + 7), style).draw(lcd).ok();
+                }
+
+                Line::new(Point::new(0, 52), Point::new(127, 52)).into_styled(border_style).draw(lcd).ok();
+                let footer = if self.editing { "[OK] Done   [UP/DN] Source" } else { "[OK] Edit   [ESC] Exit" };
+                Text::new(footer, Point::new(2, 62), text_style).draw(lcd).ok();
+            }
+
             MenuState::RadioSetup => {
                 if cancel_pressed {
                     self.state = MenuState::MainMenu;
-                    self.selected_item = 4;
+                    self.selected_item = 7;
                     self.scroll_offset = 0;
                     self.waiting_release = true;
                     buzzer.click();
@@ -1100,6 +1769,8 @@ impl MenuController {
             MenuState::RxSetup => {
                 if cancel_pressed {
                     self.state = MenuState::MainMenu;
+                    self.selected_item = 8;
+                    self.scroll_offset = 5;
                     self.waiting_release = true;
                     buzzer.click();
                     return;
@@ -1139,6 +1810,8 @@ impl MenuController {
             MenuState::ChannelMonitor => {
                 if cancel_pressed {
                     self.state = MenuState::MainMenu;
+                    self.selected_item = 9;
+                    self.scroll_offset = 6;
                     self.waiting_release = true;
                     buzzer.click();
                     return;
@@ -1194,6 +1867,8 @@ impl MenuController {
             MenuState::DiagAnas => {
                 if cancel_pressed {
                     self.state = MenuState::MainMenu;
+                    self.selected_item = 11;
+                    self.scroll_offset = 8;
                     self.waiting_release = true;
                     buzzer.click();
                     return;
@@ -1249,6 +1924,8 @@ impl MenuController {
             MenuState::SystemInfo => {
                 if cancel_pressed {
                     self.state = MenuState::MainMenu;
+                    self.selected_item = 12;
+                    self.scroll_offset = 9;
                     self.waiting_release = true;
                     buzzer.click();
                     return;

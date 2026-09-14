@@ -124,6 +124,7 @@ Comprehensive technical documentation is maintained in the [`docs/`](docs/) dire
 - **[System Architecture & Timing Model](docs/ARCHITECTURE.md)**: 48 MHz clock tree, real-time concurrency model, TIM16 260 Hz packet loop, Catmull-Rom curve math, and zero-heap memory layout.
 - **[AFHDS 2A Protocol & A7105 RF Driver](docs/RF_PROTOCOL.md)**: SPI1 hardware driver, 16-channel FHSS hopping table, 38-byte packet structure, Model Match, and one-way/two-way receiver binding.
 - **[Flight Inputs & Digital Trims](docs/INPUT_SUBSYSTEM.md)**: 11-channel continuous ADC DMA scanner, MMA jitter filtering, physical gimbal geometry, 4-axis digital trims, and TIM1 hardware PWM buzzer driver.
+- **[Flight Control & 14-Channel Mixing](docs/MIXER.md)**: 4-stage pipeline, integer cubic expo, Delta/V-Tail/Flaperon templates, auxiliary channel remapping, and EdgeTX freeform matrix mixing.
 - **[Stick Calibration & Flash Persistence](docs/CALIBRATION_AND_STORAGE.md)**: 2-step interactive calibration wizard, tolerance margin calculation, and 20-model Flash storage architecture across Pages 62 & 63.
 - **[Architecture & Performance Comparison](docs/FIRMWARE_COMPARISON.md)**: Deep-dive comparative analysis vs OpenI6X and stock firmware (Flash headroom, &lt;4ms latency, safety locks, backlight PWM mod).
 - **[Hardware Reference & Pinout](docs/HARDWARE_REFERENCE.md)**: Detailed schematics, pin mappings, ST7567 LCD 6800-bus timings, buzzer PWM, and dual-MCU (STM32 / APM32) profiles.
@@ -191,18 +192,19 @@ Comprehensive technical documentation is maintained in the [`docs/`](docs/) dire
 - [x] Radio inactivity idle alarm: sounds periodic reminder chirps after 10 minutes without stick or key interaction.
 - [x] Downlink telemetry RSSI range warnings: audible alerts when signal drops below 40% (Warning) and 20% (Critical).
 
-### Phase 10: Flight Control & Mixing (PLANNED)
-- [ ] Dual Rates & Exponential (D/R & EXPO) on Roll, Pitch, and Yaw with switchable high/low rates.
-- [ ] Auxiliary Channel Source Mapping: remapping any physical switch or potentiometer to any output channel (CH5–CH14).
-- [ ] Programmable Failsafe configuration menu (Hold vs custom microsecond pulses).
-- [ ] Elevon / Delta Wing / V-Tail mixer for flying wings and gliders.
+### Phase 10: Flight Control & Mixing (COMPLETED)
+- [x] Dual Rates & Exponential (D/R & EXPO) on Roll, Pitch, and Yaw with 64-bit integer cubic curves and switchable high/low rates.
+- [x] Auxiliary Channel Source Mapping: remapping any physical switch or potentiometer to any output channel (CH5–CH14).
+- [x] Pre-configured aircraft templates: Elevon / Delta Wing, V-Tail, and Flaperon (dual ailerons with auxiliary flap input).
+- [x] EdgeTX / OpenTX-style 14-channel freeform matrix mixer with 8 user-configurable mix lines (Weight, Offset, Switch, ADD/MULT/REPLACE modes).
+- [x] Dedicated UI editors in Settings Menu: `Dual Rate/Expo`, `Wing/Mixer` (with mix line editor), and `Aux Channels`.
 
 ### Phase 11: Display & Telemetry Enhancements (PLANNED)
 - [ ] LCD Electronic Volume (EV) contrast adjustment ($0 \dots 63$) in `Radio Setup`.
 - [ ] Dedicated full-screen telemetry sensor dashboard (Page 4/4) displaying live pack voltage, RSSI, and i-BUS sensor telemetry.
 
 ### Current Firmware Footprint
-- **Flash ROM**: **42.4 KB** used out of **128 KB** available (~67% Flash free headroom).
+- **Flash ROM**: **50.8 KB** used out of **128 KB** available (~60% Flash free headroom).
 - **Static RAM**: **228 bytes** (`.data` + `.bss`) out of **16 KB** available (**>90% SRAM free**).
 - **Non-Volatile Storage**: **2,688 bytes** allocated across Pages 62 & 63 (1,408 bytes free headroom).
 

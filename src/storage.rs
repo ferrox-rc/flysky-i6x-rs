@@ -82,6 +82,31 @@ impl RadioConfig {
     }
 }
 
+/// A single freeform mix rule in the matrix mixer (6 bytes).
+#[repr(C)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub struct MixLine {
+    pub target_ch: u8,   // 0: Disabled, 1..14: Target Channel CH1..CH14
+    pub source: u8,      // 0: None, 1: Roll, 2: Pitch, 3: Thr, 4: Yaw, 5: VRA, 6: VRB, 7: SA, 8: SB, 9: SC, 10: SD, 11: MAX, 12..25: CH1..CH14
+    pub weight: i8,      // -100% .. +100%
+    pub offset: i8,      // -100% .. +100%
+    pub switch: u8,      // 0: Always On, 1: SA_UP, 2: SA_DN, 3: SB_UP, 4: SB_MID, 5: SB_DN, 6: SC_UP, 7: SC_MID, 8: SC_DN, 9: SD_UP, 10: SD_DN
+    pub mode: u8,        // 0: Add (+), 1: Multiply (*), 2: Replace (:=)
+}
+
+impl MixLine {
+    pub const fn disabled() -> Self {
+        Self {
+            target_ch: 0,
+            source: 0,
+            weight: 100,
+            offset: 0,
+            switch: 0,
+            mode: 0,
+        }
+    }
+}
+
 /// Complete profile for an individual aircraft/model (exactly 128 bytes).
 #[repr(C)]
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -104,7 +129,13 @@ pub struct ModelConfig {
     pub timer_source: u8,          // 48: 0: Off, 1: Thr > 5%, 2: SA, 3: SB, 4: SC, 5: SD
     pub protocol_subtype: u8,      // 49: 0: PWM, 1: PPM, 2: i-BUS, 3: S.BUS
     pub failsafe_thr: u16,         // 50..52: Failsafe throttle pulse in µs (e.g. 1000)
-    pub _reserved: [u8; 76],       // 52..128
+    pub aux_channels: [u8; 10],    // 52..62: Source for CH5..CH14 (0: None, 1..4: AETR, 5..6: VRA/VRB, 7..10: SA..SD)
+    pub wing_tail_mix: u8,         // 62: 0: Normal, 1: Elevon/Delta, 2: V-Tail, 3: Flaperon
+    pub template_diff: i8,         // 63: Differential / mix ratio (-100..+100)
+    pub mixes: [MixLine; 8],       // 64..112: 8 freeform mix rules (8 * 6 = 48 bytes)
+    pub failsafe_mode: u8,         // 112: 0: Hold last, 1: Custom pulses
+    pub failsafe_timeout: u8,      // 113: 10..50 (1.0s..5.0s)
+    pub _reserved: [u8; 14],       // 114..128: 14 reserved bytes
 }
 
 impl ModelConfig {
@@ -131,7 +162,14 @@ impl ModelConfig {
             timer_source: 1,
             protocol_subtype: 0,
             failsafe_thr: 1000,
-            _reserved: [0; 76],
+            // Defaults for CH5..CH14: CH5=SA(7), CH6=SB(8), CH7=VRA(5), CH8=VRB(6), CH9=SC(9), CH10=SD(10), CH11..14=None(0)
+            aux_channels: [7, 8, 5, 6, 9, 10, 0, 0, 0, 0],
+            wing_tail_mix: 0,
+            template_diff: 0,
+            mixes: [MixLine::disabled(); 8],
+            failsafe_mode: 0,
+            failsafe_timeout: 20,
+            _reserved: [0; 14],
         }
     }
 }

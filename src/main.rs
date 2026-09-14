@@ -22,6 +22,7 @@ mod curve;
 mod display;
 mod input;
 mod menu;
+mod mixer;
 mod rf;
 mod storage;
 mod trim;
@@ -497,9 +498,6 @@ fn main() -> ! {
 
         // Map inputs to 14 AFHDS 2A channels with digital trims (1000..2000 µs)
         let active_model = storage.active_model();
-        let mut rf_chs = [1500u16; 14];
-        let ch1_raw = ((state.sticks.roll / 2) + 1500).clamp(1000, 2000) as u16;
-        let ch2_raw = ((state.sticks.pitch / 2) + 1500).clamp(1000, 2000) as u16;
 
         // Evaluate active model throttle curve (normalized 0..1000)
         let thr_input = ((state.sticks.throttle + 1000) / 2).clamp(0, 1000) as u16;
@@ -509,35 +507,19 @@ fn main() -> ! {
             active_model.thr_curve_smooth != 0,
             &active_model.thr_curve,
         );
-        let ch3_raw = (1000 + thr_curved).clamp(1000, 2000);
-        let ch4_raw = ((state.sticks.yaw / 2) + 1500).clamp(1000, 2000) as u16;
 
-        rf_chs[0] = trim::TrimController::apply(ch1_raw, trims.values.roll);
-        rf_chs[1] = trim::TrimController::apply(ch2_raw, trims.values.pitch);
-        rf_chs[2] = trim::TrimController::apply_throttle(ch3_raw, trims.values.throttle, storage.radio.throttle_trim);
-        rf_chs[3] = trim::TrimController::apply(ch4_raw, trims.values.yaw);
-        rf_chs[4] = if state.switches.sa == input::SwitchPos::Up { 1000 } else { 2000 };
-        rf_chs[5] = match state.switches.sb {
-            input::SwitchPos::Up => 1000,
-            input::SwitchPos::Mid => 1500,
-            input::SwitchPos::Down => 2000,
-        };
-        rf_chs[6] = ((state.pots.vr1 / 2) + 1500).clamp(1000, 2000) as u16;
-        rf_chs[7] = ((state.pots.vr2 / 2) + 1500).clamp(1000, 2000) as u16;
-        rf_chs[8] = match state.switches.sc {
-            input::SwitchPos::Up => 1000,
-            input::SwitchPos::Mid => 1500,
-            input::SwitchPos::Down => 2000,
-        };
-        rf_chs[9] = if state.switches.sd == input::SwitchPos::Up { 1000 } else { 2000 };
-
-        // Apply active model channel reversing bitmask
-        let rev_mask = active_model.channel_reverse;
-        for (ch, val) in rf_chs.iter_mut().enumerate() {
-            if (rev_mask & (1 << ch)) != 0 {
-                *val = 3000 - *val;
-            }
-        }
+        // Compute all 14 channels via 4-stage pipeline (D/R, Expo, Templates, Matrix Mixer, Trims, Reversing)
+        let rf_chs = mixer::compute_channels(
+            state.sticks.roll,
+            state.sticks.pitch,
+            thr_curved,
+            state.sticks.yaw,
+            &[state.pots.vr1, state.pots.vr2],
+            &state.switches,
+            active_model,
+            &trims,
+            storage.radio.throttle_trim,
+        );
         rf::set_channels(&rf_chs);
 
         let telem = rf::get_telemetry();
