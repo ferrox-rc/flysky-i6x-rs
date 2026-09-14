@@ -12,9 +12,9 @@ The standard OpenTX/EdgeTX port for the FS-i6X ([OpenI6X](https://github.com/Ope
 
 `flysky-i6x-rs` is a **clean-slate rewrite** in Rust designed with:
 - **Zero-cost abstractions:** Microcontroller-native, static allocation, no heap allocations (`no_std`).
-- **Hard Real-Time Concurrency:** Interrupt-driven scheduling using RTIC (or async Embassy) for deterministic sub-millisecond RF hopping and packet timing.
-- **Strict Scope:** Dedicated support for the built-in hardware (A7105 AFHDS2A + i-BUS), 4-axis gimbals, switches, trims, and an OpenTX-inspired 128×64 monochrome UI.
-- **Estimated Footprint:** ~35–50 KB Flash (leaving ~70 KB free) and ~3–4 KB RAM (leaving ~12 KB free).
+- **Hard Real-Time Concurrency:** Priority-driven hardware interrupt scheduling (`TIM16` 260 Hz packet sync, `EXTI2` RF ready) paired with a high-rate decoupled flight pipeline and throttled 30 Hz display loop.
+- **Strict Scope:** Dedicated support for the built-in hardware (A7105 AFHDS2A + i-BUS), 4-axis gimbals, switches, trims, 20-model storage, 14-channel matrix mixer, and a 128×64 monochrome UI.
+- **Measured Footprint:** **51.7 KB Flash** (52,964 bytes, leaving >76 KB free / ~60% headroom) and **236 bytes static RAM** + 1 KB LCD framebuffer (leaving >90% SRAM free).
 
 ---
 
@@ -28,7 +28,7 @@ The standard OpenTX/EdgeTX port for the FS-i6X ([OpenI6X](https://github.com/Ope
 | | Antenna Switch | `PE10` (RF0), `PE11` (RF1) | Diversity / TR switch |
 | | Packet Ready IRQ | `PB2` (EXTI2) | GIO2 line from A7105 (Tx/Rx done) |
 | | RF Timer | `TIM16` | Periodic packet scheduling (~3.8ms–7.5ms) |
-| **Display** | **ST7567** (128×64 Monochrome LCD) | 8-bit 6800 Parallel Bus | 1024-byte framebuffer in RAM |
+| **Display** | **ST7567** (128×64 Monochrome LCD) | 8-bit 6800 Parallel Bus | 1024-byte framebuffer in RAM; 30 Hz refresh (~33 ms); Electronic Volume (EV) contrast (15..55) |
 | | Data Bus (D0..D7) | `PE0 .. PE7` | Full-byte ODR write (`GPIOE->ODR[7:0]`) |
 | | Command/Data (RS) | `PB3` | Low = Command, High = Data |
 | | Reset (RST) | `PB4` | Active Low hardware reset |
@@ -58,32 +58,39 @@ The standard OpenTX/EdgeTX port for the FS-i6X ([OpenI6X](https://github.com/Ope
 ```mermaid
 flowchart TD
     subgraph Core ["FlySky FS-i6X Reactive Architecture (48 MHz)"]
-        SCHED["Deterministic Scheduler & Event Loop"]
+        SCHED["Deterministic Hardware Interrupt & Concurrency Model"]
     end
 
-    subgraph P3 ["Priority 3: High (TIM16 & EXTI2_3 IRQ)"]
+    subgraph P3 ["Priority 3: Critical RF Sync (TIM16 & EXTI2_3 IRQ)"]
         RF1["A7105 State Machine"]
         RF2["AFHDS 2A 260 Hz Packet Tx (3.850 ms)"]
         RF3["i-BUS Downlink Telemetry Rx"]
     end
 
-    subgraph P2 ["Priority 2: Mid (ADC1 & DMA1_CH1)"]
+    subgraph P2 ["Priority 2: Autonomous DMA Engine"]
         ADC1["Autonomous 11-Ch DMA Scan (0.23 ms)"]
-        ADC2["MMA Micro-Jitter Filter"]
-        ADC3["Endpoint Calibration & Deadbands"]
+        ADC2["Continuous Circular Buffer in SRAM"]
     end
 
-    subgraph P1 ["Priority 1: Low (Main Execution Loop ~500 Hz)"]
-        UI1["Keypad & Trim Matrix Scan"]
-        UI2["Catmull-Rom Spline Curve Engine"]
-        UI3["14-Channel Mixer & Reversing"]
-        UI4["ST7567 LCD Parallel Display Driver"]
-        UI5["Multi-Page Flash Configuration Sync"]
+    subgraph P1 ["Priority 1: Decoupled High-Rate Flight Pipeline (Multi-kHz)"]
+        FL1["MMA & Deadband Bypass Stick Filter"]
+        FL2["Dual Rates & Integer Cubic Expo Math"]
+        FL3["14-Ch Matrix Mixer & Aircraft Templates"]
+        FL4["Catmull-Rom Spline Throttle Curves"]
+        FL5["Double-Buffered PENDING_CHANNELS Update (sub-30 µs)"]
+    end
+
+    subgraph P0 ["Priority 0: Throttled UI & Display Loop (30 Hz / ~33 ms)"]
+        UI1["Keypad & Trim Matrix Scan (90ms Repeat)"]
+        UI2["Buzzer Tone State Machine (TIM1 PWM)"]
+        UI3["ST7567 Parallel LCD Framebuffer Render"]
+        UI4["Non-Volatile Flash Persistence (Pages 62-63)"]
     end
 
     SCHED --> P3
     SCHED --> P2
     SCHED --> P1
+    SCHED --> P0
 ```
 
 ### Key Libraries / Crates
@@ -112,7 +119,15 @@ UID (at 0x1FFFF7AC) -> LCG Random Seed -> 16 Unique Channels (1..164 with min sp
 
 ## 5. Display & User Interface (128×64)
 
-The ST7567 parallel LCD driver maintains a **1024-byte framebuffer** in SRAM (`128 * 64 / 8`). Updating the entire screen takes &lt; 1.2 ms via direct 8-bit GPIO port writes (`GPIOE->ODR`).
+The ST7567 parallel LCD driver maintains a **1024-byte framebuffer** in SRAM (`128 * 64 / 8`). Updating the entire screen takes < 1.2 ms via direct 8-bit GPIO port writes (`GPIOE->ODR`).
+- **Throttled Refresh Rate (30 Hz)**: Throttled via the hardware SysTick timer (`time::millis()`) to a steady 30 Hz (~33 ms). This completely decouples graphical drawing from the multi-kHz flight control loop, eliminating servo latency and stutter.
+- **Electronic Volume (EV) Contrast Adjustment**: Digitally adjustable LCD contrast (`15..=55`, default 37 / `0x25`) in `Radio Setup` with instant live hardware preview and Flash persistence.
+- **Multi-Page Flight Dashboard**: 4 switchable screens cycled by tapping `[BIND]`:
+  1. **Page 1/4 (Gimbals & Trims)**: Live stick sliders, center markers, trim position ticks, and switch/pot readouts.
+  2. **Page 2/4 (14-CH Dual Column Monitor)**: Simultaneous graphic bar indicators and exact microsecond pulse readouts across all 14 channels.
+  3. **Page 3/4 (Model Dashboard)**: Full 10-character model name, aircraft type, bound receiver ID, throttle curve configuration, and telemetry status.
+  4. **Page 4/4 (Telemetry Sensors)**: Dedicated diagnostics showing real-time RSSI, link state, packet odometer counters (`TX`/`RX`), battery voltages (`RX`/`TX`), and session extremes (`mRSS`/`mRX`).
+- **Scrollable Menus**: Standardized 4-item scrollable viewports across all submenus with 9px row heights and auto-repeating navigation keys.
 
 ---
 
@@ -181,7 +196,7 @@ Comprehensive technical documentation is maintained in the [`docs/`](docs/) dire
 - [x] Model setup: 10-character ASCII model name editor and aircraft type selector.
 
 ### Phase 8: Multi-Page Flight Dashboard & Navigation Polish (COMPLETED)
-- [x] Pixel-perfect 3-page uniform flight dashboard (Gimbals, 14-CH Monitor, Model Dashboard) with shared top bar and small text footers.
+- [x] Pixel-perfect 4-page uniform flight dashboard (Gimbals, 14-CH Monitor, Model Dashboard, Telemetry Sensors) with shared top bar and small text footers.
 - [x] Dedicated BIND button clean separation logic (tap = cycle flight pages, hold 1s = bind, boot hold = bind, menus = cursor advance).
 - [x] Key auto-repeat for UP and DOWN navigation keys (300 ms hold threshold, 70 ms repeat interval).
 - [x] Dynamic point range indicator (`Pts: 1..5` vs `Pts: 1..9`) in throttle curve editor.
@@ -208,10 +223,11 @@ Comprehensive technical documentation is maintained in the [`docs/`](docs/) dire
 - [x] LCD Electronic Volume (EV) contrast adjustment (`15..=55`, default 37 / `0x25`) in `Radio Setup` with instant live preview and Flash persistence.
 - [x] Dedicated full-screen telemetry sensor dashboard (Page 4/4) displaying live packet counters (`TX`, `RX`), link state (`OK` / `DISC`), battery voltages (`RX`, `TX`), and session minimums (`mRSS`, `mRX`).
 - [x] Scrollable 4-item viewport in `Radio Setup` with clean 9px row spacing and vertical scrolling.
+- [x] Dynamic compile-time firmware versioning (`CARGO_PKG_VERSION`) displayed in `System Info` menu.
 
 ### Current Firmware Footprint
-- **Flash ROM**: **51.7 KB** used out of **128 KB** available (~60% Flash free headroom).
-- **Static RAM**: **236 bytes** (`.data` + `.bss`) out of **16 KB** available (**>90% SRAM free**).
+- **Flash ROM**: **51.7 KB** (52,964 bytes) used out of **128 KB** available (~60% / >76 KB free headroom).
+- **Static RAM**: **236 bytes** (`.data` 200B + `.bss` 36B) out of **16 KB** available (**>90% SRAM free**).
 - **Non-Volatile Storage**: **2,688 bytes** allocated across Pages 62 & 63 (1,408 bytes free headroom).
 
 ---
