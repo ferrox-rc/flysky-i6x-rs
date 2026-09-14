@@ -49,7 +49,7 @@ pub struct RadioConfig {
 #[repr(C)]
 pub struct ModelConfig {
     pub name: [u8; 10],            // 10-char ASCII model name (e.g. "QUAD 5IN  ")
-    pub model_type: u8,            // 0: Airplane, 1: Heli, 2: Multirotor, 3: Glider
+    pub model_type: u8,            // 0: Airplane, 1: Glider, 2: Helicopter, 3: Multirotor / Quad
     pub thr_curve_pts: u8,         // 5 or 9 points
     pub thr_curve_smooth: u8,      // 0: Linear interpolation, 1: Catmull-Rom spline
     pub _pad0: u8,

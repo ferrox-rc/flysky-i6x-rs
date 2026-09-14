@@ -36,6 +36,12 @@ To remove potentiometer electrical jitter without introducing deadbands or contr
 - For micro-fluctuations (&lt; 20 counts), an integer MMA filter ($16\times$ oversampling) smooths the reading:
   $$\text{filtered} = \text{filtered} - \text{prev} + \text{raw}$$
 
+### Battery Voltage Exponential Moving Average (EMA) Filter
+Raw ADC measurements on `PC0` via the internal resistor divider exhibit $\pm 10\text{--}20\text{ mV}$ of switching regulator ripple and noise. Unfiltered, this causes rapid fluctuations in the hundredths decimal digit (`X.YYV`), creating an unreadable visual blur on the LCD:
+- Implemented an integer fixed-point IIR filter ($\alpha = 1/32$, $\tau \approx 640\text{ ms}$):
+  $$\text{EMA}_{k} = \text{EMA}_{k-1} - (\text{EMA}_{k-1} \gg 5) + (\text{Sample}_{k} \ll 3)$$
+- On transmitter startup, the filter initializes directly with the first measured sample, eliminating boot delay while completely steadying the hundredths readout.
+
 Implemented in [`src/input.rs`](../src/input.rs).
 
 ---
@@ -74,3 +80,22 @@ The piezo buzzer on pin `PA8` is driven by **`TIM1_CH1`** in hardware PWM Mode 1
 - **Trim Center Confirm**: High-pitched distinctive tone (`2800 Hz`, 60 ms) when crossing zero.
 - **Trim Limit Buzz**: Low warning buzz (`1100 Hz`, 45 ms) when attempting to exceed $\pm 25$ steps.
 - **Calibration Chime**: Rising 2-tone chime (`2400 Hz` $\to$ `2800 Hz`) when calibration is saved.
+
+---
+
+## 5. Navigation Keypad & Auto-Repeat (`src/boot.rs`, `src/menu.rs`)
+
+The transmitter keypad is scanned via the $3 \times 4$ GPIO key matrix:
+- **`[UP]`** and **`[DOWN]`**:
+  - Immediate single-step trigger on press.
+  - If held for $\ge 300\text{ ms}$, auto-repeats rapidly every **70 ms** for smooth scrolling through lists, rapid cycling through ASCII characters during model naming, and swift point adjustments in the throttle curve editor.
+- **`[OK]`**:
+  - Short tap confirms selections or enters submenus.
+  - Long hold ($\ge 1.2\text{s}$) on the main flight screen invokes the Settings Menu.
+  - Hold during power-on triggers immediate stick calibration.
+- **`[CANCEL]` (`[ESC]`)**:
+  - Exits active menus, aborts calibration, or saves and finishes one-way receiver binding.
+- **`[BIND]` (Dedicated Key on `PF2`)**:
+  - Independent active-low GPIO input on pin `PF2`.
+  - Filtered by software separation logic to support cycling display pages, initiating binding, and advancing field cursors without cross-mode interference.
+

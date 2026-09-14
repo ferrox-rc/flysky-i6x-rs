@@ -141,6 +141,7 @@ Comprehensive technical documentation is maintained in the [`docs/`](docs/) dire
 ### Phase 2: Analog & Digital Inputs (COMPLETED)
 - [x] Continuous 11-channel DMA1 ADC1 scanner ($0.23\text{ ms}$ complete scan).
 - [x] OpenTX Modified Moving Average (MMA) micro-jitter filter (0 latency on stick movement).
+- [x] Exponential moving average (EMA) filter on battery voltage ADC (`PC0`) to stabilize hundredths digit.
 - [x] Decode 2-pos / 3-pos switches (`SA..SD`), rotary pots (`VRA`, `VRB`), and battery voltage (`PC0`).
 - [x] Correct physical Mode 2 channel mapping (`PA0` Roll, `PA1` Pitch, `PA2` Throttle, `PA3` Yaw).
 
@@ -166,7 +167,7 @@ Comprehensive technical documentation is maintained in the [`docs/`](docs/) dire
 - [x] Radio Setup: Throttle Trim toggle (Option 2 safety lock), Beeper audio toggle, Backlight timeout (15s/30s/60s/Off), and Brightness level (10%..100%).
 - [x] Hardware PWM backlight dimming driver on `PC9` (`TIM3_CH4`, 1 kHz PWM) supporting the popular backlight hardware mod while keeping stock `PF3` supported.
 - [x] 14-channel live pulse width monitor with graphical bars and microsecond readouts (`1000..2000 µs`).
-- [x] Real-time 12-bit Analog Diagnostics (`Diag Anas`) displaying raw counts ($0 \dots 4095$) for all 11 ADC channels.
+- [x] Real-time 12-bit Analog Diagnostics (`Diag Anas`) split into 2 graphic pages with 40px fill bars matching Channel Monitor.
 - [x] System Information screen displaying MCU profile, 96-bit silicon UID, clock speed, and memory usage.
 
 ### Phase 7: 20-Model Memory & Smoothed Throttle Curves (COMPLETED)
@@ -178,8 +179,14 @@ Comprehensive technical documentation is maintained in the [`docs/`](docs/) dire
 - [x] Real-time curve graph visualization ($44 \times 36$ pixels) in the on-screen throttle curve editor.
 - [x] Model setup: 10-character ASCII model name editor and aircraft type selector.
 
+### Phase 8: Multi-Page Flight Dashboard & Navigation Polish (COMPLETED)
+- [x] Pixel-perfect 3-page uniform flight dashboard (Gimbals, 14-CH Monitor, Model Dashboard) with shared top bar and small text footers.
+- [x] Dedicated BIND button clean separation logic (tap = cycle flight pages, hold 1s = bind, boot hold = bind, menus = cursor advance).
+- [x] Key auto-repeat for UP and DOWN navigation keys (300 ms hold threshold, 70 ms repeat interval).
+- [x] Dynamic point range indicator (`Pts: 1..5` vs `Pts: 1..9`) in throttle curve editor.
+
 ### Current Firmware Footprint
-- **Flash ROM**: **35.4 KB** used out of **128 KB** available (Flash Pages 0–17; Pages 18–61 free).
+- **Flash ROM**: **41.0 KB** used out of **128 KB** available (~68% Flash free headroom).
 - **Static RAM**: **228 bytes** (`.data` + `.bss`) out of **16 KB** available (**>90% SRAM free**).
 - **Non-Volatile Storage**: **2,688 bytes** allocated across Pages 62 & 63 (1,408 bytes free headroom).
 
@@ -189,10 +196,13 @@ Comprehensive technical documentation is maintained in the [`docs/`](docs/) dire
 
 | Action | Control | Notes |
 | :--- | :--- | :--- |
+| **Cycle Flight Pages** | **Tap `BIND` button** | Cycles through Page 1/3 (Gimbals), Page 2/3 (14-CH Monitor), and Page 3/3 (Model Dashboard) |
 | **Open Settings Menu** | **Hold `OK` for 1.2s** | Opens Model Select, Model Setup, Ch Reverse, Thr Curve, Radio Setup, Calib, RX Setup, Monitors, & Diagnostics |
+| **Rapid Menu / Value Scroll** | **Hold `UP` or `DOWN`** | Auto-repeats every 70 ms after 300 ms hold across all menus, character editing, and curve points |
 | **Direct Calibration (Boot)**| **Hold `OK` during Power-On** | Launches 2-step calibration wizard immediately on boot |
-| **Initiate / Finish Binding**| **Tap `BIND` button** | Starts binding; finish & save for one-way receivers |
+| **Initiate Receiver Binding**| **Hold `BIND` ($\ge 1.0\text{s}$)** | Starts binding from any flight page (or hold during power-on) |
 | **Abort / Cancel Binding** | **Press `Cancel` (`ESC`)** | Exits binding mode immediately and restores normal RF |
+| **Tab / Advance Cursor** | **`OK` or `BIND` in Editors** | Advances character cursor in naming editor and point selection in curve editor |
 | **Enter DFU Bootloader** | **Inward Trims + Power ON** | Push Roll Left & Yaw Right inward while turning on |
 | **Fast DFU Jump (Runtime)**| **Hold Inward Trims for 100 ms** | Re-enters ST factory ROM bootloader from main screen |
 | **Digital Trims** | **4 Trim Rockers** | Single click + 90ms auto-repeat with audio pitch scaling |
