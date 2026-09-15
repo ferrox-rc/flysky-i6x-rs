@@ -157,6 +157,8 @@ pub fn init(mode: u8) {
 
                 let dev = UsbDeviceBuilder::new(alloc, UsbVidPid(0x1209, 0x4F54)) // OpenTX / EdgeTX Radio Joystick
                     .device_class(0x00)
+                    .max_packet_size_0(64)
+                    .unwrap()
                     .usb_rev(UsbRev::Usb200)
                     .strings(&[StringDescriptors::default()
                         .manufacturer("FlySky")
@@ -172,6 +174,8 @@ pub fn init(mode: u8) {
 
                 let dev = UsbDeviceBuilder::new(alloc, UsbVidPid(0x0483, 0x5740)) // Standard STM32 VCP
                     .device_class(usbd_serial::USB_CLASS_CDC)
+                    .max_packet_size_0(64)
+                    .unwrap()
                     .usb_rev(UsbRev::Usb200)
                     .strings(&[StringDescriptors::default()
                         .manufacturer("FlySky")
@@ -189,6 +193,8 @@ pub fn init(mode: u8) {
 
                 let dev = UsbDeviceBuilder::new(alloc, UsbVidPid(0x1209, 0x4968)) // EdgeTX Radio Composite
                     .composite_with_iads()
+                    .max_packet_size_0(64)
+                    .unwrap()
                     .usb_rev(UsbRev::Usb200)
                     .strings(&[StringDescriptors::default()
                         .manufacturer("FlySky")
@@ -207,6 +213,8 @@ fn panic_fallback() -> UsbDeviceBuilder<'static, FlyskyUsbBus> {
     unsafe {
         let alloc = USB_ALLOCATOR.as_ref().unwrap();
         UsbDeviceBuilder::new(alloc, UsbVidPid(0x1209, 0x4F54))
+            .max_packet_size_0(64)
+            .unwrap()
             .usb_rev(UsbRev::Usb200)
     }
 }

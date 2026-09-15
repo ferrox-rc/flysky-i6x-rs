@@ -1683,8 +1683,8 @@ impl MenuController {
                         6 => {
                             // Cycle USB Mode: 0=OFF, 1=JOYSTICK, 2=SERIAL, 3=COMPOSITE
                             storage.radio.usb_mode = (storage.radio.usb_mode + 1) % 4;
-                            crate::usb::init(storage.radio.usb_mode);
                             storage::save_storage(storage);
+                            crate::usb::init(storage.radio.usb_mode);
                         }
                         _ => {}
                     }
