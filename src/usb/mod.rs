@@ -147,7 +147,10 @@ pub fn init(mode: u8) {
         // 4. Setup UsbBus allocator
         let bus = FlyskyUsbBus::new(FlyskyUsb);
         USB_ALLOCATOR = Some(bus);
-        let alloc = USB_ALLOCATOR.as_ref().unwrap();
+        let alloc = match USB_ALLOCATOR.as_ref() {
+            Some(a) => a,
+            None => return,
+        };
 
         // 5. Initialize classes based on mode
         match usb_mode {
@@ -155,34 +158,30 @@ pub fn init(mode: u8) {
                 let hid = HIDClass::new_ep_in(alloc, hid::GAMEPAD_REPORT_DESC, 10);
                 USB_HID = Some(hid);
 
-                let dev = UsbDeviceBuilder::new(alloc, UsbVidPid(0x1209, 0x4F54)) // OpenTX / EdgeTX Radio Joystick
-                    .device_class(0x00)
-                    .max_packet_size_0(64)
-                    .unwrap()
-                    .usb_rev(UsbRev::Usb200)
-                    .strings(&[StringDescriptors::default()
-                        .manufacturer("FlySky")
-                        .product("FS-i6X Joystick")
-                        .serial_number("FS-I6X-SIM")])
-                    .unwrap_or_else(|_| panic_fallback())
-                    .build();
+                let dev = create_device_builder(
+                    alloc,
+                    0x1209,
+                    0x4F54, // OpenTX / EdgeTX Radio Joystick
+                    "FS-i6X Joystick",
+                    "FS-I6X-SIM",
+                )
+                .device_class(0x00)
+                .build();
                 USB_DEV = Some(dev);
             }
             UsbMode::Serial => {
                 let serial = SerialPort::new(alloc);
                 USB_SERIAL = Some(serial);
 
-                let dev = UsbDeviceBuilder::new(alloc, UsbVidPid(0x0483, 0x5740)) // Standard STM32 VCP
-                    .device_class(usbd_serial::USB_CLASS_CDC)
-                    .max_packet_size_0(64)
-                    .unwrap()
-                    .usb_rev(UsbRev::Usb200)
-                    .strings(&[StringDescriptors::default()
-                        .manufacturer("FlySky")
-                        .product("FS-i6X Serial")
-                        .serial_number("FS-I6X-VCP")])
-                    .unwrap_or_else(|_| panic_fallback())
-                    .build();
+                let dev = create_device_builder(
+                    alloc,
+                    0x0483,
+                    0x5740, // Standard STM32 VCP
+                    "FS-i6X Serial",
+                    "FS-I6X-VCP",
+                )
+                .device_class(usbd_serial::USB_CLASS_CDC)
+                .build();
                 USB_DEV = Some(dev);
             }
             UsbMode::Composite => {
@@ -191,17 +190,15 @@ pub fn init(mode: u8) {
                 USB_HID = Some(hid);
                 USB_SERIAL = Some(serial);
 
-                let dev = UsbDeviceBuilder::new(alloc, UsbVidPid(0x1209, 0x4968)) // EdgeTX Radio Composite
-                    .composite_with_iads()
-                    .max_packet_size_0(64)
-                    .unwrap()
-                    .usb_rev(UsbRev::Usb200)
-                    .strings(&[StringDescriptors::default()
-                        .manufacturer("FlySky")
-                        .product("FS-i6X Radio")
-                        .serial_number("FS-I6X-COMP")])
-                    .unwrap_or_else(|_| panic_fallback())
-                    .build();
+                let dev = create_device_builder(
+                    alloc,
+                    0x1209,
+                    0x4968, // EdgeTX Radio Composite
+                    "FS-i6X Radio",
+                    "FS-I6X-COMP",
+                )
+                .composite_with_iads()
+                .build();
                 USB_DEV = Some(dev);
             }
             UsbMode::Off => {}
@@ -209,13 +206,27 @@ pub fn init(mode: u8) {
     }
 }
 
-fn panic_fallback() -> UsbDeviceBuilder<'static, FlyskyUsbBus> {
-    unsafe {
-        let alloc = USB_ALLOCATOR.as_ref().unwrap();
-        UsbDeviceBuilder::new(alloc, UsbVidPid(0x1209, 0x4F54))
-            .max_packet_size_0(64)
-            .unwrap()
-            .usb_rev(UsbRev::Usb200)
+/// Helper to safely construct a UsbDeviceBuilder without unwraps or panic risks.
+fn create_device_builder<'a>(
+    alloc: &'a UsbBusAllocator<FlyskyUsbBus>,
+    vid: u16,
+    pid: u16,
+    product: &'static str,
+    serial: &'static str,
+) -> UsbDeviceBuilder<'a, FlyskyUsbBus> {
+    let builder = UsbDeviceBuilder::new(alloc, UsbVidPid(vid, pid));
+    let builder = match builder.max_packet_size_0(64) {
+        Ok(b) => b,
+        Err(_) => UsbDeviceBuilder::new(alloc, UsbVidPid(vid, pid)),
+    };
+    let builder = builder.usb_rev(UsbRev::Usb200);
+    let string_desc = [StringDescriptors::default()
+        .manufacturer("FlySky")
+        .product(product)
+        .serial_number(serial)];
+    match builder.strings(&string_desc) {
+        Ok(b) => b,
+        Err(_) => UsbDeviceBuilder::new(alloc, UsbVidPid(vid, pid)).usb_rev(UsbRev::Usb200),
     }
 }
 
