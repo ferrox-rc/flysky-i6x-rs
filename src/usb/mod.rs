@@ -140,7 +140,7 @@ pub fn init(mode: u8) {
         let moder = core::ptr::read_volatile(gpioa_moder);
         core::ptr::write_volatile(
             gpioa_moder,
-            (moder & !((0b11 << 22) | (0b11 << 24))) | ((0b10 << 22) | ((0b10 << 24))),
+            (moder & !((0b11 << 22) | (0b11 << 24))) | ((0b10 << 22) | (0b10 << 24)),
         );
         let afrh = core::ptr::read_volatile(gpioa_afrh);
         core::ptr::write_volatile(gpioa_afrh, afrh & !((0xF << 12) | (0xF << 16)));

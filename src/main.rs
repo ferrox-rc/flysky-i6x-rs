@@ -377,29 +377,29 @@ fn main() -> ! {
     let mut last_tick_ms: u32 = 0;
 
     // 8. Pre-flight Startup Safety Check: Throttle at idle and switches in safe (UP) positions
-    let startup_safety_cleared = calib_wizard.is_active();
-    let mut preflight_beep_timer: u32 = 0;
-    let mut preflight_last_render: u32 = 0;
+    if !calib_wizard.is_active() {
+        let mut preflight_beep_timer: u32 = 0;
+        let mut preflight_last_render: u32 = 0;
 
-    while !startup_safety_cleared {
-        let now = time::millis();
-        let state = input::poll();
-        let keys = boot::scan_keys();
+        loop {
+            let now = time::millis();
+            let state = input::poll();
+            let keys = boot::scan_keys();
 
-        let thr_unsafe = state.sticks.throttle > -900;
-        let sa_unsafe = state.switches.sa != input::SwitchPos::Up;
-        let sb_unsafe = state.switches.sb != input::SwitchPos::Up;
-        let sc_unsafe = state.switches.sc != input::SwitchPos::Up;
-        let sd_unsafe = state.switches.sd != input::SwitchPos::Up;
-        let sw_unsafe = sa_unsafe || sb_unsafe || sc_unsafe || sd_unsafe;
+            let thr_unsafe = state.sticks.throttle > -900;
+            let sa_unsafe = state.switches.sa != input::SwitchPos::Up;
+            let sb_unsafe = state.switches.sb != input::SwitchPos::Up;
+            let sc_unsafe = state.switches.sc != input::SwitchPos::Up;
+            let sd_unsafe = state.switches.sd != input::SwitchPos::Up;
+            let sw_unsafe = sa_unsafe || sb_unsafe || sc_unsafe || sd_unsafe;
 
-        // Cancel key (Bit 11: KEY_CANCEL) allows pilot to bypass warning
-        let cancel_pressed = (keys & (1 << 11)) != 0;
+            // Cancel key (Bit 11: KEY_CANCEL) allows pilot to bypass warning
+            let cancel_pressed = (keys & (1 << 11)) != 0;
 
-        if (!thr_unsafe && !sw_unsafe) || cancel_pressed {
-            buzzer.play_tone(2200, 40);
-            break;
-        }
+            if (!thr_unsafe && !sw_unsafe) || cancel_pressed {
+                buzzer.play_tone(2200, 40);
+                break;
+            }
 
         // Lock RF transmission to safe idle/failsafe during warning
         rf::set_channels(&[1500, 1500, 1000, 1500, 1000, 1000, 1500, 1500, 1000, 1000, 1500, 1500, 1500, 1500]);
@@ -460,6 +460,7 @@ fn main() -> ! {
             lcd.flush();
         }
     }
+}
 
     loop {
         let now = time::millis();

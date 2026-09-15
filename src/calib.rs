@@ -3,6 +3,7 @@
 //! Guides the user through a 2-step wizard:
 //! 1. Center all sticks and pots (Throttle centered to 50%) -> captures neutral points.
 //! 2. Move sticks and pots to physical limits -> captures min/max extents.
+//!
 //! Applies OpenTX-style margins (~2%) and saves to Flash.
 
 use embedded_graphics::{
@@ -77,11 +78,10 @@ impl CalibWizard {
         buzzer: &mut Buzzer,
     ) {
         // Debounce / release tracking for OK button (bit 10)
-        if self.waiting_release {
-            if (keys & (1 << 10)) == 0 {
+        if self.waiting_release
+            && (keys & (1 << 10)) == 0 {
                 self.waiting_release = false;
             }
-        }
 
         let newly_pressed = if self.waiting_release {
             0
@@ -123,11 +123,9 @@ impl CalibWizard {
                 }
 
                 if ok_pressed {
-                    for i in 0..6 {
-                        self.centers[i] = current_raw[i];
-                        self.mins[i] = current_raw[i];
-                        self.maxs[i] = current_raw[i];
-                    }
+                    self.centers.copy_from_slice(&current_raw);
+                    self.mins.copy_from_slice(&current_raw);
+                    self.maxs.copy_from_slice(&current_raw);
                     self.step = CalibStep::Limits;
                     self.waiting_release = true; // Must release OK before accepting save in step 2!
                     buzzer.play_tone(2400, 50);
@@ -159,23 +157,23 @@ impl CalibWizard {
                 }
 
                 // Continuously track minimum and maximum reached
-                for i in 0..6 {
-                    if current_raw[i] < self.mins[i] {
-                        self.mins[i] = current_raw[i];
+                for (i, &raw) in current_raw.iter().enumerate() {
+                    if raw < self.mins[i] {
+                        self.mins[i] = raw;
                     }
-                    if current_raw[i] > self.maxs[i] {
-                        self.maxs[i] = current_raw[i];
+                    if raw > self.maxs[i] {
+                        self.maxs[i] = raw;
                     }
                 }
 
                 // Check readiness of sticks (each stick must move at least 250 counts in each direction)
                 let mut ready_count = 0u8;
                 let mut stick_ready = [false; 4];
-                for i in 0..4 {
+                for (i, ready) in stick_ready.iter_mut().enumerate() {
                     let span_neg = self.centers[i].saturating_sub(self.mins[i]);
                     let span_pos = self.maxs[i].saturating_sub(self.centers[i]);
                     if span_neg >= 250 && span_pos >= 250 {
-                        stick_ready[i] = true;
+                        *ready = true;
                         ready_count += 1;
                     }
                 }
@@ -283,7 +281,7 @@ impl CalibWizard {
                     let cur = current_raw[i];
                     let delta = cur as i32 - center as i32;
                     let cur_x = if delta < 0 {
-                        41 - ((delta.unsigned_abs() as u32 * 30) / stick_target).min(30) as i32
+                        41 - ((delta.unsigned_abs() * 30) / stick_target).min(30) as i32
                     } else {
                         41 + ((delta as u32 * 30) / stick_target).min(30) as i32
                     };
@@ -336,7 +334,7 @@ impl CalibWizard {
 
                 let p1_delta = current_raw[4] as i32 - self.centers[4] as i32;
                 let p1_x = if p1_delta < 0 {
-                    109 - ((p1_delta.unsigned_abs() as u32 * 16) / pot_target).min(16) as i32
+                    109 - ((p1_delta.unsigned_abs() * 16) / pot_target).min(16) as i32
                 } else {
                     109 + ((p1_delta as u32 * 16) / pot_target).min(16) as i32
                 };
@@ -378,7 +376,7 @@ impl CalibWizard {
 
                 let p2_delta = current_raw[5] as i32 - self.centers[5] as i32;
                 let p2_x = if p2_delta < 0 {
-                    109 - ((p2_delta.unsigned_abs() as u32 * 16) / pot_target).min(16) as i32
+                    109 - ((p2_delta.unsigned_abs() * 16) / pot_target).min(16) as i32
                 } else {
                     109 + ((p2_delta as u32 * 16) / pot_target).min(16) as i32
                 };

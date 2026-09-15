@@ -1,0 +1,47 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build-release:
+    name: Build & Release Firmware Artifacts
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: thumbv6m-none-eabi
+          components: llvm-tools-preview
+
+      - name: Install cargo-binutils
+        run: cargo install cargo-binutils || true
+
+      - name: Build firmware (release)
+        run: cargo build --release --target thumbv6m-none-eabi
+
+      - name: Generate Binary and Hex Artifacts
+        run: |
+          cargo objcopy --release -- -O binary flysky-i6x.bin
+          cargo objcopy --release -- -O ihex flysky-i6x.hex
+          cp target/thumbv6m-none-eabi/release/flysky-i6x-rs flysky-i6x.elf
+          sha256sum flysky-i6x.bin flysky-i6x.hex flysky-i6x.elf > sha256sums.txt
+          cat sha256sums.txt
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            flysky-i6x.bin
+            flysky-i6x.hex
+            flysky-i6x.elf
+            sha256sums.txt
+          generate_release_notes: true

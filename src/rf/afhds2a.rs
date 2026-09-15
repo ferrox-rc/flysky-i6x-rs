@@ -205,7 +205,7 @@ impl Afhds2a {
 
                 // Autonomous periodic failsafe broadcast: every 1,569 packets (~6.0s at 260 Hz),
                 // refresh receiver failsafe register memory even if downlink frames were dropped.
-                if self.next_packet_type == PacketType::Sticks && (self.telemetry.packets_sent % 1569 == 0) {
+                if self.next_packet_type == PacketType::Sticks && self.telemetry.packets_sent.is_multiple_of(1569) {
                     self.next_packet_type = PacketType::Failsafe;
                 }
 

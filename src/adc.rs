@@ -32,7 +32,7 @@ const GPIOC_MODER: *mut u32 = 0x4800_0800 as *mut u32;
 const GPIOC_PUPDR: *mut u32 = 0x4800_080C as *mut u32;
 
 const ADC1_BASE: usize = 0x4001_2400;
-const ADC1_ISR: *mut u32 = (ADC1_BASE + 0x00) as *mut u32;
+const ADC1_ISR: *mut u32 = ADC1_BASE as *mut u32;
 const ADC1_CR: *mut u32 = (ADC1_BASE + 0x08) as *mut u32;
 const ADC1_CFGR1: *mut u32 = (ADC1_BASE + 0x0C) as *mut u32;
 const ADC1_CFGR2: *mut u32 = (ADC1_BASE + 0x10) as *mut u32;
@@ -45,7 +45,7 @@ const DMA1_ISR: *mut u32 = DMA1_BASE as *mut u32;
 const DMA1_IFCR: *mut u32 = (DMA1_BASE + 0x04) as *mut u32;
 
 const DMA1_CH1_BASE: usize = 0x4002_0008;
-const DMA1_CH1_CCR: *mut u32 = (DMA1_CH1_BASE + 0x00) as *mut u32;
+const DMA1_CH1_CCR: *mut u32 = DMA1_CH1_BASE as *mut u32;
 const DMA1_CH1_CNDTR: *mut u32 = (DMA1_CH1_BASE + 0x04) as *mut u32;
 const DMA1_CH1_CPAR: *mut u32 = (DMA1_CH1_BASE + 0x08) as *mut u32;
 const DMA1_CH1_CMAR: *mut u32 = (DMA1_CH1_BASE + 0x0C) as *mut u32;

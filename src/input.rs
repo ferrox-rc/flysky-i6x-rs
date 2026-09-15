@@ -214,13 +214,13 @@ pub fn init() {
 
     unsafe {
         // Slightly refine spring-loaded resting center if within reasonable range (1500..2500)
-        if avg_roll >= 1500 && avg_roll <= 2500 {
+        if (1500..=2500).contains(&avg_roll) {
             (*core::ptr::addr_of_mut!(ROLL_CALIB)).center = avg_roll;
         }
-        if avg_pitch >= 1500 && avg_pitch <= 2500 {
+        if (1500..=2500).contains(&avg_pitch) {
             (*core::ptr::addr_of_mut!(PITCH_CALIB)).center = avg_pitch;
         }
-        if avg_yaw >= 1500 && avg_yaw <= 2500 {
+        if (1500..=2500).contains(&avg_yaw) {
             (*core::ptr::addr_of_mut!(YAW_CALIB)).center = avg_yaw;
         }
     }

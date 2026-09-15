@@ -54,8 +54,8 @@ pub fn read_uid(profile: &McuProfile) -> [u8; 12] {
     let mut uid = [0u8; 12];
     unsafe {
         let src = profile.uid_addr as *const u8;
-        for i in 0..12 {
-            uid[i] = ptr::read_volatile(src.add(i));
+        for (i, byte) in uid.iter_mut().enumerate() {
+            *byte = ptr::read_volatile(src.add(i));
         }
     }
     uid

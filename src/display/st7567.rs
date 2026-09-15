@@ -151,7 +151,7 @@ impl St7567 {
                 // Stock backlight ON
                 ptr::write_volatile(GPIOF_BSRR, 1 << 3);
                 // PC9 PWM duty (0..999)
-                let duty = ((pct.min(100) as u32 * 999) / 100) as u32;
+                let duty = (pct.min(100) as u32 * 999) / 100;
                 ptr::write_volatile(0x4000_0440 as *mut u32, duty);
             }
         }
