@@ -11,6 +11,7 @@ pub mod serial;
 use crate::input::Switches;
 use crate::rf::afhds2a::TelemetryData;
 use serial::SerialHandler;
+use stm32f0xx_hal::pac::interrupt;
 use stm32_usbd::{MemoryAccess, UsbBus, UsbPeripheral};
 use usb_device::{
     bus::UsbBusAllocator,
@@ -90,7 +91,14 @@ pub fn init(mode: u8) {
     unsafe {
         CURRENT_MODE = usb_mode;
 
-        // 1. Force physical disconnect on host PC by disabling DPPU and driving PA11 (D-) and PA12 (D+) LOW
+        // 1. Mask USB interrupt in NVIC during disconnect & reconfiguration
+        cortex_m::peripheral::NVIC::mask(stm32f0xx_hal::pac::Interrupt::USB);
+
+        // 2. Ensure USB peripheral clock is enabled so BCDR and peripheral registers can be written
+        let rcc_apb1enr = 0x4002_101C as *mut u32;
+        core::ptr::write_volatile(rcc_apb1enr, core::ptr::read_volatile(rcc_apb1enr) | (1 << 23));
+
+        // 3. Disable DPPU in BCDR and drive PA11 (D-) and PA12 (D+) LOW (SE0) to force physical disconnect on host PC
         let bcdr = 0x4000_5C58 as *mut u32;
         core::ptr::write_volatile(bcdr, 0); // Disable DPPU
 
@@ -103,22 +111,21 @@ pub fn init(mode: u8) {
             (moder & !((0b11 << 22) | (0b11 << 24))) | ((0b01 << 22) | (0b01 << 24)),
         );
         core::ptr::write_volatile(gpioa_bsrr, (1 << (11 + 16)) | (1 << (12 + 16)));
-        cortex_m::asm::delay(2_400_000); // ~150 ms delay to guarantee host root hub detects physical disconnect
+        cortex_m::asm::delay(4_000_000); // ~250 ms delay to guarantee host root hub detects physical disconnect
 
-        // 2. Hardware peripheral reset via RCC APB1RSTR (bit 23 = USBRST)
+        // 4. Hardware peripheral reset via RCC APB1RSTR (bit 23 = USBRST)
         let rcc_apb1rstr = 0x4002_1010 as *mut u32;
         core::ptr::write_volatile(rcc_apb1rstr, core::ptr::read_volatile(rcc_apb1rstr) | (1 << 23));
         cortex_m::asm::delay(48_000);
         core::ptr::write_volatile(rcc_apb1rstr, core::ptr::read_volatile(rcc_apb1rstr) & !(1 << 23));
 
-        // 3. Drop existing USB stack instances
+        // 5. Drop existing USB stack instances
         USB_DEV = None;
         USB_HID = None;
         USB_SERIAL = None;
         USB_ALLOCATOR = None;
         SERIAL_HANDLER = SerialHandler::new();
 
-        let rcc_apb1enr = 0x4002_101C as *mut u32;
         if usb_mode == UsbMode::Off {
             // Disable USB peripheral clock
             core::ptr::write_volatile(rcc_apb1enr, core::ptr::read_volatile(rcc_apb1enr) & !(1 << 23));
@@ -127,9 +134,6 @@ pub fn init(mode: u8) {
             core::ptr::write_volatile(gpioa_moder, moder | (0b11 << 22) | (0b11 << 24));
             return;
         }
-
-        // Enable USB peripheral clock
-        core::ptr::write_volatile(rcc_apb1enr, core::ptr::read_volatile(rcc_apb1enr) | (1 << 23));
 
         // Configure PA11 & PA12 as AF0 (USB_DM & USB_DP)
         let gpioa_afrh = 0x4800_0024 as *mut u32;
@@ -144,7 +148,7 @@ pub fn init(mode: u8) {
         // Stabilization delay
         cortex_m::asm::delay(48_000);
 
-        // 4. Setup UsbBus allocator
+        // 6. Setup UsbBus allocator
         let bus = FlyskyUsbBus::new(FlyskyUsb);
         USB_ALLOCATOR = Some(bus);
         let alloc = match USB_ALLOCATOR.as_ref() {
@@ -152,7 +156,7 @@ pub fn init(mode: u8) {
             None => return,
         };
 
-        // 5. Initialize classes based on mode
+        // 7. Initialize classes based on mode
         match usb_mode {
             UsbMode::Joystick => {
                 let hid = HIDClass::new_ep_in(alloc, hid::GAMEPAD_REPORT_DESC, 10);
@@ -180,7 +184,7 @@ pub fn init(mode: u8) {
                     "FS-i6X Serial",
                     "FS-I6X-VCP",
                 )
-                .device_class(usbd_serial::USB_CLASS_CDC)
+                .composite_with_iads()
                 .build();
                 USB_DEV = Some(dev);
             }
@@ -203,6 +207,19 @@ pub fn init(mode: u8) {
             }
             UsbMode::Off => {}
         }
+
+        // 8. Configure NVIC for USB Interrupt (IRQ 31)
+        // Priority 0xC0 (level 3, lowest) so RF interrupts (EXTI2_3 & TIM16 at 0x80) strictly preempt USB
+        const NVIC_IPR7: *mut u32 = 0xE000_E41C as *mut u32;
+        let ipr7 = core::ptr::read_volatile(NVIC_IPR7);
+        core::ptr::write_volatile(NVIC_IPR7, (ipr7 & !(0xFF << 24)) | (0xC0 << 24));
+
+        // Clear any pending interrupt on IRQ 31
+        const NVIC_ICPR: *mut u32 = 0xE000_E280 as *mut u32;
+        core::ptr::write_volatile(NVIC_ICPR, 1 << 31);
+
+        // Unmask USB interrupt in NVIC
+        cortex_m::peripheral::NVIC::unmask(stm32f0xx_hal::pac::Interrupt::USB);
     }
 }
 
@@ -230,6 +247,55 @@ fn create_device_builder<'a>(
     }
 }
 
+/// USB Interrupt Handler (IRQ 31).
+/// Drains all pending USB peripheral hardware events immediately with sub-microsecond latency,
+/// guaranteeing timely response to enumeration requests (GET_DESCRIPTOR, SET_ADDRESS, SET_CONFIGURATION).
+#[interrupt]
+fn USB() {
+    on_interrupt();
+}
+
+pub fn on_interrupt() {
+    unsafe {
+        let dev = match USB_DEV.as_mut() {
+            Some(d) => d,
+            None => return,
+        };
+
+        // Drain all pending events in hardware registers
+        loop {
+            let handled = match CURRENT_MODE {
+                UsbMode::Joystick => {
+                    if let Some(hid) = USB_HID.as_mut() {
+                        dev.poll(&mut [hid])
+                    } else {
+                        false
+                    }
+                }
+                UsbMode::Serial => {
+                    if let Some(serial) = USB_SERIAL.as_mut() {
+                        dev.poll(&mut [serial])
+                    } else {
+                        false
+                    }
+                }
+                UsbMode::Composite => {
+                    if let (Some(hid), Some(serial)) = (USB_HID.as_mut(), USB_SERIAL.as_mut()) {
+                        dev.poll(&mut [hid, serial])
+                    } else {
+                        false
+                    }
+                }
+                UsbMode::Off => false,
+            };
+
+            if !handled {
+                break;
+            }
+        }
+    }
+}
+
 /// Periodic USB task (called from the main loop).
 /// Dispatches HID reports at ~100 Hz (10 ms) and services serial CLI & telemetry.
 pub fn poll(
@@ -245,35 +311,15 @@ pub fn poll(
             return;
         }
 
-        let dev = match USB_DEV.as_mut() {
-            Some(d) => d,
-            None => return,
-        };
-
-        // Poll USB bus events
-        match mode {
-            UsbMode::Joystick => {
-                if let Some(hid) = USB_HID.as_mut() {
-                    dev.poll(&mut [hid]);
-                }
-            }
-            UsbMode::Serial => {
-                if let Some(serial) = USB_SERIAL.as_mut() {
-                    dev.poll(&mut [serial]);
-                    SERIAL_HANDLER.update(serial, rf_chs, telem, battery_mv);
-                }
-            }
-            UsbMode::Composite => {
-                if let (Some(hid), Some(serial)) = (USB_HID.as_mut(), USB_SERIAL.as_mut()) {
-                    dev.poll(&mut [hid, serial]);
-                    SERIAL_HANDLER.update(serial, rf_chs, telem, battery_mv);
-                }
-            }
-            UsbMode::Off => return,
-        }
-
         // Only send reports when USB is configured and active
-        if dev.state() != UsbDeviceState::Configured {
+        let is_configured = cortex_m::interrupt::free(|_| {
+            USB_DEV
+                .as_ref()
+                .map(|d| d.state() == UsbDeviceState::Configured)
+                .unwrap_or(false)
+        });
+
+        if !is_configured {
             return;
         }
 
@@ -282,41 +328,45 @@ pub fn poll(
             && now_ms.wrapping_sub(LAST_POLL_MS) >= 10
         {
             LAST_POLL_MS = now_ms;
-            if let Some(ref mut hid) = USB_HID.as_mut() {
-                let mut report = [0u8; hid::REPORT_SIZE];
-                hid::build_gamepad_report(rf_chs, switches, &mut report);
-                let _ = hid.push_raw_input(&report);
-            }
+            cortex_m::interrupt::free(|_| {
+                if let Some(ref mut hid) = USB_HID.as_mut() {
+                    let mut report = [0u8; hid::REPORT_SIZE];
+                    hid::build_gamepad_report(rf_chs, switches, &mut report);
+                    let _ = hid.push_raw_input(&report);
+                }
+            });
         }
 
         // Periodic telemetry streaming over Serial in Serial/Composite modes (at 20 Hz / 50 ms)
-        if (mode == UsbMode::Serial || mode == UsbMode::Composite)
-            && now_ms.wrapping_sub(LAST_TELEM_STREAM_MS) >= 50
-        {
-            LAST_TELEM_STREAM_MS = now_ms;
-            if let Some(ref mut serial) = USB_SERIAL.as_mut() {
-                SERIAL_HANDLER.send_telemetry_line(serial, rf_chs, telem, battery_mv);
-            }
+        if mode == UsbMode::Serial || mode == UsbMode::Composite {
+            cortex_m::interrupt::free(|_| {
+                if let Some(ref mut serial) = USB_SERIAL.as_mut() {
+                    SERIAL_HANDLER.update(serial, rf_chs, telem, battery_mv);
+                    if now_ms.wrapping_sub(LAST_TELEM_STREAM_MS) >= 50 {
+                        LAST_TELEM_STREAM_MS = now_ms;
+                        SERIAL_HANDLER.send_telemetry_line(serial, rf_chs, telem, battery_mv);
+                    }
+                }
+            });
         }
     }
 }
 
 /// Check if the USB device is currently enumerated and configured by the host PC.
 pub fn is_connected() -> bool {
-    unsafe {
+    cortex_m::interrupt::free(|_| unsafe {
         USB_DEV
             .as_ref()
             .map(|d| d.state() == UsbDeviceState::Configured)
             .unwrap_or(false)
-    }
+    })
 }
 
 /// Check if the radio is actively in Joystick / Simulator mode and connected.
 /// When true, the RF transceiver is placed in Standby (zero RF emission / silent running).
 pub fn is_sim_mode() -> bool {
-    unsafe {
-        CURRENT_MODE == UsbMode::Joystick && is_connected()
-    }
+    let is_joy = unsafe { CURRENT_MODE == UsbMode::Joystick };
+    is_joy && is_connected()
 }
 
 /// Get currently active USB mode.

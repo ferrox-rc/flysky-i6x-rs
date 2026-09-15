@@ -404,6 +404,9 @@ fn main() -> ! {
         // Lock RF transmission to safe idle/failsafe during warning
         rf::set_channels(&[1500, 1500, 1000, 1500, 1000, 1000, 1500, 1500, 1000, 1000, 1500, 1500, 1500, 1500]);
 
+        // Service USB subsystem so host enumeration and connection succeed during preflight safety hold
+        usb::poll(now, &[1500, 1500, 1000, 1500, 1000, 1000, 1500, 1500, 1000, 1000, 1500, 1500, 1500, 1500], &state.switches, &rf::get_telemetry(), state.battery_mv);
+
         // Beep alarm every 800 ms
         if now.wrapping_sub(preflight_beep_timer) >= 800 {
             preflight_beep_timer = now;
