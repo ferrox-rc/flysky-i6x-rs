@@ -83,10 +83,11 @@ pub struct ModelConfig {
     pub wing_tail_mix: u8,         // 0: Normal, 1: Elevon/Delta, 2: V-Tail, 3: Flaperon
     pub template_diff: i8,         // Differential / mix ratio (-100..+100)
     pub mixes: [MixLine; 8],       // 8 freeform mix rules (8 * 6 = 48 bytes)
-    pub failsafe_mode: u8,         // 0: Hold last, 1: Custom pulses
-    pub failsafe_timeout: u8,      // 10..50 (1.0s..5.0s)
-    pub rf_protocol: u8,           // 0: AFHDS 2A, 1: CRSF / ELRS
-    pub _reserved: [u8; 13],       // Reserved expansion space (Total: 128 bytes)
+    pub failsafe_mode: u8,         // 112: 0: Hold last, 1: Custom pulses
+    pub failsafe_timeout: u8,      // 113: 10..50 (1.0s..5.0s)
+    pub rf_protocol: u8,           // 114: 0: AFHDS 2A, 1: CRSF / ELRS
+    pub crsf_baud: u8,             // 115: 0: 420k, 1: 416.6k, 2: 115.2k, 3: 921.6k
+    pub _reserved: [u8; 12],       // 116..128: 12 reserved bytes (Total: 128 bytes)
 }
 
 /// Unified Flash image layout (exactly 2,688 bytes)

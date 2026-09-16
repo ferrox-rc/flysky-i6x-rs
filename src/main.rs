@@ -18,6 +18,7 @@ mod boot;
 mod buzzer;
 mod calib;
 mod chip;
+mod crsf;
 mod curve;
 mod display;
 mod input;
@@ -325,6 +326,9 @@ fn main() -> ! {
     // Initialize USB peripheral (Joystick / Serial / Composite / Off)
     usb::init(storage.radio.usb_mode);
 
+    // Initialize CRSF / ExpressLRS expansion bay peripheral (USART2 & PC13)
+    crsf::init();
+
     let mut trims = trim::TrimController::new();
     trims.throttle_enabled = storage.radio.throttle_trim != 0;
 
@@ -556,18 +560,45 @@ fn main() -> ! {
             storage.radio.throttle_trim,
         );
 
-        let telem = rf::get_telemetry();
-        let is_binding = rf::is_binding();
+        let is_crsf = active_model.rf_protocol == 1;
+        let sim_mode = usb::is_sim_mode();
+
+        if is_crsf {
+            // Enable CRSF UART and PC13 power switch (unless in USB Simulator mode)
+            let crsf_active = !sim_mode;
+            crsf::set_enabled(crsf_active, active_model.crsf_baud);
+            if crsf_active {
+                crsf::update_channels(now, &rf_chs);
+                crsf::poll_telemetry(now);
+            }
+            // Silence internal A7105 transceiver
+            rf::set_silenced(true);
+        } else {
+            // AFHDS 2A mode: disable CRSF external module and power switch
+            crsf::set_enabled(false, 0);
+            rf::set_silenced(sim_mode);
+            if !sim_mode {
+                rf::set_channels(&rf_chs);
+            }
+        }
+
+        // Map telemetry data for USB and display based on active protocol
+        let telem = if is_crsf {
+            let ct = crsf::get_telemetry();
+            rf::afhds2a::TelemetryData {
+                connected: ct.connected,
+                rssi: ct.uplink_link_quality, // Display Link Quality (0..100%) as primary link indicator
+                rx_voltage_mv: ct.rx_battery_mv,
+                packets_sent: 0,
+                packets_received: 0,
+            }
+        } else {
+            rf::get_telemetry()
+        };
+        let is_binding = !is_crsf && rf::is_binding();
 
         // Poll USB subsystem (Joystick HID @ 100Hz, Serial CLI / Telemetry)
         usb::poll(now, &rf_chs, &state.switches, &telem, state.battery_mv);
-
-        // In USB Joystick simulator mode, silence RF emissions to run cool and eliminate 2.4GHz radiation
-        let sim_mode = usb::is_sim_mode();
-        rf::set_silenced(sim_mode);
-        if !sim_mode {
-            rf::set_channels(&rf_chs);
-        }
 
         // Check dedicated Bind key (PF2) and Cancel key (bit 11) for binding and page navigation
         let bind_key_raw = (keys & (1 << 12)) != 0;
@@ -692,7 +723,7 @@ fn main() -> ! {
             .ok();
 
         // RF status pushed over to x = 65..95
-        if !rf_ok {
+        if !rf_ok && !is_crsf {
             let id = rf::get_last_chip_id();
             let mut err_buf = *b"E:00";
             err_buf[2] = HEX_CHARS[((id >> 4) & 0x0F) as usize];
@@ -724,6 +755,10 @@ fn main() -> ! {
                     .draw(&mut lcd)
                     .ok();
             }
+        } else if is_crsf {
+            Text::new("CRSF", Point::new(66, 9), text_style)
+                .draw(&mut lcd)
+                .ok();
         } else if rf::is_bound() {
             Text::new("RF:OK", Point::new(65, 9), text_style)
                 .draw(&mut lcd)
@@ -1004,6 +1039,8 @@ fn main() -> ! {
                     }
                     let r_str = core::str::from_utf8(&r_buf).unwrap_or("RSSI:--%");
                     Text::new(r_str, Point::new(64, 51), text_style).draw(&mut lcd).ok();
+                } else if is_crsf {
+                    Text::new("CRSF: DISCONNECTED", Point::new(2, 51), text_style).draw(&mut lcd).ok();
                 } else {
                     Text::new("AFHDS2A: DISCONNECTED", Point::new(2, 51), text_style).draw(&mut lcd).ok();
                 }

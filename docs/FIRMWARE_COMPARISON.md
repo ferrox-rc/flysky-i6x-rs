@@ -56,15 +56,15 @@ OpenI6X is an impressive feat of optimization, but it is fundamentally limited b
 
 | Firmware | Flash Used | Flash Free | Status |
 | :--- | :--- | :--- | :--- |
-| **`flysky-i6x-rs`** | **52.9 KB (41.3%)** | **~75.1 KB (58.7%)** | **Massive Headroom for Features** |
+| **`flysky-i6x-rs`** | **74.1 KB (57.9%)** | **~53.9 KB (42.1%)** | **Massive Headroom for Features** |
 | **Stock Firmware** | ~65 KB (50.8%) | ~63 KB (49.2%) | Closed Source / No Expansion |
 | **OpenI6X** | **121 KB (94.5%)** | **< 7 KB (< 5.5%)** | **Flash Starvation (Near Limit)** |
 
-- **Over 75 KB of Free Flash Headroom** allows massive future expansion:
+- **Over 53 KB of Free Flash Headroom** allows massive future expansion:
   - Multi-model storage profiles (20 slots supported).
   - Dual Rates, Expo, and 8-rule freeform matrix mixing with templates.
-  - Native CRSF / ELRS serial transmitter support via USART2 (`PD5`/`PA15`).
-  - Full telemetry sensor decoding (GPS coordinates, altitude, battery current, fuel capacity).
+  - Native CRSF / ExpressLRS serial transmitter support via USART2 (`PD5`/`PA15`) with selectable baud rates (420k, 416.6k, 115.2k, 921.6k) and `PC13` module power control.
+  - Full telemetry sensor decoding (Link quality, RSSI, flight battery voltage, current, capacity).
 
 ---
 

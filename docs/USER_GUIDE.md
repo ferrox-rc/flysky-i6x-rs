@@ -274,7 +274,11 @@ The Radio Setup menu features a scrollable 4-item viewport with 9px row heights 
 ### Submenu 9: Protocol Setup (`PROTOCOL SETUP`)
 Replaces the redundant bind menu with universal RF protocol management:
 - **`Proto: AFHDS 2A`**: Uses the built-in A7105 transceiver. Displays active model name and bound receiver ID (e.g. `Rx ID: 1A2B3C4D`). Pressing **`[OK]`** triggers receiver binding. Pressing **`[UP]`** or **`[DOWN]`** cycles protocol.
-- **`Proto: CRSF / ELRS`**: Prepares the radio for external Crossfire or ExpressLRS transmitter modules installed in the rear expansion bay. Displays port settings (`Port: Rear Bay (PD5)`, `Baud: 416666 (8N1)`). Pressing **`[UP]`** or **`[DOWN]`** cycles protocol.
+- **`Proto: CRSF / ELRS`**: Drives external Crossfire or ExpressLRS transmitter modules connected to the rear expansion bay (`PD5` TX, `PA15` RX) with hardware power control on `PC13`. Pressing **`[OK]`** toggles selection between the Protocol and Baud Rate row. Pressing **`[UP]`** or **`[DOWN]`** cycles options:
+  - `Baud: 420k (ELRS)`: Default recommended speed for ExpressLRS.
+  - `Baud: 416.6k (TBS)`: Standard TBS Crossfire module rate.
+  - `Baud: 115.2k (Low)`: Low-speed compatibility / diagnostic rate.
+  - `Baud: 921.6k (Fast)`: High-throughput ExpressLRS rate.
 
 ### Submenu 10: Channel Monitor (`CHANNEL MONITOR`)
 - Displays live pulse widths (1000..2000 µs) across all 14 channels with 40-pixel horizontal graphic bar indicators and exact microsecond numbers.
@@ -341,18 +345,33 @@ The firmware provides 4 convenient ways to initiate AFHDS 2A binding with clean 
 
 ---
 
-## 7. Firmware Flashing & DFU Recovery
+## 7. Firmware Flashing, Full Flash Backup, & DFU Recovery
 
-The firmware binary can be flashed via USB without specialized hardware programmer probes:
+The FlySky FS-i6X can be backed up and flashed directly over USB without specialized hardware programmer probes or soldering:
 
-1. **Enter DFU Bootloader**:
-   - Hold **Roll Left + Yaw Right** inward towards the power switch while switching on the radio.
-   - The screen remains black, and the transmitter enumerates over USB as `0483:df11` (STM32 BOOTLOADER).
-2. **Flash Binary**:
-   ```bash
-   dfu-util -a0 -s 0x08000000:leave -d 0483:df11 -D target/flysky-i6x-rs.bin
-   ```
-3. The radio will immediately reboot into the new firmware upon completion.
+### 1. Enter Factory ROM DFU Bootloader
+- With the transmitter powered off, hold **Roll Left + Yaw Right** inward towards the power switch while switching on the radio.
+- The LCD screen remains blank, and the transmitter enumerates over USB as `0483:df11` (STM32 BOOTLOADER in permanent factory ROM).
+
+### 2. Backup Entire Flash (RECOMMENDED)
+Before flashing any custom firmware, pull your entire 128 KB on-chip Flash memory to a local file for 100% safe, instant reversion:
+```bash
+# Backup complete 128 KB on-chip Flash (firmware + calibration + models)
+dfu-util -a 0 -s 0x08000000:131072 -U stock_backup.bin
+```
+
+### 3. Flash flysky-i6x-rs Firmware
+Flash the compiled binary via `dfu-util`:
+```bash
+dfu-util -a 0 -s 0x08000000:leave -D flysky-i6x.bin
+```
+The radio will immediately reboot into the new firmware upon completion.
+
+### 4. Restore / Revert Anytime
+You can restore your original stock or OpenI6X backup file at any time:
+```bash
+dfu-util -a 0 -s 0x08000000:leave -D stock_backup.bin
+```
 
 ---
 

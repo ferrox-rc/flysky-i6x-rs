@@ -238,8 +238,8 @@ Comprehensive technical documentation is maintained in the [`docs/`](docs/) dire
 - [x] Main Menu Item 9 repurposed as `Protocol Setup` supporting `AFHDS 2A` internal RF and preparatory support for external `CRSF / ELRS` transmitter modules.
 
 ### Current Firmware Footprint
-- **Flash ROM**: **70.4 KB** (70,372 bytes) used out of **128 KB** available (>57.6 KB / 45.0% free headroom).
-- **Static RAM**: **1.7 KB** (`.data` 1,388B + `.bss` 364B) out of **16 KB** available (**>89% SRAM free**).
+- **Flash ROM**: **74.1 KB** (74,108 bytes) used out of **128 KB** available (**>53.8 KB / 42.0% free headroom**).
+- **Static RAM**: **2.3 KB** (`.data` 1,776B + `.bss` 604B) out of **16 KB** available (**>85% SRAM free**).
 - **Non-Volatile Storage**: **2,688 bytes** allocated across Pages 62 & 63 (1,408 bytes free headroom).
 
 ---
@@ -249,26 +249,50 @@ Comprehensive technical documentation is maintained in the [`docs/`](docs/) dire
 | Action | Control | Notes |
 | :--- | :--- | :--- |
 | **Cycle Flight Pages** | **Tap `BIND` button** | Cycles through Page 1/4 (Gimbals), Page 2/4 (14-CH Monitor), Page 3/4 (Model Dashboard), and Page 4/4 (Telemetry Dashboard) |
-| **Open Settings Menu** | **Hold `OK` for 1.2s** | Opens 13 submenus: Model Select, Model Setup, D/R & Expo, Thr Curve, Wing/Mixer, Aux Channels, Ch Reverse, Radio Setup, RX Setup, Monitors, Calib, Diag, & Info |
+| **Open Settings Menu** | **Hold `OK` for 1.2s** | Opens 13 submenus: Model Select, Model Setup, D/R & Expo, Thr Curve, Wing/Mixer, Aux Channels, Ch Reverse, Radio Setup, Protocol Setup, Monitors, Calib, Diag, & Info |
 | **Rapid Menu / Value Scroll** | **Hold `UP` or `DOWN`** | Auto-repeats every 70 ms after 300 ms hold across all menus, character editing, and curve points |
 | **Direct Calibration (Boot)**| **Hold `OK` during Power-On** | Launches 2-step calibration wizard immediately on boot |
-| **Initiate Receiver Binding**| **Hold `BIND` (>= 1.0s)** | Starts binding from any flight page (or hold during power-on) |
+| **Initiate Receiver Binding**| **Hold `BIND` (>= 1.0s)** | Starts AFHDS 2A binding from any flight page (or hold during power-on) |
 | **Abort / Cancel Binding** | **Press `Cancel` (`ESC`)** | Exits binding mode immediately and restores normal RF |
-| **Tab / Advance Cursor** | **`OK` or `BIND` in Editors** | Advances character cursor in naming editor and point selection in curve editor |
+| **Tab / Advance Cursor** | **`OK` or `BIND` in Editors** | Advances character cursor in naming editor, point selection in curve editor, and field toggle in Protocol Setup |
 | **Enter DFU Bootloader (Boot)** | **Inward Trims + Power ON** | Push Roll Left & Yaw Right inward while switching on (Primary hardware recovery/flashing mode) |
 | **Digital Trims** | **4 Trim Rockers** | Single click + 90ms auto-repeat with audio pitch scaling |
 
 ---
 
-## 9. Flashing & Reversion
+## 9. Flashing, Full Flash Backup, & Reversion
 
-- **Flash via USB DFU (`dfu-util`):**
-  ```bash
-  dfu-util -a0 -s 0x08000000:leave -d 0483:df11 -D target/flysky-i6x-rs.bin
-  ```
-- **Revert to OpenTX / OpenI6X:**
-  Because the factory bootloader resides in permanent ROM, you can restore your original firmware anytime:
-  ```bash
-  dfu-util -a0 -s 0x08000000:leave -d 0483:df11 -D opentx_backup.bin
-  ```
+The stock FlySky FS-i6X features a built-in Micro-USB port wired directly to the microcontroller. Flashing or backing up requires **no soldering, no ST-Link probe, and no disassembly**:
+
+### Step 1: Enter Factory ROM DFU Mode
+1. Ensure the transmitter is switched **OFF**.
+2. Push both horizontal trim buttons inward towards the power switch (**Roll Left** + **Yaw Right**) and switch the radio **ON**.
+3. The LCD screen remains blank, and the transmitter enumerates over USB as `0483:df11` (STM32 BOOTLOADER in permanent factory ROM).
+
+### Step 2: Backup Entire Flash Memory (RECOMMENDED)
+Before flashing any custom firmware, pilots can pull their complete 128 KB on-chip Flash memory (including stock firmware, factory calibration, and existing model data) directly to a file for 100% safe, instant reversion:
+```bash
+# Pull complete 128 KB on-chip Flash to a local backup file:
+dfu-util -a 0 -s 0x08000000:131072 -U stock_backup.bin
+```
+
+### Step 3: Flash flysky-i6x-rs
+Flash the compiled release binary via USB DFU:
+```bash
+dfu-util -a 0 -s 0x08000000:leave -D flysky-i6x.bin
+```
+
+### Step 4: Revert to OpenTX / Stock Anytime
+Because the hardware DFU bootloader is stored in permanent, read-only system ROM by STMicroelectronics, the transmitter is **unbrickable**. You can restore your full flash backup at any time:
+```bash
+dfu-util -a 0 -s 0x08000000:leave -D stock_backup.bin
+```
+
+---
+
+## 10. Development Methodology & Note on AI Assistance
+
+This project was built through a **human-directed, AI-assisted development workflow** ("vibe-coding" with rigorous physical hardware bench testing). Having previously contributed to OpenI6X, domain knowledge of the FS-i6X hardware, pinouts, and protocol timings was used to direct LLM pair-programming tools to rapidly implement the `no_std` Rust architecture.
+
+Every subsystem (DMA ADC scanning, A7105 SPI/RF state machine, ST7567 parallel bus LCD, USB HID/CDC descriptors, USART2 CRSF/ELRS engine, and Flash storage) has been deployed and verified on real FlySky FS-i6X hardware. We welcome community code review, contributions, and PRs to continue refining and hardening the codebase!
 

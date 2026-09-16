@@ -232,6 +232,6 @@ Offset 64..128 : Reserved (64B)
 ```
 
 ### Protocol Selection (`ModelConfig`)
-In Menu Item 9 (**`Protocol Setup`**), the redundant bind menu was upgraded to support per-model protocol selection:
-- **`AFHDS 2A`**: Built-in A7105 transceiver. Pressing `[OK]` triggers receiver binding.
-- **`CRSF / ELRS`**: Prepares the radio for external Crossfire / ExpressLRS transmitters attached via the rear expansion bay (`PD5` TX / `PA15` RX @ 416,666 bps 8N1).
+In Menu Item 9 (**`Protocol Setup`**), the radio supports per-model RF output selection:
+- **`AFHDS 2A`**: Uses built-in A7105 transceiver. Pressing `[OK]` triggers receiver binding.
+- **`CRSF / ELRS`**: Drives external Crossfire / ExpressLRS transmitter modules connected to the rear expansion bay (`PD5` TX / `PA15` RX) with active power control on `PC13`. Pressing `[OK]` toggles between protocol and selectable baud rates (`420k (ELRS)`, `416.6k (TBS)`, `115.2k (Low)`, `921.6k (Fast)`). Field `crsf_baud` occupies byte 115 in `ModelConfig`.

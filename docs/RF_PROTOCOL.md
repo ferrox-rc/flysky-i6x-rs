@@ -10,13 +10,15 @@ The A7105 transceiver is connected to the STM32F072VB via SPI1 and auxiliary con
 
 | Pin | Function | Description |
 | :--- | :--- | :--- |
-| `PB3` | **SPI1_SCK** | SPI Clock (up to 12 MHz) |
-| `PB4` | **SPI1_MISO** | Data from A7105 |
-| `PB5` | **SPI1_MOSI** | Data to A7105 |
-| `PE12` | **CSN** | Chip Select (Active LOW) |
-| `PB2` | **GIO2 (IRQ)** | Active LOW interrupt: TX complete / RX sync detected |
-| `PE10` | **RF0** | TR Switch Control 0 |
-| `PE11` | **RF1** | TR Switch Control 1 |
+| `PE13` | **SPI1_SCK** | SPI Clock (AF1, up to 12 MHz) |
+| `PE14` | **SPI1_MISO** | Data from A7105 (AF1) |
+| `PE15` | **SPI1_MOSI** | Data to A7105 (AF1) |
+| `PE12` | **CSN** | Chip Select (Active LOW GPIO) |
+| `PB2` | **GIO2 (IRQ)** | Active LOW interrupt (EXTI2): TX complete / RX sync detected |
+| `PE8` | **RF_RX_EN** | Frontend LNA power switch |
+| `PE9` | **RF_TX_EN** | Frontend PA power switch |
+| `PE10` | **RF_RF0** | TR Diversity Antenna Switch 0 |
+| `PE11` | **RF_RF1** | TR Diversity Antenna Switch 1 |
 
 Implemented in [`src/rf/spi.rs`](../src/rf/spi.rs) and [`src/rf/a7105.rs`](../src/rf/a7105.rs).
 

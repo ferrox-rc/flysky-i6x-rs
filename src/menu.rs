@@ -1795,20 +1795,54 @@ impl MenuController {
                 }
 
                 let active_idx = storage.radio.active_model as usize;
+                let proto = storage.models[active_idx].rf_protocol;
 
-                if up_pressed || down_pressed {
-                    // Toggle protocol between 0: AFHDS 2A and 1: CRSF / ELRS
-                    storage.models[active_idx].rf_protocol = if storage.models[active_idx].rf_protocol == 0 { 1 } else { 0 };
-                    storage::save_storage(storage);
-                    buzzer.play_tone(2200, 30);
-                }
+                if proto == 0 {
+                    // AFHDS 2A view
+                    if up_pressed || down_pressed {
+                        storage.models[active_idx].rf_protocol = 1;
+                        self.selected_item = 0;
+                        storage::save_storage(storage);
+                        buzzer.play_tone(2200, 30);
+                    }
 
-                if ok_pressed {
-                    buzzer.click();
-                    if storage.models[active_idx].rf_protocol == 0 {
+                    if ok_pressed {
+                        buzzer.click();
                         self.request_bind = true;
                         self.state = MenuState::Closed; // Exit to main view to observe binding banner & cancel
                         return;
+                    }
+                } else {
+                    // CRSF / ELRS view: selected_item 0 = Proto, 1 = Baud Rate
+                    if ok_pressed {
+                        self.selected_item = (self.selected_item + 1) % 2;
+                        buzzer.click();
+                    }
+
+                    if self.selected_item == 0 {
+                        // Edit / toggle Protocol
+                        if up_pressed || down_pressed {
+                            storage.models[active_idx].rf_protocol = 0;
+                            self.selected_item = 0;
+                            storage::save_storage(storage);
+                            buzzer.play_tone(2200, 30);
+                        }
+                    } else {
+                        // Edit Baud Rate: 0=420k, 1=416.6k, 2=115.2k, 3=921.6k
+                        if up_pressed {
+                            storage.models[active_idx].crsf_baud = if storage.models[active_idx].crsf_baud > 0 {
+                                storage.models[active_idx].crsf_baud - 1
+                            } else {
+                                3
+                            };
+                            storage::save_storage(storage);
+                            buzzer.play_tone(2200, 30);
+                        }
+                        if down_pressed {
+                            storage.models[active_idx].crsf_baud = (storage.models[active_idx].crsf_baud + 1) % 4;
+                            storage::save_storage(storage);
+                            buzzer.play_tone(2200, 30);
+                        }
                     }
                 }
 
@@ -1838,12 +1872,36 @@ impl MenuController {
                     Line::new(Point::new(0, 52), Point::new(127, 52)).into_styled(border_style).draw(lcd).ok();
                     Text::new("[OK] Bind  [UP/DN] Proto", Point::new(2, 62), text_style_small).draw(lcd).ok();
                 } else {
-                    Text::new("Proto: CRSF / ELRS", Point::new(4, 22), text_style).draw(lcd).ok();
-                    Text::new("Port: Rear Bay (PD5)", Point::new(4, 32), text_style).draw(lcd).ok();
-                    Text::new("Baud: 416666 (8N1)", Point::new(4, 42), text_style).draw(lcd).ok();
+                    let sel_proto = self.selected_item == 0;
+                    let sel_baud = self.selected_item == 1;
+
+                    let p_arrow = if sel_proto { ">" } else { " " };
+                    let b_arrow = if sel_baud { ">" } else { " " };
+
+                    let mut p_buf = [b' '; 20];
+                    p_buf[0] = p_arrow.as_bytes()[0];
+                    p_buf[1..18].copy_from_slice(b"Proto: CRSF/ELRS ");
+                    let p_str = core::str::from_utf8(&p_buf[..18]).unwrap_or(">Proto: CRSF/ELRS");
+                    Text::new(p_str, Point::new(2, 22), text_style).draw(lcd).ok();
+
+                    Text::new(" Port: Rear (PD5)", Point::new(2, 32), text_style).draw(lcd).ok();
+
+                    let baud_str = match storage.models[active_idx].crsf_baud {
+                        0 => "Baud: 420k (ELRS)",
+                        1 => "Baud: 416.6k (TBS)",
+                        2 => "Baud: 115.2k (Low)",
+                        3 => "Baud: 921.6k (Fast)",
+                        _ => "Baud: 420k (ELRS)",
+                    };
+                    let mut b_buf = [b' '; 22];
+                    b_buf[0] = b_arrow.as_bytes()[0];
+                    let b_bytes = baud_str.as_bytes();
+                    b_buf[1..1 + b_bytes.len()].copy_from_slice(b_bytes);
+                    let full_b_str = core::str::from_utf8(&b_buf[..1 + b_bytes.len()]).unwrap_or(" Baud: 420k");
+                    Text::new(full_b_str, Point::new(2, 42), text_style).draw(lcd).ok();
 
                     Line::new(Point::new(0, 52), Point::new(127, 52)).into_styled(border_style).draw(lcd).ok();
-                    Text::new("[UP/DN] Proto  [ESC] Back", Point::new(2, 62), text_style_small).draw(lcd).ok();
+                    Text::new("[OK] Select  [UP/DN] Change", Point::new(2, 62), text_style_small).draw(lcd).ok();
                 }
             }
 

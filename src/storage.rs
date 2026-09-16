@@ -138,7 +138,8 @@ pub struct ModelConfig {
     pub failsafe_mode: u8,         // 112: 0: Hold last, 1: Custom pulses
     pub failsafe_timeout: u8,      // 113: 10..50 (1.0s..5.0s)
     pub rf_protocol: u8,           // 114: 0: AFHDS 2A, 1: CRSF / ELRS
-    pub _reserved: [u8; 13],       // 115..128: 13 reserved bytes
+    pub crsf_baud: u8,             // 115: 0: 420k, 1: 416.6k, 2: 115.2k, 3: 921.6k
+    pub _reserved: [u8; 12],       // 116..128: 12 reserved bytes
 }
 
 impl ModelConfig {
@@ -173,7 +174,8 @@ impl ModelConfig {
             failsafe_mode: 0,
             failsafe_timeout: 20,
             rf_protocol: 0,
-            _reserved: [0; 13],
+            crsf_baud: 0,
+            _reserved: [0; 12],
         }
     }
 }
@@ -232,6 +234,9 @@ impl RadioStorage {
         for (idx, m) in self.models.iter_mut().enumerate() {
             if m.rf_protocol > 1 {
                 m.rf_protocol = 0;
+            }
+            if m.crsf_baud > 3 {
+                m.crsf_baud = 0;
             }
             for axis in 0..3 {
                 if m.dr_high[axis] < 30 || m.dr_high[axis] > 100 {

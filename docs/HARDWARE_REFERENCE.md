@@ -226,8 +226,8 @@ The 4-pin round rear port (and internal expansion header) connects to the MCU's 
 
 | Pin / Net | MCU Pin | Function | Notes |
 | :--- | :--- | :--- | :--- |
-| **Signal TX** | `PD5` | `USART2_TX` (AF0) | Half-duplex or full-duplex asynchronous serial output |
-| **Signal RX** | `PA15` | `USART2_RX` (AF1) | Serial telemetry input |
+| **Signal TX** | `PD5` | `USART2_TX` (AF0) | Asynchronous serial output to external module |
+| **Signal RX** | `PA15` | `USART2_RX` (AF1) | Serial telemetry downlink from external module |
 | **Module Power**| `PC13` | Power Switch GPIO | High = Powers external RF module bay (VCC) |
-| **Baud Rate** | 416,666 bps | 8N1 | Standard Crossfire (CRSF) / ExpressLRS (ELRS) module baud rate |
+| **Baud Rate** | Selectable | 8N1 | 420k (ELRS), 416.6k (TBS), 115.2k (Low), 921.6k (Fast) |
 
