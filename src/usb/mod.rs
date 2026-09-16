@@ -75,14 +75,17 @@ impl UsbMode {
     }
 }
 
+pub type FlyskySerialPort<'a> = SerialPort<'a, FlyskyUsbBus, [u8; 128], [u8; 512]>;
+
 static mut USB_ALLOCATOR: Option<UsbBusAllocator<FlyskyUsbBus>> = None;
 static mut USB_DEV: Option<UsbDevice<'static, FlyskyUsbBus>> = None;
 static mut USB_HID: Option<HIDClass<'static, FlyskyUsbBus>> = None;
-static mut USB_SERIAL: Option<SerialPort<'static, FlyskyUsbBus>> = None;
+static mut USB_SERIAL: Option<FlyskySerialPort<'static>> = None;
 static mut SERIAL_HANDLER: SerialHandler = SerialHandler::new();
 static mut CURRENT_MODE: UsbMode = UsbMode::Off;
 static mut LAST_POLL_MS: u32 = 0;
 static mut LAST_TELEM_STREAM_MS: u32 = 0;
+static mut BANNER_SENT: bool = false;
 
 /// Initialize the hardware USB peripheral according to the configured USB mode.
 /// Supports on-the-fly switching between modes by forcing physical disconnect and core reset.
@@ -125,6 +128,7 @@ pub fn init(mode: u8) {
         USB_SERIAL = None;
         USB_ALLOCATOR = None;
         SERIAL_HANDLER = SerialHandler::new();
+        BANNER_SENT = false;
 
         if usb_mode == UsbMode::Off {
             // Disable USB peripheral clock
@@ -174,7 +178,7 @@ pub fn init(mode: u8) {
                 USB_DEV = Some(dev);
             }
             UsbMode::Serial => {
-                let serial = SerialPort::new(alloc);
+                let serial = SerialPort::new_with_store(alloc, [0u8; 128], [0u8; 512]);
                 USB_SERIAL = Some(serial);
 
                 let dev = create_device_builder(
@@ -190,7 +194,7 @@ pub fn init(mode: u8) {
             }
             UsbMode::Composite => {
                 let hid = HIDClass::new_ep_in(alloc, hid::GAMEPAD_REPORT_DESC, 10);
-                let serial = SerialPort::new(alloc);
+                let serial = SerialPort::new_with_store(alloc, [0u8; 128], [0u8; 512]);
                 USB_HID = Some(hid);
                 USB_SERIAL = Some(serial);
 
@@ -346,14 +350,20 @@ pub fn poll(
             });
         }
 
-        // Periodic telemetry streaming over Serial in Serial/Composite modes (at 20 Hz / 50 ms)
+        // Periodic telemetry streaming over Serial in Serial/Composite modes (at 10 Hz / 100 ms)
         if mode == UsbMode::Serial || mode == UsbMode::Composite {
             cortex_m::interrupt::free(|_| {
                 if let Some(ref mut serial) = USB_SERIAL.as_mut() {
+                    if !BANNER_SENT {
+                        BANNER_SENT = true;
+                        SERIAL_HANDLER.send_banner(serial);
+                    }
                     SERIAL_HANDLER.update(serial, rf_chs, telem, battery_mv);
-                    if now_ms.wrapping_sub(LAST_TELEM_STREAM_MS) >= 50 {
+                    if now_ms.wrapping_sub(LAST_TELEM_STREAM_MS) >= 100 {
                         LAST_TELEM_STREAM_MS = now_ms;
-                        SERIAL_HANDLER.send_telemetry_line(serial, rf_chs, telem, battery_mv);
+                        if SERIAL_HANDLER.is_streaming() {
+                            SERIAL_HANDLER.send_telemetry_line(serial, rf_chs, telem, battery_mv);
+                        }
                     }
                 }
             });
