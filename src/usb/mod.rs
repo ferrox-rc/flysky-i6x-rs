@@ -184,7 +184,7 @@ pub fn init(mode: u8) {
                     "FS-i6X Serial",
                     "FS-I6X-VCP",
                 )
-                .composite_with_iads()
+                .device_class(0x02) // USB_CLASS_CDC
                 .build();
                 USB_DEV = Some(dev);
             }
@@ -248,7 +248,7 @@ fn create_device_builder<'a>(
 }
 
 /// USB Interrupt Handler (IRQ 31).
-/// Drains all pending USB peripheral hardware events immediately with sub-microsecond latency,
+/// Drains pending USB peripheral hardware events with sub-microsecond latency,
 /// guaranteeing timely response to enumeration requests (GET_DESCRIPTOR, SET_ADDRESS, SET_CONFIGURATION).
 #[interrupt]
 fn USB() {
@@ -262,8 +262,9 @@ pub fn on_interrupt() {
             None => return,
         };
 
-        // Drain all pending events in hardware registers
-        loop {
+        // Poll the USB stack with bounded iterations (max 2) to prevent infinite loops
+        // while guaranteeing all back-to-back SETUP/CTR events are processed
+        for _ in 0..2 {
             let handled = match CURRENT_MODE {
                 UsbMode::Joystick => {
                     if let Some(hid) = USB_HID.as_mut() {

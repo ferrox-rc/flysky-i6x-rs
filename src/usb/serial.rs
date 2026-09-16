@@ -182,12 +182,6 @@ impl SerialHandler {
         }
         append!(b"]}\r\n");
 
-        let mut offset = 0;
-        while offset < pos {
-            match serial.write(&buf[offset..pos]) {
-                Ok(n) if n > 0 => offset += n,
-                _ => break,
-            }
-        }
+        let _ = serial.write(&buf[..pos]);
     }
 }

@@ -9,7 +9,7 @@ use crate::input::{SwitchPos, Switches};
 /// Matches OpenI6X and EdgeTX 11-bit simulator conventions.
 pub const GAMEPAD_REPORT_DESC: &[u8] = &[
     0x05, 0x01,        // Usage Page (Generic Desktop Ctrls)
-    0x09, 0x04,        // Usage (Joystick) - Avoids OS gamepad keyboard typing hotkeys
+    0x09, 0x04,        // Usage (Joystick)
     0xA1, 0x01,        // Collection (Application)
     0xA1, 0x00,        //   Collection (Physical)
     0x05, 0x09,        //     Usage Page (Button)
@@ -21,14 +21,15 @@ pub const GAMEPAD_REPORT_DESC: &[u8] = &[
     0x75, 0x01,        //     Report Size (1)
     0x81, 0x02,        //     Input (Data,Var,Abs) - 2 bytes buttons
     0x05, 0x01,        //     Usage Page (Generic Desktop Ctrls)
-    0x09, 0x30,        //     Usage (X)  - CH1 Roll / Aileron
-    0x09, 0x31,        //     Usage (Y)  - CH2 Pitch / Elevator
-    0x09, 0x32,        //     Usage (Z)  - CH3 Throttle
-    0x09, 0x35,        //     Usage (Rz) - CH4 Yaw / Rudder (Standard Rudder Axis)
-    0x09, 0x33,        //     Usage (Rx) - Potentiometer VRA (Dial 1)
-    0x09, 0x34,        //     Usage (Ry) - Potentiometer VRB (Dial 2)
-    0x09, 0x36,        //     Usage (Slider) - CH5 Aux 1
-    0x09, 0x37,        //     Usage (Dial)   - CH6 Aux 2
+    // EdgeTX Classic 8-Axis Standard:
+    0x09, 0x30,        //     Usage (X)      - CH1 Roll / Aileron
+    0x09, 0x31,        //     Usage (Y)      - CH2 Pitch / Elevator
+    0x09, 0x32,        //     Usage (Z)      - CH3 Throttle
+    0x09, 0x33,        //     Usage (Rx)     - CH4 Yaw / Rudder
+    0x09, 0x34,        //     Usage (Ry)     - CH5 Aux 1 (SA)
+    0x09, 0x35,        //     Usage (Rz)     - CH6 Aux 2 (SB)
+    0x09, 0x37,        //     Usage (Dial)   - CH7 Pot VRA
+    0x09, 0x36,        //     Usage (Slider) - CH8 Pot VRB
     0x16, 0x00, 0x00,  //     Logical Minimum (0)
     0x26, 0xFF, 0x07,  //     Logical Maximum (2047) - 11-bit resolution
     0x75, 0x10,        //     Report Size (16)
@@ -47,93 +48,94 @@ fn us_to_axis(us: u16) -> u16 {
     (((clamped - 1000) * 2047) / 1000) as u16
 }
 
-/// Build standard 18-byte HID Joystick report from live flight mixer channels and physical switches.
+/// Build standard 18-byte HID Joystick report matching EdgeTX/OpenTX conventions:
+/// - 8 axes directly map output channels CH1..CH8 (11-bit 0..2047)
+/// - 16 buttons map physical switch states and high channels without overlapping/double-triggering:
+///   - Button 1: Switch SA (Down)
+///   - Button 2: Switch SB (Mid)
+///   - Button 3: Switch SB (Down)
+///   - Button 4: Switch SC (Mid)
+///   - Button 5: Switch SC (Down)
+///   - Button 6: Switch SD (Down)
+///   - Buttons 7..14: Channels 7..14 (> 1650 µs threshold for auxiliary functions)
 pub fn build_gamepad_report(
     rf_chs: &[u16; 14],
     switches: &Switches,
     out: &mut [u8; REPORT_SIZE],
 ) {
     // 1. Digital Buttons (16 bits)
-    // Physical switches mapped directly to distinct digital buttons.
-    // In default neutral state (all switches UP), ALL buttons report 0 (released).
     let mut btns = 0u16;
 
-    // Button 1: Switch SA (2-position: Down)
+    // Physical switches mapped directly to dedicated discrete buttons:
+    // Neutral state (all switches UP) = all buttons released (0)
     if switches.sa == SwitchPos::Down {
-        btns |= 1 << 0;
+        btns |= 1 << 0; // Button 1
     }
-
-    // Button 2: Switch SB (3-position: Mid)
     if switches.sb == SwitchPos::Mid {
-        btns |= 1 << 1;
+        btns |= 1 << 1; // Button 2
     }
-    // Button 3: Switch SB (3-position: Down)
     if switches.sb == SwitchPos::Down {
-        btns |= 1 << 2;
+        btns |= 1 << 2; // Button 3
     }
-
-    // Button 4: Switch SC (3-position: Mid)
     if switches.sc == SwitchPos::Mid {
-        btns |= 1 << 3;
+        btns |= 1 << 3; // Button 4
     }
-    // Button 5: Switch SC (3-position: Down)
     if switches.sc == SwitchPos::Down {
-        btns |= 1 << 4;
+        btns |= 1 << 4; // Button 5
     }
-
-    // Button 6: Switch SD (2-position: Down)
     if switches.sd == SwitchPos::Down {
-        btns |= 1 << 5;
+        btns |= 1 << 5; // Button 6
     }
 
-    // Buttons 7..12: Channels 9..14 (active when pulse > 1500 µs)
-    for ch in 0..6 {
-        if rf_chs[8 + ch] > 1500 {
-            btns |= 1 << (6 + ch);
+    // Buttons 7..10: Channels 11..14 (for any extra logical mixer triggers, > 1750 µs)
+    // Only Channels 11..14 to prevent double-reporting SC (CH9) or SD (CH10)
+    for (i, &pulse) in rf_chs[10..14].iter().enumerate() {
+        if pulse > 1750 {
+            btns |= 1 << (6 + i);
         }
     }
 
     out[0] = (btns & 0xFF) as u8;
     out[1] = ((btns >> 8) & 0xFF) as u8;
 
-    // 2. Analog Axes (8 x 16-bit, little endian)
-    // Axis 1 (X):  CH1 (Roll / Aileron)
+    // 2. Analog Axes (8 x 16-bit, little endian) - 1:1 with CH1..CH8
+    // Axis 1 (X):      CH1 (Roll / Aileron)
     let a1 = us_to_axis(rf_chs[0]);
     out[2] = (a1 & 0xFF) as u8;
     out[3] = ((a1 >> 8) & 0xFF) as u8;
 
-    // Axis 2 (Y):  CH2 (Pitch / Elevator)
+    // Axis 2 (Y):      CH2 (Pitch / Elevator)
     let a2 = us_to_axis(rf_chs[1]);
     out[4] = (a2 & 0xFF) as u8;
     out[5] = ((a2 >> 8) & 0xFF) as u8;
 
-    // Axis 3 (Z):  CH3 (Throttle)
+    // Axis 3 (Z):      CH3 (Throttle)
     let a3 = us_to_axis(rf_chs[2]);
     out[6] = (a3 & 0xFF) as u8;
     out[7] = ((a3 >> 8) & 0xFF) as u8;
 
-    // Axis 4 (Rz): CH4 (Yaw / Rudder) - Rotational Z is standard for Rudder
+    // Axis 4 (Rx):     CH4 (Yaw / Rudder)
     let a4 = us_to_axis(rf_chs[3]);
     out[8] = (a4 & 0xFF) as u8;
     out[9] = ((a4 >> 8) & 0xFF) as u8;
 
-    // Axis 5 (Rx): Potentiometer VRA (CH7 in default mixer)
-    let a5 = us_to_axis(rf_chs[6]);
+    // Axis 5 (Ry):     CH5 (Aux 1 / Switch SA)
+    let a5 = us_to_axis(rf_chs[4]);
     out[10] = (a5 & 0xFF) as u8;
     out[11] = ((a5 >> 8) & 0xFF) as u8;
 
-    // Axis 6 (Ry): Potentiometer VRB (CH8 in default mixer)
-    let a6 = us_to_axis(rf_chs[7]);
+    // Axis 6 (Rz):     CH6 (Aux 2 / Switch SB)
+    let a6 = us_to_axis(rf_chs[5]);
     out[12] = (a6 & 0xFF) as u8;
     out[13] = ((a6 >> 8) & 0xFF) as u8;
 
-    // Axis 7 (Slider): CH5 Aux 1 (Switch SA / channel 5)
-    let a7 = us_to_axis(rf_chs[4]);
+    // Axis 7 (Dial):   CH7 (Pot VRA)
+    let a7 = us_to_axis(rf_chs[6]);
     out[14] = (a7 & 0xFF) as u8;
     out[15] = ((a7 >> 8) & 0xFF) as u8;
 
-    // Axis 8 (Dial):   CH6 Aux 2 (Switch SB / channel 6)
-    let a8 = us_to_axis(rf_chs[5]);
+    // Axis 8 (Slider): CH8 (Pot VRB)
+    let a8 = us_to_axis(rf_chs[7]);
     out[16] = (a8 & 0xFF) as u8;
     out[17] = ((a8 >> 8) & 0xFF) as u8;
 }
