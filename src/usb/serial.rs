@@ -39,7 +39,7 @@ impl SerialHandler {
             cmd_buf: [0u8; 64],
             cmd_len: 0,
             last_was_cr: false,
-            stream_enabled: true,
+            stream_enabled: false, // Default OFF: clean interactive CLI on connect
         }
     }
 
@@ -78,9 +78,9 @@ impl SerialHandler {
             serial,
             concat!(
                 "\r\n========================================\r\n",
-                " FlySky FS-i6X Telemetry CLI v",
+                " FlySky FS-i6X CLI v",
                 env!("CARGO_PKG_VERSION"),
-                "\r\n Type 'help' for commands\r\n",
+                "\r\n Type 'help' for commands, 'stream' for telemetry\r\n",
                 "========================================\r\n",
                 "i6x> "
             )
@@ -103,6 +103,15 @@ impl SerialHandler {
             let b = self.rx_queue[self.rx_tail];
             self.rx_tail = (self.rx_tail + 1) % self.rx_queue.len();
 
+            // While actively streaming telemetry, any key press pauses streaming and returns to CLI prompt
+            if self.stream_enabled {
+                self.stream_enabled = false;
+                self.cmd_len = 0;
+                self.last_was_cr = false;
+                write_all(serial, b"\r\n[Stream paused]\r\ni6x> ");
+                continue;
+            }
+
             if b == b'\r' || b == b'\n' {
                 let is_crlf_second = b == b'\n' && self.last_was_cr;
                 self.last_was_cr = b == b'\r';
@@ -112,7 +121,9 @@ impl SerialHandler {
                         self.handle_command(serial, rf_chs, telem, battery_mv);
                         self.cmd_len = 0;
                     }
-                    write_all(serial, b"i6x> ");
+                    if !self.stream_enabled {
+                        write_all(serial, b"i6x> ");
+                    }
                 }
             } else if b == 0x08 || b == 0x7F {
                 self.last_was_cr = false;
@@ -143,7 +154,7 @@ impl SerialHandler {
         if cmd.eq_ignore_ascii_case("help") {
             write_all(
                 serial,
-                b"Commands:\r\n  help      - Show this help\r\n  status    - Firmware & battery info\r\n  channels  - Dump RF channel values\r\n  telem     - Dump single telemetry frame\r\n  telem on  - Enable continuous telemetry streaming\r\n  telem off - Disable continuous telemetry streaming\r\n  reboot    - Reboot transmitter\r\n",
+                b"Commands:\r\n  help      - Show this help\r\n  status    - Firmware & battery info\r\n  channels  - Dump RF channel values (CH1..CH14)\r\n  telem     - Dump single telemetry frame\r\n  stream    - Start continuous telemetry streaming (any key to stop)\r\n  reboot    - Reboot transmitter\r\n",
             );
         } else if cmd.eq_ignore_ascii_case("status") {
             write_all(serial, concat!("FlySky FS-i6X Rust Firmware v", env!("CARGO_PKG_VERSION"), "\r\n").as_bytes());
@@ -176,9 +187,9 @@ impl SerialHandler {
             write_all(serial, &cbuf[..pos]);
         } else if cmd.eq_ignore_ascii_case("telem") {
             self.send_telemetry_line(serial, rf_chs, telem, battery_mv);
-        } else if cmd.eq_ignore_ascii_case("telem on") {
+        } else if cmd.eq_ignore_ascii_case("stream") || cmd.eq_ignore_ascii_case("telem on") || cmd.eq_ignore_ascii_case("telem stream") {
             self.stream_enabled = true;
-            write_all(serial, b"Telemetry streaming enabled\r\n");
+            write_all(serial, b"[Streaming telemetry @ 10Hz. Press any key to stop.]\r\n");
         } else if cmd.eq_ignore_ascii_case("telem off") {
             self.stream_enabled = false;
             write_all(serial, b"Telemetry streaming disabled\r\n");
@@ -232,15 +243,26 @@ impl SerialHandler {
 
         macro_rules! append_volt {
             ($mv:expr) => {
-                let v = ($mv / 1000) as u8;
-                let d1 = (($mv % 1000) / 100) as u8;
-                let d2 = (($mv % 100) / 10) as u8;
-                let mut v_buf = [b'0'; 4];
-                v_buf[0] = b'0' + v;
-                v_buf[1] = b'.';
-                v_buf[2] = b'0' + d1;
-                v_buf[3] = b'0' + d2;
-                append!(&v_buf);
+                let v = ($mv / 1000) as u32;
+                let rem = ($mv % 1000) as u32;
+                let d1 = (rem / 100) as u8;
+                let d2 = ((rem % 100) / 10) as u8;
+                if v >= 10 {
+                    let mut v_buf = [b'0'; 5];
+                    v_buf[0] = b'0' + ((v / 10) % 10) as u8;
+                    v_buf[1] = b'0' + (v % 10) as u8;
+                    v_buf[2] = b'.';
+                    v_buf[3] = b'0' + d1;
+                    v_buf[4] = b'0' + d2;
+                    append!(&v_buf);
+                } else {
+                    let mut v_buf = [b'0'; 4];
+                    v_buf[0] = b'0' + (v as u8);
+                    v_buf[1] = b'.';
+                    v_buf[2] = b'0' + d1;
+                    v_buf[3] = b'0' + d2;
+                    append!(&v_buf);
+                }
             };
         }
 
