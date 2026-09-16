@@ -7,19 +7,46 @@ use crate::rf::afhds2a::TelemetryData;
 use usbd_serial::SerialPort;
 
 pub struct SerialHandler {
-    rx_buf: [u8; 64],
-    rx_len: usize,
+    rx_queue: [u8; 128],
+    rx_head: usize,
+    rx_tail: usize,
+    cmd_buf: [u8; 64],
+    cmd_len: usize,
 }
 
 impl SerialHandler {
     pub const fn new() -> Self {
         Self {
-            rx_buf: [0u8; 64],
-            rx_len: 0,
+            rx_queue: [0u8; 128],
+            rx_head: 0,
+            rx_tail: 0,
+            cmd_buf: [0u8; 64],
+            cmd_len: 0,
         }
     }
 
-    /// Process incoming data and write pending telemetry frames.
+    /// Drain incoming data from the USB serial OUT endpoint into the internal FIFO queue.
+    /// MUST be called from the USB interrupt handler (or when polling) so that
+    /// the STM32 hardware `CTR_RX` flag on the CDC OUT endpoint is cleared.
+    /// Leaving `CTR_RX` asserted triggers an infinite NVIC interrupt storm on IRQ 31,
+    /// which starves the CPU and hangs the transmitter.
+    pub fn drain_rx<B: usb_device::bus::UsbBus>(&mut self, serial: &mut SerialPort<B>) {
+        let mut buf = [0u8; 64];
+        while let Ok(count) = serial.read(&mut buf) {
+            if count == 0 {
+                break;
+            }
+            for &b in &buf[..count] {
+                let next = (self.rx_head + 1) % self.rx_queue.len();
+                if next != self.rx_tail {
+                    self.rx_queue[self.rx_head] = b;
+                    self.rx_head = next;
+                }
+            }
+        }
+    }
+
+    /// Process queued incoming data from the main loop and write pending telemetry frames.
     pub fn update<B: usb_device::bus::UsbBus>(
         &mut self,
         serial: &mut SerialPort<B>,
@@ -27,26 +54,29 @@ impl SerialHandler {
         telem: &TelemetryData,
         battery_mv: u16,
     ) {
-        let mut buf = [0u8; 64];
-        if let Ok(count) = serial.read(&mut buf) {
-            for &b in &buf[..count] {
-                if b == b'\r' || b == b'\n' {
-                    let _ = serial.write(b"\r\n");
-                    if self.rx_len > 0 {
-                        self.handle_command(serial, rf_chs, telem, battery_mv);
-                        self.rx_len = 0;
-                    }
-                } else if b == 0x08 || b == 0x7F {
-                    // Backspace
-                    if self.rx_len > 0 {
-                        self.rx_len -= 1;
-                        let _ = serial.write(b"\x08 \x08");
-                    }
-                } else if self.rx_len < self.rx_buf.len() {
-                    self.rx_buf[self.rx_len] = b;
-                    self.rx_len += 1;
-                    let _ = serial.write(&[b]); // Local echo
+        // Drain any pending data from the USB hardware endpoint
+        self.drain_rx(serial);
+
+        while self.rx_tail != self.rx_head {
+            let b = self.rx_queue[self.rx_tail];
+            self.rx_tail = (self.rx_tail + 1) % self.rx_queue.len();
+
+            if b == b'\r' || b == b'\n' {
+                let _ = serial.write(b"\r\n");
+                if self.cmd_len > 0 {
+                    self.handle_command(serial, rf_chs, telem, battery_mv);
+                    self.cmd_len = 0;
                 }
+            } else if b == 0x08 || b == 0x7F {
+                // Backspace
+                if self.cmd_len > 0 {
+                    self.cmd_len -= 1;
+                    let _ = serial.write(b"\x08 \x08");
+                }
+            } else if self.cmd_len < self.cmd_buf.len() {
+                self.cmd_buf[self.cmd_len] = b;
+                self.cmd_len += 1;
+                let _ = serial.write(&[b]); // Local echo
             }
         }
     }
@@ -59,7 +89,7 @@ impl SerialHandler {
         telem: &TelemetryData,
         battery_mv: u16,
     ) {
-        let cmd = core::str::from_utf8(&self.rx_buf[..self.rx_len]).unwrap_or("").trim();
+        let cmd = core::str::from_utf8(&self.cmd_buf[..self.cmd_len]).unwrap_or("").trim();
 
         if cmd.eq_ignore_ascii_case("help") {
             let _ = serial.write(b"Commands: help, status, channels, telem, reboot\r\n");

@@ -275,14 +275,22 @@ pub fn on_interrupt() {
                 }
                 UsbMode::Serial => {
                     if let Some(serial) = USB_SERIAL.as_mut() {
-                        dev.poll(&mut [serial])
+                        let h = dev.poll(&mut [serial]);
+                        // CRITICAL: Must drain CDC OUT endpoint to clear CTR_RX in hardware!
+                        // In stm32-usbd, clear_ctr_rx() is only called inside Endpoint::read().
+                        // If not read, CTR_RX stays asserted, causing an infinite interrupt storm on IRQ 31.
+                        SERIAL_HANDLER.drain_rx(serial);
+                        h
                     } else {
                         false
                     }
                 }
                 UsbMode::Composite => {
                     if let (Some(hid), Some(serial)) = (USB_HID.as_mut(), USB_SERIAL.as_mut()) {
-                        dev.poll(&mut [hid, serial])
+                        let h = dev.poll(&mut [hid, serial]);
+                        // CRITICAL: Must drain CDC OUT endpoint to clear CTR_RX in hardware!
+                        SERIAL_HANDLER.drain_rx(serial);
+                        h
                     } else {
                         false
                     }
