@@ -175,15 +175,23 @@ A common complaint with stock firmware and OpenI6X is unclear stick calibration 
 - **Direct Safety Controls**: Built-in throttle safety lock prevents accidental disarm issues on Betaflight/INAV.
 
 ### How to Flash & Switch
-1. **Enter DFU Bootloader**:
-   - Push **Roll Left** and **Yaw Right** trim rockers inward while powering on.
-   - Or hold the **BIND** button while powering on.
-2. **Flash Binary**:
+
+1. **Enter Factory ROM DFU Bootloader**:
+   - Push **Roll Left** and **Yaw Right** trim rockers inward towards the power switch while turning on the radio.
+   - The LCD screen stays blank, and the transmitter enumerates over USB as `0483:df11` (STM32 BOOTLOADER).
+2. **Backup Existing Firmware (CRITICAL FIRST STEP)**:
+   - Before flashing, pull your entire 128 KB on-chip Flash memory to a local file. This captures your existing firmware, factory gimbal calibrations, and all stored models for 100% risk-free testing:
    ```bash
-   dfu-util -a0 -s 0x08000000:leave -d 0483:df11 -D target/flysky-i6x-rs.bin
+   dfu-util -a 0 -s 0x08000000:131072 -U stock_or_openi6x_backup.bin
    ```
-3. **Reverting**:
-   Because the ST factory bootloader is stored in permanent ROM, you can revert back to OpenI6X or stock firmware anytime via USB:
+3. **Flash `flysky-i6x-rs` Binary**:
+   - Flash the release binary directly via USB:
    ```bash
-   dfu-util -a0 -s 0x08000000:leave -d 0483:df11 -D opentx_backup.bin
+   dfu-util -a 0 -s 0x08000000:leave -D flysky-i6x.bin
+   ```
+   - The radio will immediately reboot into `flysky-i6x-rs`.
+4. **Reverting Anytime**:
+   - Because the ST factory bootloader is stored in permanent read-only ROM, the radio is **unbrickable**. You can restore your full flash backup anytime via USB:
+   ```bash
+   dfu-util -a 0 -s 0x08000000:leave -D stock_or_openi6x_backup.bin
    ```
