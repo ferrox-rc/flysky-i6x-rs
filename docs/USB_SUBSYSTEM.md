@@ -138,8 +138,11 @@ Physical switches and auxiliary channels are mapped cleanly to digital buttons. 
 | **Buttons 7..12** | Channels 9..14 | High pulse (`pulse > 1500 µs`) |
 | **Buttons 13..16** | Spare | 0 (Released) |
 
-### Tested Flight Simulators
+### Compatible Flight Simulators
 The native joystick mode has been verified with:
+- **SeligSim** (Linux)
+
+It is expected to work with any flight simulator:
 - **Liftoff: FPV Drone Racing** (Steam / PC / Mac)
 - **VelociDrone FPV Racing Simulator**
 - **RealFlight Evolution / RF9**
