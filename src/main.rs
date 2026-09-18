@@ -14,6 +14,7 @@ use embedded_graphics::{
 };
 
 mod adc;
+mod audio;
 mod boot;
 mod buzzer;
 mod calib;
@@ -30,6 +31,7 @@ mod time;
 mod trim;
 mod usb;
 
+use audio::{AudioSystem, SoundEvent};
 use display::St7567;
 
 const HEX_CHARS: &[u8; 16] = b"0123456789ABCDEF";
@@ -314,14 +316,18 @@ fn main() -> ! {
         rf::set_bind_mode(true);
     }
 
-    // 6. Initialize Buzzer & Digital Trims
-    let mut buzzer = buzzer::Buzzer::new();
-    buzzer.init();
+    // 6. Initialize Audio System (Buzzer & DFPlayer) & Digital Trims
+    let mut audio = AudioSystem::new();
+    audio.init();
 
     // 7. Load persistent radio storage and 20-model configuration
     let mut storage = storage::load_storage();
-    buzzer.enabled = storage.radio.audio_enabled != 0;
-    buzzer.click(); // Power-on audible confirmation
+    audio.configure(
+        storage.radio.audio_enabled != 0,
+        storage.radio.audio_mode,
+        storage.radio.voice_volume,
+    );
+    audio.event(SoundEvent::Welcome); // Power-on audible confirmation / greeting
 
     // Initialize USB peripheral (Joystick / Serial / Composite / Off)
     usb::init(storage.radio.usb_mode);
@@ -349,7 +355,7 @@ fn main() -> ! {
 
     // Check if OK button held at power-on to launch calibration directly
     if (initial_keys & (1 << 10)) != 0 {
-        calib_wizard.start(&mut buzzer);
+        calib_wizard.start(&mut audio);
     }
 
     let text_style = MonoTextStyle::new(&FONT_6X10, BinaryColor::On);
@@ -401,7 +407,7 @@ fn main() -> ! {
             let cancel_pressed = (keys & (1 << 11)) != 0;
 
             if (!thr_unsafe && !sw_unsafe) || cancel_pressed {
-                buzzer.play_tone(2200, 40);
+                audio.play_tone(2200, 40);
                 break;
             }
 
@@ -414,14 +420,14 @@ fn main() -> ! {
         // Beep alarm every 800 ms
         if now.wrapping_sub(preflight_beep_timer) >= 800 {
             preflight_beep_timer = now;
-            buzzer.warn_preflight();
+            audio.warn_preflight();
         }
 
         // Render Safety Warning Screen at ~30 Hz
         if now.wrapping_sub(preflight_last_render) >= 33 {
             let dt = (now.wrapping_sub(preflight_last_render)).min(100) as u16;
             preflight_last_render = now;
-            buzzer.tick(dt);
+            audio.tick(dt);
 
             lcd.clear(BinaryColor::Off).ok();
             Text::new("SAFETY WARNING!", Point::new(16, 9), text_style).draw(&mut lcd).ok();
@@ -474,12 +480,12 @@ fn main() -> ! {
         // Poll continuous DMA inputs (sub-microsecond)
         let state = input::poll();
 
-        // Check keys and update trims and buzzer
+        // Check keys and update trims and audio
         let keys = boot::scan_keys();
         if dt_ms > 0 {
             last_tick_ms = now;
-            buzzer.tick(dt_ms);
-            trims.update(keys, dt_ms, &mut buzzer);
+            audio.tick(dt_ms);
+            trims.update(keys, dt_ms, &mut audio);
         }
 
         // Backlight & inactivity activity tracking across all physical controls
@@ -497,6 +503,24 @@ fn main() -> ! {
         prev_stick_samples[5] = state.raw[7];
 
         let sw_changed = state.switches != prev_switches;
+        if sw_changed && !menu_controller.is_active() && !calib_wizard.is_active() {
+            // Voice announcement on Arm/Disarm switch (SA)
+            if state.switches.sa != prev_switches.sa {
+                if state.switches.sa == input::SwitchPos::Down {
+                    audio.event(SoundEvent::Armed);
+                } else if state.switches.sa == input::SwitchPos::Up {
+                    audio.event(SoundEvent::Disarmed);
+                }
+            }
+            // Voice announcement on 3-pos flight mode switch (SC)
+            if state.switches.sc != prev_switches.sc {
+                match state.switches.sc {
+                    input::SwitchPos::Up => audio.event(SoundEvent::FlightModeAngle),
+                    input::SwitchPos::Mid => audio.event(SoundEvent::FlightModeHorizon),
+                    input::SwitchPos::Down => audio.event(SoundEvent::FlightModeAcro),
+                }
+            }
+        }
         prev_switches = state.switches;
 
         let user_active = keys != 0 || stick_moved || sw_changed;
@@ -528,7 +552,7 @@ fn main() -> ! {
             if inactivity_timer_ms >= 600_000 {
                 if inactivity_beep_timer >= 30_000 {
                     inactivity_beep_timer = 0;
-                    buzzer.warn_inactivity();
+                    audio.warn_inactivity();
                 } else {
                     inactivity_beep_timer += dt_ms as u32;
                 }
@@ -610,7 +634,7 @@ fn main() -> ! {
         if is_binding {
             if cancel_key || bind_pressed {
                 rf::set_bind_mode(false);
-                buzzer.click();
+                audio.click();
             }
         } else if menu_controller.is_active() || calib_wizard.is_active() {
             // Inside menus: bind key is handled by the menu without side effects
@@ -624,13 +648,13 @@ fn main() -> ! {
                 bind_hold_ms = bind_hold_ms.saturating_add(dt_ms as u32);
                 if bind_hold_ms >= 1000 && !bind_was_held {
                     rf::set_bind_mode(true);
-                    buzzer.play_tone(2400, 150);
+                    audio.play_tone(2400, 150);
                     bind_was_held = true;
                 }
             } else {
                 if !bind_was_held && bind_hold_ms >= 40 {
                     flight_page = (flight_page + 1) % 4;
-                    buzzer.play_tone(2200, 30);
+                    audio.play_tone(2200, 30);
                 }
                 bind_hold_ms = 0;
                 bind_was_held = false;
@@ -642,7 +666,7 @@ fn main() -> ! {
             if new_rx_id != 0 && new_rx_id != 0xFFFF_FFFF && storage.active_model().rx_id != new_rx_id {
                 storage.active_model_mut().rx_id = new_rx_id;
                 storage::save_storage(&storage);
-                buzzer.play_tone_pattern(2400, 70, 50, 2);
+                audio.play_tone_pattern(2400, 70, 50, 2);
             }
         }
 
@@ -651,7 +675,7 @@ fn main() -> ! {
             if (keys & (1 << 10)) != 0 {
                 ok_hold_ms = ok_hold_ms.saturating_add(dt_ms);
                 if ok_hold_ms >= 1200 {
-                    menu_controller.open(&mut buzzer);
+                    menu_controller.open(&mut audio);
                     ok_hold_ms = 0;
                 }
             } else {
@@ -670,18 +694,18 @@ fn main() -> ! {
                     &mut trims,
                     &state.raw,
                     &rf_chs,
-                    &mut buzzer,
+                    &mut audio,
                 );
 
                 if menu_controller.request_calibration {
-                    calib_wizard.start(&mut buzzer);
+                    calib_wizard.start(&mut audio);
                     menu_controller.request_calibration = false;
                 }
 
                 if menu_controller.request_bind {
                     rf::set_bind_mode(true);
                     menu_controller.request_bind = false;
-                    buzzer.play_tone(2400, 150);
+                    audio.play_tone(2400, 150);
                 }
 
                 lcd.flush();
@@ -693,7 +717,7 @@ fn main() -> ! {
         if calib_wizard.is_active() {
             if run_display {
                 last_display_ms = now;
-                calib_wizard.update(&mut lcd, &state.raw, keys, dt_ms.max(20), &mut buzzer);
+                calib_wizard.update(&mut lcd, &state.raw, keys, dt_ms.max(20), &mut audio);
                 lcd.flush();
             }
             continue;
@@ -779,7 +803,7 @@ fn main() -> ! {
         if vbat_is_low {
             if vbat_alarm_timer >= 8000 {
                 vbat_alarm_timer = 0;
-                buzzer.warn_battery();
+                audio.warn_battery();
             } else {
                 vbat_alarm_timer += 33;
             }
@@ -822,14 +846,14 @@ fn main() -> ! {
             if telem.rssi < 20 {
                 if rssi_alarm_timer >= 3000 {
                     rssi_alarm_timer = 0;
-                    buzzer.warn_rssi_critical();
+                    audio.warn_rssi_critical();
                 } else {
                     rssi_alarm_timer += 33;
                 }
             } else if telem.rssi < 40 {
                 if rssi_alarm_timer >= 6000 {
                     rssi_alarm_timer = 0;
-                    buzzer.warn_rssi_low();
+                    audio.warn_rssi_low();
                 } else {
                     rssi_alarm_timer += 33;
                 }

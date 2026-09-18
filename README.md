@@ -49,7 +49,7 @@ The standard OpenTX/EdgeTX port for the FS-i6X ([OpenI6X](https://github.com/Ope
 | | Dedicated Bind Key | `PF2` | Active Low (pull-up enabled) |
 | **Storage** | On-chip Flash (Pages 62 & 63)| `0x0801_F000 .. 0x0801_FFFF` (4 KB) | 20 models + radio settings (2688 bytes) |
 | **Telemetry / Serial**| UART Interfaces | `USART2` (PD5 Tx / PA15 Rx) | External telemetry / i-BUS mirror |
-| **Audio** | Piezo Buzzer | `TIM1_CH1` (`PA8`) | Hardware PWM frequency & tone generator |
+| **Audio** | Piezo Buzzer & DFPlayer Mini | `TIM1_CH1` (`PA8`) / `USART3_TX` (`PC10`) & `PC14` (BUSY) | PWM tones & voice prompts (see [DFPlayer Mod Guide](docs/DFPLAYER_MOD.md)) |
 
 ---
 

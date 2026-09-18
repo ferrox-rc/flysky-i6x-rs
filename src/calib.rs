@@ -15,7 +15,7 @@ use embedded_graphics::{
 };
 
 use crate::adc;
-use crate::buzzer::Buzzer;
+use crate::audio::{AudioSystem, SoundEvent};
 use crate::display::St7567;
 use crate::input;
 use crate::storage::{self, ChannelCalib};
@@ -52,7 +52,7 @@ impl CalibWizard {
     }
 
     /// Start the calibration wizard.
-    pub fn start(&mut self, buzzer: &mut Buzzer) {
+    pub fn start(&mut self, audio: &mut AudioSystem) {
         self.step = CalibStep::Center;
         self.centers = [2048; 6];
         self.mins = [4095; 6];
@@ -60,7 +60,7 @@ impl CalibWizard {
         self.prev_keys = 0xFFFF; // Block any immediate edge trigger
         self.waiting_release = true; // User must release OK before proceeding
         self.timer_ms = 0;
-        buzzer.click();
+        audio.event(SoundEvent::CalibStart);
     }
 
     /// Returns true if the wizard is currently active.
@@ -75,7 +75,7 @@ impl CalibWizard {
         raw_adc: &[u16; adc::NUM_CHANNELS],
         keys: u16,
         dt_ms: u16,
-        buzzer: &mut Buzzer,
+        audio: &mut AudioSystem,
     ) {
         // Debounce / release tracking for OK button (bit 10)
         if self.waiting_release
@@ -118,7 +118,7 @@ impl CalibWizard {
             CalibStep::Center => {
                 if cancel_pressed {
                     self.step = CalibStep::Inactive;
-                    buzzer.click();
+                    audio.click();
                     return;
                 }
 
@@ -128,7 +128,7 @@ impl CalibWizard {
                     self.maxs.copy_from_slice(&current_raw);
                     self.step = CalibStep::Limits;
                     self.waiting_release = true; // Must release OK before accepting save in step 2!
-                    buzzer.play_tone(2400, 50);
+                    audio.play_tone(2400, 50);
                     return;
                 }
 
@@ -152,7 +152,7 @@ impl CalibWizard {
             CalibStep::Limits => {
                 if cancel_pressed {
                     self.step = CalibStep::Inactive;
-                    buzzer.click();
+                    audio.click();
                     return;
                 }
 
@@ -217,12 +217,12 @@ impl CalibWizard {
                         input::apply_calibration(&cfg);
                         storage::save_config(&cfg);
 
-                        buzzer.play_tone(2800, 150);
+                        audio.event(SoundEvent::CalibSuccess);
                         self.step = CalibStep::Complete;
                         self.timer_ms = 1200; // Display success banner for 1.2s
                     } else {
                         // Warning buzz if not all sticks have been moved to limits
-                        buzzer.play_tone(1100, 100);
+                        audio.play_tone(1100, 100);
                     }
                     return;
                 }

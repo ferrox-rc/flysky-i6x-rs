@@ -4,8 +4,8 @@
 //! Provides single-press edge detection, auto-repeat when held, audio feedback via Buzzer,
 //! and range limiting to -25..+25 steps (±100 µs authority).
 
+use crate::audio::AudioSystem;
 use crate::boot;
-use crate::buzzer::Buzzer;
 
 pub const TRIM_MIN: i8 = -25;
 pub const TRIM_MAX: i8 = 25;
@@ -59,8 +59,8 @@ impl TrimController {
     }
 
     /// Update trims based on raw 16-bit key matrix scan.
-    /// Handles single clicks, auto-repeat, DFU lockout, and buzzer tones.
-    pub fn update(&mut self, keys: u16, dt_ms: u16, buzzer: &mut Buzzer) {
+    /// Handles single clicks, auto-repeat, DFU lockout, and audio feedback.
+    pub fn update(&mut self, keys: u16, dt_ms: u16, audio: &mut AudioSystem) {
         // Decrease active display timer
         if self.active_timer_ms > 0 {
             self.active_timer_ms = self.active_timer_ms.saturating_sub(dt_ms);
@@ -114,53 +114,53 @@ impl TrimController {
         }
 
         if let Some(key_bit) = trigger_key {
-            self.process_trim_key(key_bit, buzzer);
+            self.process_trim_key(key_bit, audio);
         }
     }
 
     /// Process a single trim click for a given key index (0..7).
-    fn process_trim_key(&mut self, key: u8, buzzer: &mut Buzzer) {
+    fn process_trim_key(&mut self, key: u8, audio: &mut AudioSystem) {
         match key {
             0 => {
                 // Roll R (+1)
-                self.step_trim(ActiveTrim::Roll, 1, buzzer);
+                self.step_trim(ActiveTrim::Roll, 1, audio);
             }
             1 => {
                 // Roll L (-1)
-                self.step_trim(ActiveTrim::Roll, -1, buzzer);
+                self.step_trim(ActiveTrim::Roll, -1, audio);
             }
             2 => {
                 // Pitch U (+1)
-                self.step_trim(ActiveTrim::Pitch, 1, buzzer);
+                self.step_trim(ActiveTrim::Pitch, 1, audio);
             }
             3 => {
                 // Pitch D (-1)
-                self.step_trim(ActiveTrim::Pitch, -1, buzzer);
+                self.step_trim(ActiveTrim::Pitch, -1, audio);
             }
             4 => {
                 // Throttle U (+1)
-                self.step_trim(ActiveTrim::Throttle, 1, buzzer);
+                self.step_trim(ActiveTrim::Throttle, 1, audio);
             }
             5 => {
                 // Throttle D (-1)
-                self.step_trim(ActiveTrim::Throttle, -1, buzzer);
+                self.step_trim(ActiveTrim::Throttle, -1, audio);
             }
             6 => {
                 // Yaw R (+1)
-                self.step_trim(ActiveTrim::Yaw, 1, buzzer);
+                self.step_trim(ActiveTrim::Yaw, 1, audio);
             }
             7 => {
                 // Yaw L (-1)
-                self.step_trim(ActiveTrim::Yaw, -1, buzzer);
+                self.step_trim(ActiveTrim::Yaw, -1, audio);
             }
             _ => {}
         }
     }
 
     /// Step a specific trim axis by delta (+1 or -1) and produce appropriate audio.
-    fn step_trim(&mut self, axis: ActiveTrim, delta: i8, buzzer: &mut Buzzer) {
+    fn step_trim(&mut self, axis: ActiveTrim, delta: i8, audio: &mut AudioSystem) {
         if axis == ActiveTrim::Throttle && !self.throttle_enabled {
-            buzzer.trim_limit();
+            audio.trim_limit();
             return; // Throttle trim locked/disabled
         }
 
@@ -174,11 +174,11 @@ impl TrimController {
 
         let curr = *val_ref;
         if delta > 0 && curr >= TRIM_MAX {
-            buzzer.trim_limit();
+            audio.trim_limit();
             return;
         }
         if delta < 0 && curr <= TRIM_MIN {
-            buzzer.trim_limit();
+            audio.trim_limit();
             return;
         }
 
@@ -189,9 +189,9 @@ impl TrimController {
         self.active_timer_ms = 1500; // Show trim overlay on UI for 1.5 seconds
 
         if new_val == 0 {
-            buzzer.trim_center();
+            audio.trim_center();
         } else {
-            buzzer.trim_step(new_val);
+            audio.trim_step(new_val);
         }
     }
 

@@ -53,7 +53,9 @@ pub struct RadioConfig {
     pub usb_mode: u8,              // 15 (0: Off, 1: Joystick, 2: Serial, 3: Composite)
     pub sticks: [ChannelCalib; 4], // 16..48 (32 bytes: Roll, Pitch, Throttle, Yaw)
     pub pots: [ChannelCalib; 2],   // 48..64 (16 bytes: VRA, VRB)
-    pub _reserved: [u8; 64],       // 64..128
+    pub audio_mode: u8,            // 64 (0: Buzzer, 1: Voice, 2: Both)
+    pub voice_volume: u8,          // 65 (0..30, default 20)
+    pub _reserved: [u8; 62],       // 66..128
 }
 
 impl RadioConfig {
@@ -79,7 +81,9 @@ impl RadioConfig {
                 ChannelCalib::new(2048 - 1950, 2048, 2048 + 1950), // VRA
                 ChannelCalib::new(2048 - 1950, 2048, 2048 + 1950), // VRB
             ],
-            _reserved: [0; 64],
+            audio_mode: 0,
+            voice_volume: 20,
+            _reserved: [0; 62],
         }
     }
 }
@@ -229,6 +233,12 @@ impl RadioStorage {
         }
         if self.radio.usb_mode > 3 {
             self.radio.usb_mode = 0;
+        }
+        if self.radio.audio_mode > 2 {
+            self.radio.audio_mode = 0;
+        }
+        if self.radio.voice_volume > 30 || self.radio.voice_volume == 0 {
+            self.radio.voice_volume = 20;
         }
 
         for (idx, m) in self.models.iter_mut().enumerate() {

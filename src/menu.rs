@@ -14,7 +14,7 @@ use embedded_graphics::{
 };
 
 use crate::adc;
-use crate::buzzer::Buzzer;
+use crate::audio::{AudioMode, AudioSystem};
 use crate::chip;
 use crate::curve;
 use crate::display::St7567;
@@ -177,7 +177,7 @@ impl MenuController {
     }
 
     /// Open the main settings menu.
-    pub fn open(&mut self, buzzer: &mut Buzzer) {
+    pub fn open(&mut self, buzzer: &mut AudioSystem) {
         self.state = MenuState::MainMenu;
         self.selected_item = 0;
         self.scroll_offset = 0;
@@ -209,7 +209,7 @@ impl MenuController {
         trims: &mut TrimController,
         raw_adc: &[u16; adc::NUM_CHANNELS],
         rf_chs: &[u16; 14],
-        buzzer: &mut Buzzer,
+        buzzer: &mut AudioSystem,
     ) {
         // Key release tracking (bit 10: OK, bit 11: Cancel, bit 9: Up, bit 8: Down, bit 12: Bind)
         if self.waiting_release && (keys & ((1 << 8) | (1 << 9) | (1 << 10) | (1 << 11) | (1 << 12))) == 0 {
@@ -1604,7 +1604,7 @@ impl MenuController {
                     buzzer.click();
                     return;
                 }
-                const SETUP_ITEMS: usize = 7;
+                const SETUP_ITEMS: usize = 9;
 
                 if down_pressed {
                     if self.selected_item + 1 < SETUP_ITEMS {
@@ -1643,7 +1643,7 @@ impl MenuController {
                         1 => {
                             // Toggle Audio
                             storage.radio.audio_enabled = if storage.radio.audio_enabled == 0 { 1 } else { 0 };
-                            buzzer.enabled = storage.radio.audio_enabled != 0;
+                            buzzer.set_enabled(storage.radio.audio_enabled != 0);
                             storage::save_storage(storage);
                         }
                         2 => {
@@ -1685,6 +1685,22 @@ impl MenuController {
                             storage.radio.usb_mode = (storage.radio.usb_mode + 1) % 4;
                             storage::save_storage(storage);
                             crate::usb::init(storage.radio.usb_mode);
+                        }
+                        7 => {
+                            // Cycle Audio Device: 0=BUZZER, 1=VOICE, 2=BOTH
+                            storage.radio.audio_mode = (storage.radio.audio_mode + 1) % 3;
+                            buzzer.mode = AudioMode::from_u8(storage.radio.audio_mode);
+                            storage::save_storage(storage);
+                        }
+                        8 => {
+                            // Cycle Voice Volume: 0..30 in steps of 5
+                            storage.radio.voice_volume = if storage.radio.voice_volume >= 30 {
+                                0
+                            } else {
+                                (storage.radio.voice_volume + 5).min(30)
+                            };
+                            buzzer.dfplayer.set_volume(storage.radio.voice_volume);
+                            storage::save_storage(storage);
                         }
                         _ => {}
                     }
@@ -1774,6 +1790,23 @@ impl MenuController {
                             };
                             Text::new("USB Mode:", Point::new(4, y + 7), style).draw(lcd).ok();
                             Text::new(usb_str, Point::new(62, y + 7), style).draw(lcd).ok();
+                        }
+                        7 => {
+                            let dev_str = match storage.radio.audio_mode {
+                                1 => "VOICE",
+                                2 => "BOTH",
+                                _ => "BUZZER",
+                            };
+                            Text::new("Audio Dev:", Point::new(4, y + 7), style).draw(lcd).ok();
+                            Text::new(dev_str, Point::new(62, y + 7), style).draw(lcd).ok();
+                        }
+                        8 => {
+                            let mut v_buf = *b"00/30";
+                            v_buf[0] = b'0' + (storage.radio.voice_volume / 10);
+                            v_buf[1] = b'0' + (storage.radio.voice_volume % 10);
+                            let v_str = core::str::from_utf8(&v_buf).unwrap_or("20/30");
+                            Text::new("Voice Vol:", Point::new(4, y + 7), style).draw(lcd).ok();
+                            Text::new(v_str, Point::new(62, y + 7), style).draw(lcd).ok();
                         }
                         _ => {}
                     }

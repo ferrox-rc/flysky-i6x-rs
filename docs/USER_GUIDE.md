@@ -258,7 +258,7 @@ Assigns physical controls (switches `SA..SD`, pots `VRA/VRB`, sticks, or `None`)
 - Automatically saved to non-volatile Flash upon exit.
 
 ### Submenu 8: Radio Setup (`RADIO SETUP`)
-The Radio Setup menu features a scrollable 4-item viewport with 9px row heights and automatic vertical scrolling across 7 configuration parameters:
+The Radio Setup menu features a scrollable 4-item viewport with 9px row heights and automatic vertical scrolling across 9 configuration parameters:
 - **`Thr Trim:`**: Toggle between `OFF (Lock)`, `IDLE`, and `LINEAR`.
 - **`Beeper:`**: Toggle audio sound between `ENABLED` and `MUTED`.
 - **`BL Timer:`**: LCD backlight auto-shutoff timeout: `ALWAYS ON`, `15 SEC`, `30 SEC`, or `60 SEC`. Touching any key or moving any stick wakes the backlight instantly.
@@ -270,6 +270,8 @@ The Radio Setup menu features a scrollable 4-item viewport with 9px row heights 
   - **`JOYSTICK`**: 100 Hz native USB Gamepad for flight simulators with silent RF standby (zero RF radiation, cool running).
   - **`SERIAL`**: Virtual COM Port (CDC-ACM) at 115200 baud streaming live JSON telemetry while maintaining normal RF transmission.
   - **`COMPOSITE`**: Simultaneous HID Gamepad + CDC-ACM Virtual COM Port.
+- **`Audio Dev:`**: Selects active sound device: `BUZZER` (stock piezo buzzer), `VOICE` (DFPlayer Mini voice announcements), or `BOTH` (voice alerts with concurrent buzzer tones). See [DFPlayer Mod Guide](DFPLAYER_MOD.md).
+- **`Voice Vol:`**: DFPlayer Mini voice output volume from `00/30` to `30/30` in steps of 5 (default: `20/30`). Live updates to the DFPlayer module when cycled.
 
 ### Submenu 9: Protocol Setup (`PROTOCOL SETUP`)
 Replaces the redundant bind menu with universal RF protocol management:
