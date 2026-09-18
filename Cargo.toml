@@ -3,6 +3,12 @@ name = "flysky-i6x-rs"
 version = "0.15.0"
 edition = "2021"
 
+[[bin]]
+name = "flysky-i6x-rs"
+path = "src/main.rs"
+test = false
+bench = false
+
 [dependencies]
 cortex-m = "0.7"
 cortex-m-rt = "0.7"

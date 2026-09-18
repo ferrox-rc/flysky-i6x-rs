@@ -376,13 +376,11 @@ unsafe fn elrs_tick(now_ms: u32) {
                 uart::write_bytes(&ping[..len]);
             }
         }
-        ElrsConfigState::LoadingParam(id) => {
-            if now_ms.wrapping_sub(CONFIG_ENGINE.last_req_ms) >= 350 {
-                CONFIG_ENGINE.last_req_ms = now_ms;
-                let mut req = [0u8; 16];
-                let len = protocol::build_param_read_frame(CONFIG_ENGINE.device_id, id, CONFIG_ENGINE.current_chunk, &mut req);
-                uart::write_bytes(&req[..len]);
-            }
+        ElrsConfigState::LoadingParam(id) if now_ms.wrapping_sub(CONFIG_ENGINE.last_req_ms) >= 350 => {
+            CONFIG_ENGINE.last_req_ms = now_ms;
+            let mut req = [0u8; 16];
+            let len = protocol::build_param_read_frame(CONFIG_ENGINE.device_id, id, CONFIG_ENGINE.current_chunk, &mut req);
+            uart::write_bytes(&req[..len]);
         }
         _ => {}
     }

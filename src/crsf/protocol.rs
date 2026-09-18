@@ -218,20 +218,18 @@ pub fn parse_telemetry_frame(frame: &[u8], telem: &mut CrsfTelemetry, now_ms: u3
                 return true;
             }
         }
-        CRSF_FRAMETYPE_BATTERY_SENSOR => {
-            if payload.len() >= 8 {
-                // Voltage in 0.1V units (big endian)
-                let v_deci = u16::from_be_bytes([payload[0], payload[1]]);
-                telem.rx_battery_mv = v_deci * 100;
-                let c_deci = u16::from_be_bytes([payload[2], payload[3]]);
-                telem.rx_current_ma = c_deci * 100;
-                let cap = ((payload[4] as u32) << 16) | ((payload[5] as u32) << 8) | (payload[6] as u32);
-                telem.rx_capacity_mah = cap;
-                telem.rx_battery_pct = payload[7];
-                telem.connected = true;
-                telem.last_telemetry_ms = now_ms;
-                return true;
-            }
+        CRSF_FRAMETYPE_BATTERY_SENSOR if payload.len() >= 8 => {
+            // Voltage in 0.1V units (big endian)
+            let v_deci = u16::from_be_bytes([payload[0], payload[1]]);
+            telem.rx_battery_mv = v_deci * 100;
+            let c_deci = u16::from_be_bytes([payload[2], payload[3]]);
+            telem.rx_current_ma = c_deci * 100;
+            let cap = ((payload[4] as u32) << 16) | ((payload[5] as u32) << 8) | (payload[6] as u32);
+            telem.rx_capacity_mah = cap;
+            telem.rx_battery_pct = payload[7];
+            telem.connected = true;
+            telem.last_telemetry_ms = now_ms;
+            return true;
         }
         _ => {}
     }
