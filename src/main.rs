@@ -1087,7 +1087,7 @@ fn main() -> ! {
 
                     // Row 2 (y = 31): Uplink RSSI 1 (dBm)
                     let mut rssi_buf = *b"RS: -000dB";
-                    let rssi_val = ct.uplink_rssi_1.abs() as u8;
+                    let rssi_val = ct.uplink_rssi_1.unsigned_abs();
                     rssi_buf[5] = b'0' + (rssi_val / 100);
                     rssi_buf[6] = b'0' + ((rssi_val / 10) % 10);
                     rssi_buf[7] = b'0' + (rssi_val % 10);
@@ -1097,7 +1097,7 @@ fn main() -> ! {
                     // Row 3 (y = 41): Uplink SNR (dB)
                     let mut snr_buf = *b"SNR:+00dB";
                     let snr_sign = if ct.uplink_snr >= 0 { b'+' } else { b'-' };
-                    let snr_mag = ct.uplink_snr.abs() as u8;
+                    let snr_mag = ct.uplink_snr.unsigned_abs();
                     snr_buf[4] = snr_sign;
                     snr_buf[5] = b'0' + ((snr_mag / 10) % 10);
                     snr_buf[6] = b'0' + (snr_mag % 10);
