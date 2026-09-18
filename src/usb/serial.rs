@@ -158,6 +158,11 @@ impl SerialHandler {
             );
         } else if cmd.eq_ignore_ascii_case("status") {
             write_all(serial, concat!("FlySky FS-i6X Rust Firmware v", env!("CARGO_PKG_VERSION"), "\r\n").as_bytes());
+            if crate::crsf::is_enabled() {
+                write_all(serial, b"Protocol: CRSF / ExpressLRS (PD5 UART active)\r\n");
+            } else {
+                write_all(serial, b"Protocol: AFHDS 2A (A7105 SPI active)\r\n");
+            }
             self.send_telemetry_line(serial, rf_chs, telem, battery_mv);
         } else if cmd.eq_ignore_ascii_case("channels") {
             let mut cbuf = [0u8; 128];
@@ -202,7 +207,7 @@ impl SerialHandler {
     }
 
     /// Stream a single formatted JSON telemetry line over USB CDC.
-    /// Format: {"vbat":5.18,"rssi":98,"rx_v":5.02,"tx":15820,"rx":15798,"err":22,"ch":[1500,...]}\r\n
+    /// Format: {"vbat":5.18,"rssi":98,"rx_v":5.02,"tx":15820,"rx":15798,"err":22,"crsf":{...},"ch":[1500,...]}\r\n
     pub fn send_telemetry_line<B: usb_device::bus::UsbBus, RS: core::borrow::BorrowMut<[u8]>, WS: core::borrow::BorrowMut<[u8]>>(
         &self,
         serial: &mut SerialPort<B, RS, WS>,
@@ -210,7 +215,7 @@ impl SerialHandler {
         telem: &TelemetryData,
         battery_mv: u16,
     ) {
-        let mut buf = [0u8; 192];
+        let mut buf = [0u8; 320];
         let mut pos = 0;
 
         macro_rules! append {
@@ -237,6 +242,18 @@ impl SerialHandler {
                         n /= 10;
                     }
                     append!(&num_buf[idx..]);
+                }
+            };
+        }
+
+        macro_rules! append_i32 {
+            ($val:expr) => {
+                let v: i32 = $val as i32;
+                if v < 0 {
+                    append!(b"-");
+                    append_u32!((-v) as u32);
+                } else {
+                    append_u32!(v as u32);
                 }
             };
         }
@@ -278,6 +295,32 @@ impl SerialHandler {
         append_u32!(telem.packets_received);
         append!(b",\"err\":");
         append_u32!(telem.packets_sent.saturating_sub(telem.packets_received));
+        if crate::crsf::is_enabled() {
+            let crsf = crate::crsf::get_telemetry();
+            append!(b",\"crsf\":{\"conn\":");
+            if crsf.connected {
+                append!(b"true");
+            } else {
+                append!(b"false");
+            }
+            append!(b",\"lq\":");
+            append_u32!(crsf.uplink_link_quality as u32);
+            append!(b",\"rssi_dbm\":");
+            append_i32!(crsf.uplink_rssi_1);
+            append!(b",\"snr_db\":");
+            append_i32!(crsf.uplink_snr);
+            append!(b",\"ant\":");
+            append_u32!(crsf.active_antenna as u32);
+            append!(b",\"pwr_mw\":");
+            append_u32!(crsf.tx_power_mw as u32);
+            append!(b",\"rf_rate\":\"");
+            append!(crate::crsf::protocol::rf_mode_to_str(crsf.rf_mode).as_bytes());
+            append!(b"\",\"rx_vbat_mv\":");
+            append_u32!(crsf.rx_battery_mv as u32);
+            append!(b",\"rx_cap_mah\":");
+            append_u32!(crsf.rx_capacity_mah);
+            append!(b"}");
+        }
         append!(b",\"ch\":[");
         for (i, &ch) in rf_chs.iter().enumerate() {
             if i > 0 {

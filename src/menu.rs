@@ -136,6 +136,7 @@ pub enum MenuState {
     ChannelReverse,
     RadioSetup,
     RxSetup,
+    ElrsSetup,
     ChannelMonitor,
     DiagAnas,
     SystemInfo,
@@ -1824,10 +1825,19 @@ impl MenuController {
                         return;
                     }
                 } else {
-                    // CRSF / ELRS view: selected_item 0 = Proto, 1 = Baud Rate
+                    // CRSF / ELRS view: selected_item 0 = Proto, 1 = Baud Rate, 2 = Configure Module
                     if ok_pressed {
-                        self.selected_item = (self.selected_item + 1) % 2;
-                        buzzer.click();
+                        if self.selected_item == 2 {
+                            self.state = MenuState::ElrsSetup;
+                            self.selected_item = 0;
+                            self.scroll_offset = 0;
+                            crate::crsf::start_config();
+                            buzzer.click();
+                            return;
+                        } else {
+                            self.selected_item = (self.selected_item + 1) % 3;
+                            buzzer.click();
+                        }
                     }
 
                     if self.selected_item == 0 {
@@ -1838,7 +1848,7 @@ impl MenuController {
                             storage::save_storage(storage);
                             buzzer.play_tone(2200, 30);
                         }
-                    } else {
+                    } else if self.selected_item == 1 {
                         // Edit Baud Rate: 0=420k, 1=416.6k, 2=115.2k, 3=921.6k
                         if up_pressed {
                             storage.models[active_idx].crsf_baud = if storage.models[active_idx].crsf_baud > 0 {
@@ -1852,6 +1862,14 @@ impl MenuController {
                         if down_pressed {
                             storage.models[active_idx].crsf_baud = (storage.models[active_idx].crsf_baud + 1) % 4;
                             storage::save_storage(storage);
+                            buzzer.play_tone(2200, 30);
+                        }
+                    } else if self.selected_item == 2 {
+                        if up_pressed {
+                            self.selected_item = 1;
+                            buzzer.play_tone(2200, 30);
+                        } else if down_pressed {
+                            self.selected_item = 0;
                             buzzer.play_tone(2200, 30);
                         }
                     }
@@ -1885,17 +1903,17 @@ impl MenuController {
                 } else {
                     let sel_proto = self.selected_item == 0;
                     let sel_baud = self.selected_item == 1;
+                    let sel_cfg = self.selected_item == 2;
 
                     let p_arrow = if sel_proto { ">" } else { " " };
                     let b_arrow = if sel_baud { ">" } else { " " };
+                    let c_arrow = if sel_cfg { ">" } else { " " };
 
                     let mut p_buf = [b' '; 20];
                     p_buf[0] = p_arrow.as_bytes()[0];
                     p_buf[1..18].copy_from_slice(b"Proto: CRSF/ELRS ");
                     let p_str = core::str::from_utf8(&p_buf[..18]).unwrap_or(">Proto: CRSF/ELRS");
                     Text::new(p_str, Point::new(2, 22), text_style).draw(lcd).ok();
-
-                    Text::new(" Port: Rear (PD5)", Point::new(2, 32), text_style).draw(lcd).ok();
 
                     let baud_str = match storage.models[active_idx].crsf_baud {
                         0 => "Baud: 420k (ELRS)",
@@ -1909,10 +1927,170 @@ impl MenuController {
                     let b_bytes = baud_str.as_bytes();
                     b_buf[1..1 + b_bytes.len()].copy_from_slice(b_bytes);
                     let full_b_str = core::str::from_utf8(&b_buf[..1 + b_bytes.len()]).unwrap_or(" Baud: 420k");
-                    Text::new(full_b_str, Point::new(2, 42), text_style).draw(lcd).ok();
+                    Text::new(full_b_str, Point::new(2, 32), text_style).draw(lcd).ok();
+
+                    let mut c_buf = [b' '; 22];
+                    c_buf[0] = c_arrow.as_bytes()[0];
+                    c_buf[1..19].copy_from_slice(b"[Configure Module]");
+                    let full_c_str = core::str::from_utf8(&c_buf[..19]).unwrap_or(" [Configure Module]");
+                    Text::new(full_c_str, Point::new(2, 42), text_style).draw(lcd).ok();
 
                     Line::new(Point::new(0, 52), Point::new(127, 52)).into_styled(border_style).draw(lcd).ok();
-                    Text::new("[OK] Select  [UP/DN] Change", Point::new(2, 62), text_style_small).draw(lcd).ok();
+                    if sel_cfg {
+                        Text::new("[OK] Config   [UP/DN] Select", Point::new(2, 62), text_style_small).draw(lcd).ok();
+                    } else {
+                        Text::new("[OK] Next   [UP/DN] Change", Point::new(2, 62), text_style_small).draw(lcd).ok();
+                    }
+                }
+            }
+
+            MenuState::ElrsSetup => {
+                if cancel_pressed {
+                    self.state = MenuState::RxSetup;
+                    self.selected_item = 2;
+                    self.waiting_release = true;
+                    buzzer.click();
+                    return;
+                }
+
+                let engine = crate::crsf::get_config_engine();
+                let text_style_small = MonoTextStyle::new(&FONT_4X6, BinaryColor::On);
+
+                match engine.state {
+                    crate::crsf::ElrsConfigState::Idle | crate::crsf::ElrsConfigState::Discovering => {
+                        if ok_pressed {
+                            crate::crsf::start_config();
+                            buzzer.click();
+                        }
+
+                        Text::new("ELRS CONFIG", Point::new(30, 9), text_style).draw(lcd).ok();
+                        Line::new(Point::new(0, 11), Point::new(127, 11)).into_styled(border_style).draw(lcd).ok();
+
+                        Text::new("Connecting to module...", Point::new(4, 26), text_style).draw(lcd).ok();
+                        Text::new("Waiting for ping response", Point::new(4, 38), text_style_small).draw(lcd).ok();
+
+                        Line::new(Point::new(0, 52), Point::new(127, 52)).into_styled(border_style).draw(lcd).ok();
+                        Text::new("[OK] Retry   [ESC] Back", Point::new(2, 62), text_style_small).draw(lcd).ok();
+                    }
+                    crate::crsf::ElrsConfigState::Connected | crate::crsf::ElrsConfigState::LoadingParam(_) => {
+                        Text::new("ELRS CONFIG", Point::new(30, 9), text_style).draw(lcd).ok();
+                        Line::new(Point::new(0, 11), Point::new(127, 11)).into_styled(border_style).draw(lcd).ok();
+
+                        Text::new("Loading parameters...", Point::new(4, 26), text_style).draw(lcd).ok();
+
+                        if let crate::crsf::ElrsConfigState::LoadingParam(id) = engine.state {
+                            let mut pbuf = [b' '; 18];
+                            pbuf[..6].copy_from_slice(b"Param ");
+                            pbuf[6] = b'0' + ((id / 10) % 10);
+                            pbuf[7] = b'0' + (id % 10);
+                            pbuf[8..12].copy_from_slice(b" of ");
+                            pbuf[12] = b'0' + ((engine.param_count / 10) % 10);
+                            pbuf[13] = b'0' + (engine.param_count % 10);
+                            let p_str = core::str::from_utf8(&pbuf[..14]).unwrap_or("Loading...");
+                            Text::new(p_str, Point::new(4, 38), text_style_small).draw(lcd).ok();
+                        }
+
+                        Line::new(Point::new(0, 52), Point::new(127, 52)).into_styled(border_style).draw(lcd).ok();
+                        Text::new("Please wait...  [ESC] Back", Point::new(2, 62), text_style_small).draw(lcd).ok();
+                    }
+                    crate::crsf::ElrsConfigState::Ready => {
+                        let count = engine.params_len;
+                        if count == 0 {
+                            if ok_pressed {
+                                crate::crsf::start_config();
+                                buzzer.click();
+                            }
+                            Text::new("ELRS CONFIG", Point::new(30, 9), text_style).draw(lcd).ok();
+                            Line::new(Point::new(0, 11), Point::new(127, 11)).into_styled(border_style).draw(lcd).ok();
+                            Text::new("No parameters found", Point::new(8, 28), text_style).draw(lcd).ok();
+                            Line::new(Point::new(0, 52), Point::new(127, 52)).into_styled(border_style).draw(lcd).ok();
+                            Text::new("[OK] Retry   [ESC] Back", Point::new(2, 62), text_style_small).draw(lcd).ok();
+                        } else {
+                            if down_pressed {
+                                if self.selected_item + 1 < count {
+                                    self.selected_item += 1;
+                                    if self.selected_item >= self.scroll_offset + 4 {
+                                        self.scroll_offset = self.selected_item - 3;
+                                    }
+                                } else {
+                                    self.selected_item = 0;
+                                    self.scroll_offset = 0;
+                                }
+                                buzzer.play_tone(2200, 30);
+                            }
+                            if up_pressed {
+                                if self.selected_item > 0 {
+                                    self.selected_item -= 1;
+                                    if self.selected_item < self.scroll_offset {
+                                        self.scroll_offset = self.selected_item;
+                                    }
+                                } else {
+                                    self.selected_item = count - 1;
+                                    self.scroll_offset = count.saturating_sub(4);
+                                }
+                                buzzer.play_tone(2200, 30);
+                            }
+
+                            if ok_pressed {
+                                let p = &engine.params[self.selected_item];
+                                if p.param_type == crate::crsf::protocol::CRSF_TYPE_SELECT {
+                                    crate::crsf::cycle_param(self.selected_item);
+                                    buzzer.click();
+                                } else if p.param_type == crate::crsf::protocol::CRSF_TYPE_COMMAND {
+                                    crate::crsf::trigger_command(self.selected_item);
+                                    buzzer.play_tone(2400, 80);
+                                }
+                            }
+
+                            // Header: device name if available
+                            let dev_name = if engine.device_name_len > 0 {
+                                core::str::from_utf8(&engine.device_name[..engine.device_name_len as usize]).unwrap_or("ELRS SETUP")
+                            } else {
+                                "ELRS SETUP"
+                            };
+                            Text::new(dev_name, Point::new(24, 9), text_style).draw(lcd).ok();
+                            Line::new(Point::new(0, 11), Point::new(127, 11)).into_styled(border_style).draw(lcd).ok();
+
+                            // Render up to 4 parameters
+                            for slot in 0..4 {
+                                let idx = self.scroll_offset + slot;
+                                if idx >= count {
+                                    break;
+                                }
+                                let y = 14 + (slot as i32 * 9);
+                                let is_sel = idx == self.selected_item;
+                                let style = if is_sel {
+                                    Rectangle::new(Point::new(2, y), Size::new(124, 9)).into_styled(fill_style).draw(lcd).ok();
+                                    MonoTextStyle::new(&FONT_6X10, BinaryColor::Off)
+                                } else {
+                                    text_style
+                                };
+
+                                let p = &engine.params[idx];
+                                let name = core::str::from_utf8(&p.name[..p.name_len as usize]).unwrap_or("Param");
+
+                                if p.param_type == crate::crsf::protocol::CRSF_TYPE_SELECT {
+                                    Text::new(name, Point::new(4, y + 7), style).draw(lcd).ok();
+                                    let mut opt_buf = [0u8; 16];
+                                    let opt = p.current_option_str(&mut opt_buf);
+                                    Text::new(opt, Point::new(72, y + 7), style).draw(lcd).ok();
+                                } else if p.param_type == crate::crsf::protocol::CRSF_TYPE_COMMAND {
+                                    let mut cmd_buf = [b' '; 20];
+                                    cmd_buf[0] = b'[';
+                                    let n_len = (p.name_len as usize).min(16);
+                                    cmd_buf[1..1 + n_len].copy_from_slice(&p.name[..n_len]);
+                                    cmd_buf[1 + n_len] = b']';
+                                    let c_str = core::str::from_utf8(&cmd_buf[..2 + n_len]).unwrap_or("[Cmd]");
+                                    Text::new(c_str, Point::new(14, y + 7), style).draw(lcd).ok();
+                                } else {
+                                    Text::new(name, Point::new(4, y + 7), style).draw(lcd).ok();
+                                }
+                            }
+
+                            Line::new(Point::new(0, 52), Point::new(127, 52)).into_styled(border_style).draw(lcd).ok();
+                            Text::new("[OK] Cycle/Run  [ESC] Back", Point::new(2, 62), text_style_small).draw(lcd).ok();
+                        }
+                    }
                 }
             }
 
