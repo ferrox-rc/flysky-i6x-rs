@@ -1,6 +1,6 @@
 # HARDWARE REFERENCE & BRING-UP NOTES
 
-Comprehensive technical documentation for the FlySky FS-i6X hardware reverse-engineered from board analysis and OpenI6X sources.
+Technical reference documentation for the FlySky FS-i6X hardware. This document builds upon the foundational hardware reverse-engineering, register mappings, and schematics pioneered by the **OpenI6X** project and the open-source RC community.
 
 ---
 
@@ -105,11 +105,12 @@ The ST7567 controller contains 132 column segment drivers, while the FS-i6X phys
 ### Optional Hardware PWM Mod (Dimming)
 - **Control Pin:** **`GPIOC` Pin 9 (`PC9`)**
 - **Circuit:** Solder jumper added from the unpopulated `PC9` pad to the backlight transistor base pad (`BL`).
-- **Dimming:** Driven via `TIM3_CH4` (AF0) with 500 Hz PWM for variable brightness levels (0..100%).
+- **Dimming:** Driven via `TIM3_CH4` (AF0) with hardware PWM for variable brightness levels (0..100%).
+- **Credit:** This universal solution was designed and documented by the OpenI6X project maintainer (Kotak), providing hardware PWM control without conflicting with any other radio peripherals.
 - **Software Strategy:** The firmware simultaneously drives `PF3` and `PC9` HIGH, supporting both stock and modded hardware transparently.
 
-> [!CAUTION]
-> **Do NOT drive `PB1` for backlight control.** Although older OpenI6X documentation mentioned `PB1` as an alternative pad, hardware verification confirmed that **`PB1` is physically wired to Switch SD (ADC Channel 9)**. If `PB1` is configured as a GPIO output, flipping Switch SD to the DOWN position dead-shorts `PB1` directly to ground. This drags down the MCU 3.3V rail, turns off the LCD backlight, and can trigger brownout resets.
+> [!NOTE]
+> **Pin Verification:** Ensure connections are made to `PC9` rather than `PB1`. `PB1` is physically routed to Switch SD (ADC Channel 9).
 
 ---
 
