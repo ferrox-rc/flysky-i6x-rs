@@ -53,11 +53,11 @@ When `rf_protocol` is set to `1` (`CRSF / ELRS`), Page 4/4 of the flight dashboa
 
 ---
 
-## 3. Native Lua-Free Module Configurator
+## 3. Native Module Configurator
 
-Traditional EdgeTX and OpenTX radios require an embedded Lua virtual machine to configure ExpressLRS parameters. The STM32F072VB microcontroller has **16 KB of SRAM**, making a Lua VM impossible.
+On standard EdgeTX and OpenTX radios, ExpressLRS module configuration is typically handled via a Lua script. Because the FS-i6X's STM32F072 microcontroller has 16 KB of SRAM, running a full Lua virtual machine is impractical on this platform.
 
-`flysky-i6x-rs` implements the **bidirectional CRSF parameter protocol** natively in bare-metal Rust with **zero dynamic heap allocation**:
+To enable full on-radio module configuration, `flysky-i6x-rs` implements the **bidirectional CRSF parameter protocol** natively in bare-metal Rust with **zero dynamic heap allocation**:
 
 ### Parameter Exchange Protocol
 ```text
