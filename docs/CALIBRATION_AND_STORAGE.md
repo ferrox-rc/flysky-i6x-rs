@@ -44,7 +44,8 @@ pub struct RadioConfig {
     pub usb_mode: u8,              // 0: Joystick, 1: Serial, 2: Composite, 3: Off
     pub sticks: [ChannelCalib; 4], // 0: Roll, 1: Pitch, 2: Throttle, 3: Yaw (32 bytes)
     pub pots: [ChannelCalib; 2],   // 0: VRA, 1: VRB (16 bytes)
-    pub _reserved: [u8; 64],       // Reserved expansion space (Total: 128 bytes)
+    pub ext_module_pwr: u8,        // 64: 0: Active HIGH (N-type), 1: Active LOW (P-type)
+    pub _reserved: [u8; 63],       // Reserved expansion space (Total: 128 bytes)
 }
 
 /// A single freeform mix rule in the matrix mixer (6 bytes)

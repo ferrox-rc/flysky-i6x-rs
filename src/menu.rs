@@ -1605,7 +1605,7 @@ impl MenuController {
                     buzzer.click();
                     return;
                 }
-                const SETUP_ITEMS: usize = 7;
+                const SETUP_ITEMS: usize = 8;
 
                 if down_pressed {
                     if self.selected_item + 1 < SETUP_ITEMS {
@@ -1686,6 +1686,12 @@ impl MenuController {
                             storage.radio.usb_mode = (storage.radio.usb_mode + 1) % 4;
                             storage::save_storage(storage);
                             crate::usb::init(storage.radio.usb_mode);
+                        }
+                        7 => {
+                            // Cycle External Module Power Pin (PC13): 0=HIGH (N-type), 1=LOW (P-type)
+                            storage.radio.ext_module_pwr = if storage.radio.ext_module_pwr == 0 { 1 } else { 0 };
+                            crate::crsf::set_power_polarity(storage.radio.ext_module_pwr == 0);
+                            storage::save_storage(storage);
                         }
                         _ => {}
                     }
@@ -1776,6 +1782,11 @@ impl MenuController {
                             Text::new("USB Mode:", Point::new(4, y + 7), style).draw(lcd).ok();
                             Text::new(usb_str, Point::new(62, y + 7), style).draw(lcd).ok();
                         }
+                        7 => {
+                            let pwr_str = if storage.radio.ext_module_pwr == 0 { "HIGH (N)" } else { "LOW (P)" };
+                            Text::new("PC13 Pwr:", Point::new(4, y + 7), style).draw(lcd).ok();
+                            Text::new(pwr_str, Point::new(62, y + 7), style).draw(lcd).ok();
+                        }
                         _ => {}
                     }
                 }
@@ -1814,9 +1825,9 @@ impl MenuController {
                         return;
                     }
                 } else {
-                    // CRSF / ELRS view: selected_item 0 = Proto, 1 = Baud Rate, 2 = Configure Module
+                    // CRSF / ELRS view: selected_item 0 = Proto, 1 = Baud Rate, 2 = PC13 Power Pin, 3 = Configure Module
                     if ok_pressed {
-                        if self.selected_item == 2 {
+                        if self.selected_item == 3 {
                             self.state = MenuState::ElrsSetup;
                             self.selected_item = 0;
                             self.scroll_offset = 0;
@@ -1824,7 +1835,7 @@ impl MenuController {
                             buzzer.click();
                             return;
                         } else {
-                            self.selected_item = (self.selected_item + 1) % 3;
+                            self.selected_item = (self.selected_item + 1) % 4;
                             buzzer.click();
                         }
                     }
@@ -1854,8 +1865,16 @@ impl MenuController {
                             buzzer.play_tone(2200, 30);
                         }
                     } else if self.selected_item == 2 {
+                        // Edit PC13 Power Polarity: 0=HIGH (N-type), 1=LOW (P-type)
+                        if up_pressed || down_pressed {
+                            storage.radio.ext_module_pwr = if storage.radio.ext_module_pwr == 0 { 1 } else { 0 };
+                            crate::crsf::set_power_polarity(storage.radio.ext_module_pwr == 0);
+                            storage::save_storage(storage);
+                            buzzer.play_tone(2200, 30);
+                        }
+                    } else if self.selected_item == 3 {
                         if up_pressed {
-                            self.selected_item = 1;
+                            self.selected_item = 2;
                             buzzer.play_tone(2200, 30);
                         } else if down_pressed {
                             self.selected_item = 0;
@@ -1892,17 +1911,19 @@ impl MenuController {
                 } else {
                     let sel_proto = self.selected_item == 0;
                     let sel_baud = self.selected_item == 1;
-                    let sel_cfg = self.selected_item == 2;
+                    let sel_pwr = self.selected_item == 2;
+                    let sel_cfg = self.selected_item == 3;
 
                     let p_arrow = if sel_proto { ">" } else { " " };
                     let b_arrow = if sel_baud { ">" } else { " " };
+                    let pwr_arrow = if sel_pwr { ">" } else { " " };
                     let c_arrow = if sel_cfg { ">" } else { " " };
 
                     let mut p_buf = [b' '; 20];
                     p_buf[0] = p_arrow.as_bytes()[0];
                     p_buf[1..18].copy_from_slice(b"Proto: CRSF/ELRS ");
                     let p_str = core::str::from_utf8(&p_buf[..18]).unwrap_or(">Proto: CRSF/ELRS");
-                    Text::new(p_str, Point::new(2, 22), text_style).draw(lcd).ok();
+                    Text::new(p_str, Point::new(2, 21), text_style).draw(lcd).ok();
 
                     let baud_str = match storage.models[active_idx].crsf_baud {
                         0 => "Baud: 420k (ELRS)",
@@ -1916,13 +1937,25 @@ impl MenuController {
                     let b_bytes = baud_str.as_bytes();
                     b_buf[1..1 + b_bytes.len()].copy_from_slice(b_bytes);
                     let full_b_str = core::str::from_utf8(&b_buf[..1 + b_bytes.len()]).unwrap_or(" Baud: 420k");
-                    Text::new(full_b_str, Point::new(2, 32), text_style).draw(lcd).ok();
+                    Text::new(full_b_str, Point::new(2, 30), text_style).draw(lcd).ok();
+
+                    let pwr_str = if storage.radio.ext_module_pwr == 0 {
+                        "PC13: HIGH (N)"
+                    } else {
+                        "PC13: LOW (P)"
+                    };
+                    let mut pwr_buf = [b' '; 22];
+                    pwr_buf[0] = pwr_arrow.as_bytes()[0];
+                    let pwr_bytes = pwr_str.as_bytes();
+                    pwr_buf[1..1 + pwr_bytes.len()].copy_from_slice(pwr_bytes);
+                    let full_pwr_str = core::str::from_utf8(&pwr_buf[..1 + pwr_bytes.len()]).unwrap_or(" PC13: HIGH (N)");
+                    Text::new(full_pwr_str, Point::new(2, 39), text_style).draw(lcd).ok();
 
                     let mut c_buf = [b' '; 22];
                     c_buf[0] = c_arrow.as_bytes()[0];
                     c_buf[1..19].copy_from_slice(b"[Configure Module]");
                     let full_c_str = core::str::from_utf8(&c_buf[..19]).unwrap_or(" [Configure Module]");
-                    Text::new(full_c_str, Point::new(2, 42), text_style).draw(lcd).ok();
+                    Text::new(full_c_str, Point::new(2, 48), text_style).draw(lcd).ok();
 
                     Line::new(Point::new(0, 52), Point::new(127, 52)).into_styled(border_style).draw(lcd).ok();
                     if sel_cfg {
@@ -1936,7 +1969,7 @@ impl MenuController {
             MenuState::ElrsSetup => {
                 if cancel_pressed {
                     self.state = MenuState::RxSetup;
-                    self.selected_item = 2;
+                    self.selected_item = 3;
                     self.waiting_release = true;
                     buzzer.click();
                     return;
