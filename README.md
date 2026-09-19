@@ -8,13 +8,13 @@ Focused on the built-in **A7105** 2.4 GHz RF transceiver (**AFHDS2A** protocol),
 
 ## 1. Overview & Philosophy
 
-The standard OpenTX/EdgeTX port for the FS-i6X ([OpenI6X](https://github.com/OpenI6X/opentx)) is an incredible engineering feat that fits a ~30,000 LOC C++ codebase into the microcontroller's 128 KB flash memory. However, it operates at ~94% flash capacity with less than 7 KB of headroom, making customization and maintenance difficult.
+The FS-i6X open-source journey was pioneered by the remarkable work of the [OpenI6X](https://github.com/OpenI6X/opentx) project, which successfully brought OpenTX/EdgeTX to this hardware and reverse-engineered the radio architecture.
 
-`flysky-i6x-rs` is a **clean-slate rewrite** in Rust designed with:
+`flysky-i6x-rs` explores a complementary design philosophy: an experimental, clean-slate firmware written in bare-metal `no_std` Rust designed with:
 - **Zero-cost abstractions:** Microcontroller-native, static allocation, no heap allocations (`no_std`).
 - **Hard Real-Time Concurrency:** Priority-driven hardware interrupt scheduling (`TIM16` 260 Hz packet sync, `EXTI2` RF ready) paired with a high-rate decoupled flight pipeline and throttled 30 Hz display loop.
 - **Strict Scope:** Dedicated support for the built-in hardware (A7105 AFHDS2A + i-BUS), 4-axis gimbals, switches, trims, 20-model storage, 14-channel matrix mixer, and a 128×64 monochrome UI.
-- **Measured Footprint:** **67.5 KB Flash** (69,168 bytes, leaving >58 KB free / 45.5% headroom) and **1.7 KB static RAM** + 1 KB LCD framebuffer (leaving >89% SRAM free).
+- **Lightweight Footprint:** **67.5 KB Flash** (leaving >58 KB free / 45.5% headroom) and **1.7 KB static RAM** + 1 KB LCD framebuffer (leaving >89% SRAM free).
 
 ---
 
@@ -36,7 +36,7 @@ The standard OpenTX/EdgeTX port for the FS-i6X ([OpenI6X](https://github.com/Ope
 | | Chip Select (CS) | `PD2` | Active Low (held Low for bus access) |
 | | Strobe (RD / E) | `PD7` | 6800-series latch strobe (High -> Low pulse) |
 | | Backlight (Stock) | `PF3` | **Active HIGH** (drives NPN transistor base) |
-| | Backlight (Modded)| `PC9` | `TIM3_CH4` PWM dimming mod pad (Do NOT use `PB1`) |
+| | Backlight (Modded)| `PC9` | `TIM3_CH4` PWM dimming mod (pioneered by OpenI6X) |
 | **Analog Inputs** | 12-bit ADC1 via DMA | 11 Channels scanned | Continuous circular DMA1 Ch1 buffer |
 | | Sticks (RH, RV, LV, LH) | `PA0`, `PA1`, `PA2`, `PA3` | Channels 0 (Roll), 1 (Pitch), 2 (Thr), 3 (Yaw) |
 | | Potentiometers (VRA, VRB)| `PA6`, `PA7` | Channels 6 (VR1 / Left), 7 (VR2 / Right) |
@@ -142,7 +142,7 @@ Comprehensive technical documentation is maintained in the [`docs/`](docs/) dire
 - **[Flight Control & 14-Channel Mixing](docs/MIXER.md)**: 4-stage pipeline, integer cubic expo, Delta/V-Tail/Flaperon templates, auxiliary channel remapping, and EdgeTX freeform matrix mixing.
 - **[Stick Calibration & Flash Persistence](docs/CALIBRATION_AND_STORAGE.md)**: 2-step interactive calibration wizard, tolerance margin calculation, and 20-model Flash storage architecture across Pages 62 & 63.
 - **[USB Subsystem & Simulator Manual](docs/USB_SUBSYSTEM.md)**: Hardware Full-Speed USB driver, 100 Hz HID Gamepad descriptor (8 axes, 16 buttons), CDC-ACM telemetry/CLI, and silent RF standby.
-- **[Architecture & Performance Comparison](docs/FIRMWARE_COMPARISON.md)**: Deep-dive comparative analysis vs OpenI6X and stock firmware (Flash headroom, &lt;4ms latency, safety locks, backlight PWM mod).
+- **[Ecosystem Context & Background](docs/FIRMWARE_COMPARISON.md)**: Background on open-source FS-i6X firmware development, OpenI6X foundations, and the Rust architectural philosophy.
 - **[Hardware Reference & Pinout](docs/HARDWARE_REFERENCE.md)**: Detailed schematics, pin mappings, ST7567 LCD 6800-bus timings, buzzer PWM, and dual-MCU (STM32 / APM32) profiles.
 
 ---
@@ -295,4 +295,14 @@ dfu-util -a 0 -s 0x08000000:leave -D stock_backup.bin
 This project was built through a **human-directed, AI-assisted development workflow** ("vibe-coding" with rigorous physical hardware bench testing). Having previously contributed to OpenI6X, domain knowledge of the FS-i6X hardware, pinouts, and protocol timings was used to direct LLM pair-programming tools to rapidly implement the `no_std` Rust architecture.
 
 Every subsystem (DMA ADC scanning, A7105 SPI/RF state machine, ST7567 parallel bus LCD, USB HID/CDC descriptors, USART2 CRSF/ELRS engine, and Flash storage) has been deployed and verified on real FlySky FS-i6X hardware. We welcome community code review, contributions, and PRs to continue refining and hardening the codebase!
+
+---
+
+## 11. Acknowledgments & Prior Art
+
+This project stands on the shoulders of the open-source RC community and owes special gratitude to:
+
+- **Kotak and the OpenI6X Team**: For their groundbreaking reverse-engineering of the FlySky FS-i6X hardware, bus timings, ST7567 LCD initialization sequence, A7105 SPI registers, bootloader jump sequences, and the `PC9` backlight PWM dimming mod. Without their pioneering work and generous sharing of hardware research, this project would not have been possible.
+- **OpenTX and EdgeTX Teams**: For defining modern open-source RC transmitter mixing, telemetry architectures, and simulator standards.
+- **ExpressLRS & Team BlackSheep**: For pioneering open, high-performance CRSF protocols and parameter synchronization.
 

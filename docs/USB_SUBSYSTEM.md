@@ -6,9 +6,7 @@ A comprehensive technical reference and operations guide for the USB subsystem o
 
 ## 1. Overview & System Philosophy
 
-The standard FlySky FS-i6X transmitter PCB is equipped with a native USB port wired directly to the microcontroller's hardware USB Full-Speed (12 Mbps) peripheral. Previous custom firmwares (such as OpenI6X) offered USB joystick emulation, but constrained memory and monolithic codebases made flexible dual-personality support difficult.
-
-`flysky-i6x-rs` introduces a pure `no_std` Rust USB subsystem designed with:
+The standard FlySky FS-i6X transmitter PCB is equipped with a native USB port wired directly to the microcontroller's hardware USB Full-Speed (12 Mbps) peripheral. Building on the USB joystick emulation established by the OpenI6X project, `flysky-i6x-rs` introduces a pure `no_std` Rust USB subsystem featuring:
 - **Zero Heap Allocations**: Powered by `usb-device`, `stm32-usbd`, `usbd-hid`, and `usbd-serial` using static memory structures and direct hardware packet buffers.
 - **Dual-Personality Operation**:
   - **Flight Simulator Joystick (HID)**: High-rate (100 Hz), jitter-free, native 8-axis 16-button gamepad for drone and RC flight simulators.
