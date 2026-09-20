@@ -271,11 +271,11 @@ The method to enter DFU bootloader mode depends on whether you are currently on 
 #### A. First-Time Flashing from Stock Factory Firmware (R53 Bootloader Access)
 Because the original stock FlySky factory firmware does not include a software key check to trigger the DFU bootloader, entering DFU mode for the first time requires hardware access to the `BOOT0` line via the **`R53`** solder pads:
 1. Ensure the transmitter is switched **OFF** and remove the rear case screws.
-2. Carefully separate the rear case and locate the two unpopulated solder pads labeled **`R53`** on the back of the motherboard (near the microcontroller).
+2. Carefully separate the rear case. Be aware of the battery wires connected between the two halves. Once separated, locate the two unpopulated solder pads labeled **`R53`** on the back of the motherboard (near the microcontroller). It is best to connect the USB cable to the rear case now.
 3. Momentarily bridge/short the two `R53` pads using tweezers, a jumper wire, or a screwdriver tip.
-4. While holding the bridge across `R53`, connect the USB cable to your PC and switch the transmitter power switch **ON**.
+4. While holding the bridge across `R53`, have the USB cable connected to your PC and switch the transmitter power switch **ON**.
 5. Bridging `R53` pulls the MCU's `BOOT0` pin to 3.3V, causing the chip to boot directly into its factory ROM DFU bootloader (`0483:df11` for STM32, `314b:0106` for APM32). The transmitter screen remains blank, and the PC detects the device as `STM32 BOOTLOADER`.
-6. Once powered on, remove the bridge across `R53`. You do not need to keep it bridged while flashing.
+6. Once powered on, you can remove the bridge across `R53`. You do not need to keep it bridged while flashing.
 
 > [!TIP]
 > For board photos, pad locations, and Windows driver setup (Zadig / STM32CubeProgrammer), refer to the comprehensive [OpenI6X Flashing & Upgrading Guide](https://github.com/OpenI6X/opentx/wiki/Flashing-&-Upgrading).

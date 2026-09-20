@@ -353,12 +353,12 @@ The FlySky FS-i6X can be backed up and flashed directly over USB without special
 
 #### A. Initial Flash from Stock FlySky Factory Firmware (R53 Bootloader Access)
 The stock FlySky factory firmware does not include the software key-check logic to jump into the DFU bootloader. Therefore, entering DFU mode for the very first time requires access to the hardware `BOOT0` line:
-1. Turn the transmitter **OFF** and remove the 4 rear casing screws (plus any battery compartment screws).
-2. Separate the rear case and locate the two unpopulated solder pads labeled **`R53`** on the back of the mainboard near the MCU.
-3. Bridge the two `R53` pads with tweezers, a small wire, or a screwdriver tip.
-4. While bridging `R53`, connect the USB cable and switch the transmitter power switch **ON**.
-5. Bridging `R53` pulls `BOOT0` high to 3.3V, causing the chip to boot directly into ST/Geehy ROM DFU mode (`0483:df11` for STM32, `314b:0106` for APM32). The screen remains blank.
-6. Once powered on, remove the bridge. The transmitter will stay in DFU mode until power-cycled.
+1. Ensure the transmitter is switched **OFF** and remove the rear case screws.
+2. Carefully separate the rear case. Be aware of the battery wires connected between the two halves. Once separated, locate the two unpopulated solder pads labeled **`R53`** on the back of the motherboard (near the microcontroller). It is best to connect the USB cable to the rear case now.
+3. Momentarily bridge/short the two `R53` pads using tweezers, a jumper wire, or a screwdriver tip.
+4. While holding the bridge across `R53`, have the USB cable connected to your PC and switch the transmitter power switch **ON**.
+5. Bridging `R53` pulls the MCU's `BOOT0` pin to 3.3V, causing the chip to boot directly into its factory ROM DFU bootloader (`0483:df11` for STM32, `314b:0106` for APM32). The transmitter screen remains blank, and the PC detects the device as `STM32 BOOTLOADER`.
+6. Once powered on, you can remove the bridge across `R53`. You do not need to keep it bridged while flashing.
 
 > [!TIP]
 > For board photos and detailed platform walk-throughs, refer to the [OpenI6X Flashing & Upgrading Documentation](https://github.com/OpenI6X/opentx/wiki/Flashing-&-Upgrading).
