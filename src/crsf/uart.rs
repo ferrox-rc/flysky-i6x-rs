@@ -45,9 +45,29 @@ const USART_ISR_TC: u32 = 1 << 6;
 const USART_ISR_RXNE: u32 = 1 << 5;
 const USART_ISR_ORE: u32 = 1 << 3;
 
+static mut ACTIVE_HIGH: bool = true;
+static mut POWER_ON: bool = false;
+
+/// Apply current PC13 pin state based on power state and active polarity.
+unsafe fn apply_power_pin() {
+    let pin_high = if ACTIVE_HIGH {
+        POWER_ON
+    } else {
+        !POWER_ON
+    };
+    if pin_high {
+        ptr::write_volatile(GPIOC_BSRR, 1 << 13); // High
+    } else {
+        ptr::write_volatile(GPIOC_BSRR, 1 << (13 + 16)); // Low
+    }
+}
+
 /// Initialize GPIO pins: PC13 as power switch (initially OFF), PD5 and PA15 peripheral clocks.
-pub fn init() {
+pub fn init(active_high: bool) {
     unsafe {
+        ACTIVE_HIGH = active_high;
+        POWER_ON = false;
+
         // Enable GPIOA (bit 17), GPIOC (bit 19), GPIOD (bit 20) clocks
         let ahb = ptr::read_volatile(RCC_AHBENR);
         ptr::write_volatile(RCC_AHBENR, ahb | (1 << 17) | (1 << 19) | (1 << 20));
@@ -56,19 +76,24 @@ pub fn init() {
         let c_moder = ptr::read_volatile(GPIOC_MODER);
         ptr::write_volatile(GPIOC_MODER, (c_moder & !(3 << 26)) | (1 << 26));
 
-        // Ensure PC13 is LOW (Module power OFF by default)
-        ptr::write_volatile(GPIOC_BSRR, 1 << (13 + 16));
+        // Apply initial OFF state according to polarity
+        apply_power_pin();
+    }
+}
+
+/// Set active power polarity for PC13: true = Active HIGH (N-type), false = Active LOW (P-type).
+pub fn set_power_polarity(active_high: bool) {
+    unsafe {
+        ACTIVE_HIGH = active_high;
+        apply_power_pin();
     }
 }
 
 /// Set external module power state via PC13
 pub fn set_module_power(power_on: bool) {
     unsafe {
-        if power_on {
-            ptr::write_volatile(GPIOC_BSRR, 1 << 13); // High
-        } else {
-            ptr::write_volatile(GPIOC_BSRR, 1 << (13 + 16)); // Low
-        }
+        POWER_ON = power_on;
+        apply_power_pin();
     }
 }
 

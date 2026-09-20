@@ -1604,7 +1604,7 @@ impl MenuController {
                     buzzer.click();
                     return;
                 }
-                const SETUP_ITEMS: usize = 7;
+                const SETUP_ITEMS: usize = 8;
 
                 if down_pressed {
                     if self.selected_item + 1 < SETUP_ITEMS {
@@ -1685,6 +1685,12 @@ impl MenuController {
                             storage.radio.usb_mode = (storage.radio.usb_mode + 1) % 4;
                             storage::save_storage(storage);
                             crate::usb::init(storage.radio.usb_mode);
+                        }
+                        7 => {
+                            // Cycle External Module Power Pin (PC13): 0=HIGH (N-type), 1=LOW (P-type)
+                            storage.radio.ext_module_pwr = if storage.radio.ext_module_pwr == 0 { 1 } else { 0 };
+                            crate::crsf::set_power_polarity(storage.radio.ext_module_pwr == 0);
+                            storage::save_storage(storage);
                         }
                         _ => {}
                     }
@@ -1774,6 +1780,11 @@ impl MenuController {
                             };
                             Text::new("USB Mode:", Point::new(4, y + 7), style).draw(lcd).ok();
                             Text::new(usb_str, Point::new(62, y + 7), style).draw(lcd).ok();
+                        }
+                        7 => {
+                            let pwr_str = if storage.radio.ext_module_pwr == 0 { "HIGH (N)" } else { "LOW (P)" };
+                            Text::new("PC13 Pwr:", Point::new(4, y + 7), style).draw(lcd).ok();
+                            Text::new(pwr_str, Point::new(62, y + 7), style).draw(lcd).ok();
                         }
                         _ => {}
                     }

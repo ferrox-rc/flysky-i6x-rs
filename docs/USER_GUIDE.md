@@ -347,13 +347,28 @@ The firmware provides 4 convenient ways to initiate AFHDS 2A binding with clean 
 
 ## 7. Firmware Flashing, Full Flash Backup, & DFU Recovery
 
-The FlySky FS-i6X can be backed up and flashed directly over USB without specialized hardware programmer probes or soldering:
+The FlySky FS-i6X can be backed up and flashed directly over USB without specialized hardware programmer probes:
 
 ### 1. Enter Factory ROM DFU Bootloader
-- With the transmitter powered off, hold **Roll Left + Yaw Right** inward towards the power switch while switching on the radio.
-- The LCD screen remains blank, and the transmitter enumerates over USB as `0483:df11` (STM32 BOOTLOADER in permanent factory ROM).
 
-### 2. Backup Entire Flash (RECOMMENDED)
+#### A. Initial Flash from Stock FlySky Factory Firmware (R53 Bootloader Access)
+The stock FlySky factory firmware does not include the software key-check logic to jump into the DFU bootloader. Therefore, entering DFU mode for the very first time requires access to the hardware `BOOT0` line:
+1. Ensure the transmitter is switched **OFF** and remove the rear case screws.
+2. Carefully separate the rear case. Be aware of the battery wires connected between the two halves. Once separated, locate the two unpopulated solder pads labeled **`R53`** on the back of the motherboard (near the microcontroller). It is best to connect the USB cable to the rear case now.
+3. Momentarily bridge/short the two `R53` pads using tweezers, a jumper wire, or a screwdriver tip.
+4. While holding the bridge across `R53`, have the USB cable connected to your PC and switch the transmitter power switch **ON**.
+5. Bridging `R53` pulls the MCU's `BOOT0` pin to 3.3V, causing the chip to boot directly into its factory ROM DFU bootloader (`0483:df11` for STM32, `314b:0106` for APM32). The transmitter screen remains blank, and the PC detects the device as `STM32 BOOTLOADER`.
+6. Once powered on, you can remove the bridge across `R53`. You do not need to keep it bridged while flashing.
+
+> [!TIP]
+> For board photos and detailed platform walk-throughs, refer to the [OpenI6X Flashing & Upgrading Documentation](https://github.com/OpenI6X/opentx/wiki/Flashing-&-Upgrading).
+
+#### B. Upgrading from OpenI6X or flysky-i6x-rs (No Disassembly Needed)
+Once custom firmware has been flashed to the radio, hardware pad bridging is never needed again:
+- With the transmitter powered off, hold **Roll Left + Yaw Right** inward towards the power switch while switching on the radio.
+- The LCD screen remains blank, and the transmitter enumerates over USB as `0483:df11` (STM32 BOOTLOADER).
+
+### 2. Backup Entire Flash (CRITICAL BEFORE FIRST FLASH)
 Before flashing any custom firmware, pull your entire 128 KB on-chip Flash memory to a local file for 100% safe, instant reversion:
 ```bash
 # Backup complete 128 KB on-chip Flash (firmware + calibration + models)
@@ -363,7 +378,11 @@ dfu-util -a 0 -s 0x08000000:131072 -U stock_backup.bin
 ### 3. Flash flysky-i6x-rs Firmware
 Flash the compiled binary via `dfu-util`:
 ```bash
+# For STM32F072:
 dfu-util -a 0 -s 0x08000000:leave -D flysky-i6x.bin
+
+# For APM32F072:
+dfu-util -a 0 -d 314b:0106 -s 0x08000000:leave -D flysky-i6x.bin
 ```
 The radio will immediately reboot into the new firmware upon completion.
 

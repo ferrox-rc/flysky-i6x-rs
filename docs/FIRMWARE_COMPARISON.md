@@ -32,13 +32,14 @@ Both projects share the common goal of empowering pilots and makers to get the a
 
 ---
 
-## 3. Backing Up and Testing
+## 3. Backing Up, Testing, & DFU Access
 
-Because the STM32F072 features a permanent factory DFU bootloader in System ROM, pilots can explore different firmwares safely:
+Because the STM32F072/APM32F072 features a permanent factory DFU bootloader in System ROM, pilots can explore different firmwares safely:
 
 1. **Enter Bootloader Mode:**
-   Hold both horizontal trims inward (Roll Left + Yaw Right) toward the power switch while powering on.
-2. **Back Up Current Firmware:**
+   - **From Stock Factory Firmware:** Bridge the **`R53`** boot pads on the back of the motherboard while switching power ON (see the [OpenI6X Flashing & Upgrading Guide](https://github.com/OpenI6X/opentx/wiki/Flashing-&-Upgrading)).
+   - **From OpenI6X or `flysky-i6x-rs`:** Simply hold both horizontal trims inward (**Roll Left + Yaw Right**) toward the power switch while switching power ON.
+2. **Back Up Current Firmware (CRITICAL):**
    ```bash
    dfu-util -a 0 -s 0x08000000:131072 -U backup_full.bin
    ```
