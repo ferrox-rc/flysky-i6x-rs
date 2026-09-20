@@ -216,8 +216,12 @@ pub fn poll_telemetry(now_ms: u32) {
                                 | protocol::CRSF_FRAMETYPE_BATTERY_SENSOR => {
                                     let _ = parse_telemetry_frame(frame, &mut TELEMETRY, now_ms);
                                 }
+                                protocol::CRSF_FRAMETYPE_ELRS_STATUS => {
+                                    TELEMETRY.connected = true;
+                                    TELEMETRY.last_telemetry_ms = now_ms;
+                                }
                                 protocol::CRSF_FRAMETYPE_DEVICE_INFO => {
-                                    handle_device_info_frame(&frame[3..RX_LEN - 1]);
+                                    handle_device_info_frame(&frame[3..RX_LEN - 1], now_ms);
                                 }
                                 protocol::CRSF_FRAMETYPE_PARAMETER_SETTINGS_ENTRY => {
                                     handle_param_entry_frame(&frame[3..RX_LEN - 1], now_ms);
@@ -248,19 +252,20 @@ pub fn poll_telemetry(now_ms: u32) {
     }
 }
 
-unsafe fn handle_device_info_frame(payload: &[u8]) {
+unsafe fn handle_device_info_frame(payload: &[u8], now_ms: u32) {
     if payload.len() < 3 {
         return;
     }
     let orig = payload[1];
     CONFIG_ENGINE.device_id = orig;
 
-    // Extract device name (null-terminated starting at payload[2])
+    // Extract device name (find true null-terminator without prematurely aborting search)
     let mut name_end = 2;
-    while name_end < payload.len() && payload[name_end] != 0 && (name_end - 2) < 20 {
+    while name_end < payload.len() && payload[name_end] != 0 {
         name_end += 1;
     }
-    let name_len = (name_end - 2).min(20);
+    let full_name_len = name_end.saturating_sub(2);
+    let name_len = full_name_len.min(20);
     CONFIG_ENGINE.device_name[..name_len].copy_from_slice(&payload[2..2 + name_len]);
     CONFIG_ENGINE.device_name_len = name_len as u8;
 
@@ -272,9 +277,20 @@ unsafe fn handle_device_info_frame(payload: &[u8]) {
         CONFIG_ENGINE.param_count = 10;
     }
 
-    CONFIG_ENGINE.state = ElrsConfigState::LoadingParam(1);
-    CONFIG_ENGINE.params_len = 0;
-    CONFIG_ENGINE.last_req_ms = 0;
+    if CONFIG_ENGINE.param_count > 0 {
+        CONFIG_ENGINE.state = ElrsConfigState::LoadingParam(1);
+        CONFIG_ENGINE.params_len = 0;
+        CONFIG_ENGINE.current_chunk = 0;
+        CONFIG_ENGINE.last_req_ms = now_ms;
+
+        // Immediately dispatch request for parameter 1
+        let mut req = [0u8; 16];
+        let len = protocol::build_param_read_frame(CONFIG_ENGINE.device_id, 1, 0, &mut req);
+        uart::write_bytes(&req[..len]);
+    } else {
+        CONFIG_ENGINE.state = ElrsConfigState::Ready;
+        CONFIG_ENGINE.params_len = 0;
+    }
 }
 
 unsafe fn handle_param_entry_frame(payload: &[u8], now_ms: u32) {
@@ -289,12 +305,13 @@ unsafe fn handle_param_entry_frame(payload: &[u8], now_ms: u32) {
         let parent = chunk[0];
         let p_type = chunk[1] & 0x7F;
 
-        // Extract name
+        // Extract name: scan for true null-terminator without prematurely aborting search
         let mut name_end = 2;
-        while name_end < chunk.len() && chunk[name_end] != 0 && (name_end - 2) < 16 {
+        while name_end < chunk.len() && chunk[name_end] != 0 {
             name_end += 1;
         }
-        let name_len = (name_end - 2).min(16);
+        let full_name_len = name_end.saturating_sub(2);
+        let name_len = full_name_len.min(16);
         let mut name_buf = [0u8; 16];
         name_buf[..name_len].copy_from_slice(&chunk[2..2 + name_len]);
 
@@ -356,18 +373,22 @@ unsafe fn handle_param_entry_frame(payload: &[u8], now_ms: u32) {
         }
     }
 
-    if chunks_remain == 0 {
-        if param_id < CONFIG_ENGINE.param_count && CONFIG_ENGINE.params_len < MAX_PARAMS {
-            let next_id = param_id + 1;
-            CONFIG_ENGINE.state = ElrsConfigState::LoadingParam(next_id);
-            CONFIG_ENGINE.current_chunk = 0;
-            let mut req = [0u8; 16];
-            let len = protocol::build_param_read_frame(CONFIG_ENGINE.device_id, next_id, 0, &mut req);
-            uart::write_bytes(&req[..len]);
-            CONFIG_ENGINE.last_req_ms = now_ms;
-        } else {
-            CONFIG_ENGINE.state = ElrsConfigState::Ready;
-        }
+    if chunks_remain > 0 {
+        CONFIG_ENGINE.current_chunk += 1;
+        let mut req = [0u8; 16];
+        let len = protocol::build_param_read_frame(CONFIG_ENGINE.device_id, param_id, CONFIG_ENGINE.current_chunk, &mut req);
+        uart::write_bytes(&req[..len]);
+        CONFIG_ENGINE.last_req_ms = now_ms;
+    } else if param_id < CONFIG_ENGINE.param_count && CONFIG_ENGINE.params_len < MAX_PARAMS {
+        let next_id = param_id + 1;
+        CONFIG_ENGINE.state = ElrsConfigState::LoadingParam(next_id);
+        CONFIG_ENGINE.current_chunk = 0;
+        let mut req = [0u8; 16];
+        let len = protocol::build_param_read_frame(CONFIG_ENGINE.device_id, next_id, 0, &mut req);
+        uart::write_bytes(&req[..len]);
+        CONFIG_ENGINE.last_req_ms = now_ms;
+    } else {
+        CONFIG_ENGINE.state = ElrsConfigState::Ready;
     }
 }
 

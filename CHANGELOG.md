@@ -25,6 +25,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - **BSS Relocation & Downsizing of `CONFIG_ENGINE`**: Relocated `CONFIG_ENGINE` from `.data` to `.bss` (setting `device_id` to 0 in const constructor and assigning `0xEE` on handshake start). Reduced `MAX_PARAMS` to 8 and optimized option buffers, reducing size from 952 bytes to 516 bytes and shrinking `.data` back to 1,776 bytes.
     - **Immutable Axis Inversion Flags**: Updated `input::apply_calibration()` to explicitly enforce `invert = false` on `THROTTLE_CALIB` and `YAW_CALIB`, and `invert = true` on `ROLL_CALIB` and `PITCH_CALIB`.
     - **Stack Safety Margin Restored**: Maximum boot stack usage dropped from **15.4 KB down to ~7.2 KB**, leaving **> 6.3 KB of guaranteed uncorrupted safety margin** between the stack and static RAM.
+- **CRSF Protocol Framing & Sync Byte Compliance (`tbs-fpv/tbs-crsf-spec`)**:
+  - **Serial Sync Byte Compliance (`0xC8`)**: Conformed all outgoing extended frames (`DEVICE_PING` 0x28, `PARAMETER_READ` 0x2C, `PARAMETER_WRITE` 0x2D) to start with `0xC8` (`CRSF_SYNC_BYTE`). Previously `build_ping_frame` emitted broadcast `0x00` on the wire and parameter frames emitted destination `0xEE`, causing external module serial parsers to discard packets.
+  - **Frame Length Field Off-By-One Fix**: Corrected length field (`out_frame[1]`) from 5 to 6 in `build_param_read_frame()` and `build_param_write_frame()` to accurately encompass `Type (1) + Dest (1) + Origin (1) + Param (1) + Chunk/Val (1) + CRC (1) = 6` per TBS specification.
+  - **Unbounded Null-Terminator Search**: Fixed premature loop exit when scanning device and parameter names with lengths $\ge$ 20 or $\ge$ 16 bytes, preventing memory offset miscalculations when parsing parameter counts, options lists, and current values.
+  - **Multi-Chunk Parameter Retrieval & Rapid Pipeline**: Automatically request subsequent parameter chunks when `chunks_remain > 0`, and immediately dispatch parameter 1 request upon receiving device info `0x29`.
+  - **ELRS Status Keep-Alive**: Extended telemetry parser to accept and keep the telemetry connection alive on incoming `0x2E` (`CRSF_FRAMETYPE_ELRS_STATUS`) packets.
 
 ### Added
 - Native ExpressLRS / CRSF configuration engine with 8 parameter slots.

@@ -4,6 +4,7 @@
 
 #![allow(dead_code)]
 
+pub const CRSF_SYNC_BYTE: u8 = 0xC8;
 pub const CRSF_ADDRESS_BROADCAST: u8 = 0x00;
 pub const CRSF_ADDRESS_CRSF_TRANSMITTER: u8 = 0xEE;
 pub const CRSF_ADDRESS_RADIO_TRANSMITTER: u8 = 0xEA;
@@ -259,8 +260,9 @@ pub fn rf_mode_to_str(rf_mode: u8) -> &'static str {
 }
 
 /// Build a Device Ping frame (0x28) to discover connected CRSF/ELRS modules.
+/// Wire frame format: [Sync (0xC8)] [Len (4)] [Type (0x28)] [Dest (0x00)] [Orig (0xEA)] [CRC]
 pub fn build_ping_frame(out_frame: &mut [u8]) -> usize {
-    out_frame[0] = CRSF_ADDRESS_BROADCAST;
+    out_frame[0] = CRSF_SYNC_BYTE;
     out_frame[1] = 4; // Type (1) + Payload (2) + CRC (1)
     out_frame[2] = CRSF_FRAMETYPE_DEVICE_PING;
     out_frame[3] = CRSF_ADDRESS_BROADCAST;
@@ -270,9 +272,10 @@ pub fn build_ping_frame(out_frame: &mut [u8]) -> usize {
 }
 
 /// Build a Parameter Read frame (0x2C) requesting metadata/options for `param_id`.
+/// Wire frame format: [Sync (0xC8)] [Len (6)] [Type (0x2C)] [Dest] [Orig (0xEA)] [Param] [Chunk] [CRC]
 pub fn build_param_read_frame(target: u8, param_id: u8, chunk: u8, out_frame: &mut [u8]) -> usize {
-    out_frame[0] = target;
-    out_frame[1] = 5; // Type (1) + Payload (3) + CRC (1)
+    out_frame[0] = CRSF_SYNC_BYTE;
+    out_frame[1] = 6; // Type (1) + Dest (1) + Orig (1) + Param (1) + Chunk (1) + CRC (1) = 6
     out_frame[2] = CRSF_FRAMETYPE_PARAMETER_READ;
     out_frame[3] = target;
     out_frame[4] = CRSF_ADDRESS_RADIO_TRANSMITTER;
@@ -283,9 +286,10 @@ pub fn build_param_read_frame(target: u8, param_id: u8, chunk: u8, out_frame: &m
 }
 
 /// Build a Parameter Write frame (0x2D) updating `param_id` value or command status.
+/// Wire frame format: [Sync (0xC8)] [Len (6)] [Type (0x2D)] [Dest] [Orig (0xEA)] [Param] [Value] [CRC]
 pub fn build_param_write_frame(target: u8, param_id: u8, value: u8, out_frame: &mut [u8]) -> usize {
-    out_frame[0] = target;
-    out_frame[1] = 5; // Type (1) + Payload (3) + CRC (1)
+    out_frame[0] = CRSF_SYNC_BYTE;
+    out_frame[1] = 6; // Type (1) + Dest (1) + Orig (1) + Param (1) + Value (1) + CRC (1) = 6
     out_frame[2] = CRSF_FRAMETYPE_PARAMETER_WRITE;
     out_frame[3] = target;
     out_frame[4] = CRSF_ADDRESS_RADIO_TRANSMITTER;
