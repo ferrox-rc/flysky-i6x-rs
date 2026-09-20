@@ -319,7 +319,8 @@ fn main() -> ! {
     buzzer.init();
 
     // 7. Load persistent radio storage and 20-model configuration
-    let mut storage = storage::load_storage();
+    let mut storage = storage::RadioStorage::empty();
+    storage::load_storage_into(&mut storage);
     buzzer.enabled = storage.radio.audio_enabled != 0;
     buzzer.click(); // Power-on audible confirmation
 
@@ -693,7 +694,7 @@ fn main() -> ! {
         if calib_wizard.is_active() {
             if run_display {
                 last_display_ms = now;
-                calib_wizard.update(&mut lcd, &state.raw, keys, dt_ms.max(20), &mut buzzer);
+                calib_wizard.update(&mut lcd, &mut storage, &state.raw, keys, dt_ms.max(20), &mut buzzer);
                 lcd.flush();
             }
             continue;

@@ -258,7 +258,7 @@ Assigns physical controls (switches `SA..SD`, pots `VRA/VRB`, sticks, or `None`)
 - Automatically saved to non-volatile Flash upon exit.
 
 ### Submenu 8: Radio Setup (`RADIO SETUP`)
-The Radio Setup menu features a scrollable 4-item viewport with 9px row heights and automatic vertical scrolling across 7 configuration parameters:
+The Radio Setup menu features a scrollable 4-item viewport with 9px row heights and automatic vertical scrolling across 8 configuration parameters:
 - **`Thr Trim:`**: Toggle between `OFF (Lock)`, `IDLE`, and `LINEAR`.
 - **`Beeper:`**: Toggle audio sound between `ENABLED` and `MUTED`.
 - **`BL Timer:`**: LCD backlight auto-shutoff timeout: `ALWAYS ON`, `15 SEC`, `30 SEC`, or `60 SEC`. Touching any key or moving any stick wakes the backlight instantly.
@@ -270,15 +270,19 @@ The Radio Setup menu features a scrollable 4-item viewport with 9px row heights 
   - **`JOYSTICK`**: 100 Hz native USB Gamepad for flight simulators with silent RF standby (zero RF radiation, cool running).
   - **`SERIAL`**: Virtual COM Port (CDC-ACM) at 115200 baud streaming live JSON telemetry while maintaining normal RF transmission.
   - **`COMPOSITE`**: Simultaneous HID Gamepad + CDC-ACM Virtual COM Port.
+- **`Ext Module Power:`**: External module power switch polarity on `PC13`:
+  - **`HIGH`** (Default): Active HIGH (drives PC13 high for N-channel MOSFET or active-high switch).
+  - **`LOW`**: Active LOW (drives PC13 low for P-channel MOSFET or direct PNP switch).
 
 ### Submenu 9: Protocol Setup (`PROTOCOL SETUP`)
 Replaces the redundant bind menu with universal RF protocol management:
 - **`Proto: AFHDS 2A`**: Uses the built-in A7105 transceiver. Displays active model name and bound receiver ID (e.g. `Rx ID: 1A2B3C4D`). Pressing **`[OK]`** triggers receiver binding. Pressing **`[UP]`** or **`[DOWN]`** cycles protocol.
-- **`Proto: CRSF / ELRS`**: Drives external Crossfire or ExpressLRS transmitter modules connected to the rear expansion bay (`PD5` TX, `PA15` RX) with hardware power control on `PC13`. Pressing **`[OK]`** toggles selection between the Protocol and Baud Rate row. Pressing **`[UP]`** or **`[DOWN]`** cycles options:
+- **`Proto: CRSF / ELRS`**: Drives external Crossfire or ExpressLRS transmitter modules connected to the rear expansion bay (`PD5` TX, `PA15` RX) with hardware power control on `PC13`. Pressing **`[OK]`** cycles selection through Protocol, Baud Rate, and Configure Module:
   - `Baud: 420k (ELRS)`: Default recommended speed for ExpressLRS.
   - `Baud: 416.6k (TBS)`: Standard TBS Crossfire module rate.
   - `Baud: 115.2k (Low)`: Low-speed compatibility / diagnostic rate.
   - `Baud: 921.6k (Fast)`: High-throughput ExpressLRS rate.
+  - `[Configure Module]`: Opens the native ExpressLRS configurator screen to adjust Packet Rate, Power, Wi-Fi Mode, and trigger binding.
 
 ### Submenu 10: Channel Monitor (`CHANNEL MONITOR`)
 - Displays live pulse widths (1000..2000 µs) across all 14 channels with 40-pixel horizontal graphic bar indicators and exact microsecond numbers.

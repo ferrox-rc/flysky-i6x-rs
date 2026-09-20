@@ -65,11 +65,28 @@ impl TelemetryData {
 
 /// Read persisted receiver ID from Flash if previously bound.
 pub fn load_saved_rx_id() -> Option<u32> {
-    let storage = crate::storage::load_storage();
-    let rx_id = storage.active_model().rx_id;
-    if rx_id != 0 && rx_id != 0xFFFF_FFFF {
-        Some(rx_id)
-    } else {
+    unsafe {
+        let magic = core::ptr::read_volatile(crate::storage::FLASH_STORAGE_ADDR as *const u32);
+        let version = core::ptr::read_volatile((crate::storage::FLASH_STORAGE_ADDR + 4) as *const u32);
+        if magic == crate::storage::FLASH_MAGIC && (version == crate::storage::CONFIG_VERSION || version == 3) {
+            let active_idx = core::ptr::read_volatile((crate::storage::FLASH_STORAGE_ADDR + 8) as *const u8) as usize;
+            let model_idx = active_idx.min(crate::storage::NUM_MODELS - 1);
+            let model_addr = crate::storage::FLASH_STORAGE_ADDR + 128 + (model_idx * 128);
+            let rx_id = core::ptr::read_volatile(model_addr as *const u32);
+            if rx_id != 0 && rx_id != 0xFFFF_FFFF {
+                return Some(rx_id);
+            }
+        }
+
+        let legacy_magic = core::ptr::read_volatile(crate::storage::FLASH_LEGACY_ADDR as *const u32);
+        let legacy_ver = core::ptr::read_volatile((crate::storage::FLASH_LEGACY_ADDR + 4) as *const u32);
+        if legacy_magic == crate::storage::FLASH_MAGIC && (legacy_ver == 1 || legacy_ver == 2) {
+            let rx_id = core::ptr::read_volatile((crate::storage::FLASH_LEGACY_ADDR + 8) as *const u32);
+            if rx_id != 0 && rx_id != 0xFFFF_FFFF {
+                return Some(rx_id);
+            }
+        }
+
         None
     }
 }

@@ -68,7 +68,7 @@ pub fn update_channels(now_ms: u32, channels: &[u16; 14]) {
     }
 }
 
-pub const MAX_PARAMS: usize = 12;
+pub const MAX_PARAMS: usize = 8;
 
 #[derive(Copy, Clone, Debug)]
 pub struct Parameter {
@@ -79,7 +79,7 @@ pub struct Parameter {
     pub name_len: u8,
     pub value: u8,
     pub max_value: u8,
-    pub options: [u8; 48],
+    pub options: [u8; 36],
     pub options_len: u8,
     pub status: u8,
 }
@@ -94,7 +94,7 @@ impl Parameter {
             name_len: 0,
             value: 0,
             max_value: 0,
-            options: [0; 48],
+            options: [0; 36],
             options_len: 0,
             status: 0,
         }
@@ -156,7 +156,7 @@ impl ElrsConfigEngine {
     pub const fn new() -> Self {
         Self {
             state: ElrsConfigState::Idle,
-            device_id: protocol::CRSF_ADDRESS_CRSF_TRANSMITTER,
+            device_id: 0, // Zeroed by default to sit in .bss
             device_name: [0; 20],
             device_name_len: 0,
             param_count: 0,
@@ -298,7 +298,7 @@ unsafe fn handle_param_entry_frame(payload: &[u8], now_ms: u32) {
         let mut name_buf = [0u8; 16];
         name_buf[..name_len].copy_from_slice(&chunk[2..2 + name_len]);
 
-        let mut opt_buf = [0u8; 48];
+        let mut opt_buf = [0u8; 36];
         let mut opt_len = 0u8;
         let mut val = 0u8;
         let mut max_val = 0u8;
@@ -314,7 +314,7 @@ unsafe fn handle_param_entry_frame(payload: &[u8], now_ms: u32) {
                     }
                     opt_end += 1;
                 }
-                let copy_len = (opt_end - rest_start).min(48);
+                let copy_len = (opt_end - rest_start).min(36);
                 opt_buf[..copy_len].copy_from_slice(&chunk[rest_start..rest_start + copy_len]);
                 opt_len = copy_len as u8;
                 max_val = opt_count.saturating_sub(1);
@@ -394,6 +394,7 @@ unsafe fn elrs_tick(now_ms: u32) {
 /// Start or refresh the native ELRS module configuration handshake.
 pub fn start_config() {
     unsafe {
+        CONFIG_ENGINE.device_id = protocol::CRSF_ADDRESS_CRSF_TRANSMITTER;
         CONFIG_ENGINE.state = ElrsConfigState::Discovering;
         CONFIG_ENGINE.params_len = 0;
         CONFIG_ENGINE.last_req_ms = 0;

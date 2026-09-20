@@ -152,31 +152,37 @@ static mut VRB_CALIB: AxisCalib = AxisCalib::new(2048 - 1950, 2048, 2048 + 1950,
 /// Apply a full set of stick and pot calibration endpoints.
 pub fn apply_calibration(config: &crate::storage::RadioConfig) {
     unsafe {
-        // Roll: PA0 (RH)
+        // Roll: PA0 (RH) - inverted on FlySky mechanical gimbal
+        (*core::ptr::addr_of_mut!(ROLL_CALIB)).invert = true;
         (*core::ptr::addr_of_mut!(ROLL_CALIB)).min = config.sticks[0].min;
         (*core::ptr::addr_of_mut!(ROLL_CALIB)).center = config.sticks[0].center;
         (*core::ptr::addr_of_mut!(ROLL_CALIB)).max = config.sticks[0].max;
 
-        // Pitch: PA1 (RV)
+        // Pitch: PA1 (RV) - inverted on FlySky mechanical gimbal
+        (*core::ptr::addr_of_mut!(PITCH_CALIB)).invert = true;
         (*core::ptr::addr_of_mut!(PITCH_CALIB)).min = config.sticks[1].min;
         (*core::ptr::addr_of_mut!(PITCH_CALIB)).center = config.sticks[1].center;
         (*core::ptr::addr_of_mut!(PITCH_CALIB)).max = config.sticks[1].max;
 
-        // Throttle: PA2 (LV)
+        // Throttle: PA2 (LV) - strictly normal/uninverted on Mode 2 hardware
+        (*core::ptr::addr_of_mut!(THROTTLE_CALIB)).invert = false;
         (*core::ptr::addr_of_mut!(THROTTLE_CALIB)).min = config.sticks[2].min;
         (*core::ptr::addr_of_mut!(THROTTLE_CALIB)).center = config.sticks[2].center;
         (*core::ptr::addr_of_mut!(THROTTLE_CALIB)).max = config.sticks[2].max;
 
-        // Yaw: PA3 (LH)
+        // Yaw: PA3 (LH) - normal/uninverted
+        (*core::ptr::addr_of_mut!(YAW_CALIB)).invert = false;
         (*core::ptr::addr_of_mut!(YAW_CALIB)).min = config.sticks[3].min;
         (*core::ptr::addr_of_mut!(YAW_CALIB)).center = config.sticks[3].center;
         (*core::ptr::addr_of_mut!(YAW_CALIB)).max = config.sticks[3].max;
 
         // Pots: VRA (PA6), VRB (PA7)
+        (*core::ptr::addr_of_mut!(VRA_CALIB)).invert = false;
         (*core::ptr::addr_of_mut!(VRA_CALIB)).min = config.pots[0].min;
         (*core::ptr::addr_of_mut!(VRA_CALIB)).center = config.pots[0].center;
         (*core::ptr::addr_of_mut!(VRA_CALIB)).max = config.pots[0].max;
 
+        (*core::ptr::addr_of_mut!(VRB_CALIB)).invert = false;
         (*core::ptr::addr_of_mut!(VRB_CALIB)).min = config.pots[1].min;
         (*core::ptr::addr_of_mut!(VRB_CALIB)).center = config.pots[1].center;
         (*core::ptr::addr_of_mut!(VRB_CALIB)).max = config.pots[1].max;
