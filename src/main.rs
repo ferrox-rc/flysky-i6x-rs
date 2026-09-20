@@ -327,7 +327,7 @@ fn main() -> ! {
     usb::init(storage.radio.usb_mode);
 
     // Initialize CRSF / ExpressLRS expansion bay peripheral (USART2 & PC13)
-    crsf::init();
+    crsf::init(storage.radio.ext_module_pwr == 0);
 
     let mut trims = trim::TrimController::new();
     trims.throttle_enabled = storage.radio.throttle_trim != 0;

@@ -18,9 +18,14 @@ static mut LAST_TX_MS: u32 = 0;
 static mut RX_BUF: [u8; 64] = [0; 64];
 static mut RX_LEN: usize = 0;
 
-/// Initialize CRSF subsystem hardware pins.
-pub fn init() {
-    uart::init();
+/// Initialize CRSF subsystem hardware pins with configured PC13 power switch polarity.
+pub fn init(active_high: bool) {
+    uart::init(active_high);
+}
+
+/// Set external module power switch polarity (PC13).
+pub fn set_power_polarity(active_high: bool) {
+    uart::set_power_polarity(active_high);
 }
 
 /// Enable or disable CRSF protocol, power external module, and configure baud rate.
