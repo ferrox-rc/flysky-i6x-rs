@@ -236,6 +236,22 @@ impl RadioStorage {
             self.radio.ext_module_pwr = 0;
         }
 
+        for (idx, stick) in self.radio.sticks.iter_mut().enumerate() {
+            let half_span = if idx == 0 || idx == 3 { 1400 } else { 1700 };
+            if stick.min >= stick.center || stick.center >= stick.max || stick.min < 50 || stick.max > 4050 {
+                stick.min = 2048 - half_span;
+                stick.center = 2048;
+                stick.max = 2048 + half_span;
+            }
+        }
+        for pot in self.radio.pots.iter_mut() {
+            if pot.min >= pot.center || pot.center >= pot.max || pot.min < 50 || pot.max > 4050 {
+                pot.min = 2048 - 1950;
+                pot.center = 2048;
+                pot.max = 2048 + 1950;
+            }
+        }
+
         for (idx, m) in self.models.iter_mut().enumerate() {
             if m.rf_protocol > 1 {
                 m.rf_protocol = 0;
