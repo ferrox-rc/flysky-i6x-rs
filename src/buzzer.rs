@@ -273,14 +273,14 @@ impl Buzzer {
         self.play_tone(BEEP_DEFAULT_FREQ, 15);
     }
 
-    /// Power-on welcome chime: pleasant 4-note ascending fanfare (C5 -> E5 -> G5 -> C6).
+    /// Power-on welcome chime: pleasant 4-note ascending fanfare (C6 -> E6 -> G6 -> C7).
     pub fn chime_welcome(&mut self) {
         if self.tone_style == ToneStyle::Rich {
             const MELODY: [Note; 4] = [
-                Note::new(1046, 50, 15), // C6
-                Note::new(1318, 50, 15), // E6
-                Note::new(1568, 50, 15), // G6
-                Note::new(2093, 90, 0),  // C7
+                Note::new(1046, 110, 25), // C6
+                Note::new(1318, 110, 25), // E6
+                Note::new(1568, 120, 30), // G6
+                Note::new(2093, 240, 0),  // C7 (drawn-out final resolving note)
             ];
             self.play_sequence(&MELODY);
         } else {

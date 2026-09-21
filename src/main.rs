@@ -381,6 +381,8 @@ fn main() -> ! {
         let mut preflight_beep_timer: u32 = 0;
         let mut preflight_last_render: u32 = 0;
 
+        let mut warned = false;
+
         loop {
             let now = time::millis();
             let state = input::poll();
@@ -397,9 +399,12 @@ fn main() -> ! {
             let cancel_pressed = (keys & (1 << 11)) != 0;
 
             if (!thr_unsafe && !sw_unsafe) || cancel_pressed {
-                buzzer.play_tone(2200, 40);
+                if warned {
+                    buzzer.play_tone(2200, 40);
+                }
                 break;
             }
+            warned = true;
 
         // Lock RF transmission to safe idle/failsafe during warning
         rf::set_channels(&[1500, 1500, 1000, 1500, 1000, 1000, 1500, 1500, 1000, 1000, 1500, 1500, 1500, 1500]);
