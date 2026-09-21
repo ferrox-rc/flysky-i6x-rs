@@ -373,6 +373,8 @@ fn main() -> ! {
     let mut inactivity_beep_timer: u32 = 0;
     let mut blink_phase: u8 = 0;
     let mut prev_armed: bool = false;
+    let mut prev_active_model: u8 = storage.radio.active_model;
+    let mut menu_was_active: bool = false;
     let mut last_display_ms: u32 = 0;
     let mut last_tick_ms: u32 = 0;
 
@@ -546,12 +548,24 @@ fn main() -> ! {
         // Map inputs to 14 AFHDS 2A channels with digital trims (1000..2000 µs)
         let active_model = storage.active_model();
 
+        // Resynchronize arm state when active model changes or when exiting settings menu
+        let menu_active = menu_controller.is_active() || calib_wizard.is_active();
+        if storage.radio.active_model != prev_active_model || (menu_was_active && !menu_active) {
+            prev_active_model = storage.radio.active_model;
+            prev_armed = if active_model.arm_switch > 0 && active_model.arm_switch <= 10 {
+                mixer::is_switch_active(active_model.arm_switch, &state.switches)
+            } else {
+                false
+            };
+        }
+        menu_was_active = menu_active;
+
         // Check configured Arm Switch condition and play Armed/Disarmed chimes
         if active_model.arm_switch > 0 && active_model.arm_switch <= 10 {
             let is_armed = mixer::is_switch_active(active_model.arm_switch, &state.switches);
             if is_armed != prev_armed {
                 prev_armed = is_armed;
-                if !menu_controller.is_active() && !calib_wizard.is_active() {
+                if !menu_active {
                     if is_armed {
                         buzzer.chime_armed();
                     } else {
