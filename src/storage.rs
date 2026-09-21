@@ -54,7 +54,8 @@ pub struct RadioConfig {
     pub sticks: [ChannelCalib; 4], // 16..48 (32 bytes: Roll, Pitch, Throttle, Yaw)
     pub pots: [ChannelCalib; 2],   // 48..64 (16 bytes: VRA, VRB)
     pub ext_module_pwr: u8,        // 64 (0: Active HIGH / N-type, 1: Active LOW / P-type)
-    pub _reserved: [u8; 63],       // 65..128
+    pub tone_style: u8,            // 65 (0: Simple / Standard, 1: Rich / Melodic)
+    pub _reserved: [u8; 62],       // 66..128
 }
 
 impl RadioConfig {
@@ -81,7 +82,8 @@ impl RadioConfig {
                 ChannelCalib::new(2048 - 1950, 2048, 2048 + 1950), // VRB
             ],
             ext_module_pwr: 0,
-            _reserved: [0; 63],
+            tone_style: 1,
+            _reserved: [0; 62],
         }
     }
 }

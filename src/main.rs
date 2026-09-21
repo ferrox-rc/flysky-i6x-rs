@@ -321,7 +321,8 @@ fn main() -> ! {
     // 7. Load persistent radio storage and 20-model configuration
     let mut storage = storage::load_storage();
     buzzer.enabled = storage.radio.audio_enabled != 0;
-    buzzer.click(); // Power-on audible confirmation
+    buzzer.tone_style = buzzer::ToneStyle::from_u8(storage.radio.tone_style);
+    buzzer.chime_welcome(); // Power-on audible confirmation
 
     // Initialize USB peripheral (Joystick / Serial / Composite / Off)
     usb::init(storage.radio.usb_mode);

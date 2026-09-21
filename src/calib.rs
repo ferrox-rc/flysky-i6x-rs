@@ -60,7 +60,7 @@ impl CalibWizard {
         self.prev_keys = 0xFFFF; // Block any immediate edge trigger
         self.waiting_release = true; // User must release OK before proceeding
         self.timer_ms = 0;
-        buzzer.click();
+        buzzer.chime_calib_start();
     }
 
     /// Returns true if the wizard is currently active.
@@ -217,7 +217,7 @@ impl CalibWizard {
                         input::apply_calibration(&cfg);
                         storage::save_config(&cfg);
 
-                        buzzer.play_tone(2800, 150);
+                        buzzer.chime_calib_success();
                         self.step = CalibStep::Complete;
                         self.timer_ms = 1200; // Display success banner for 1.2s
                     } else {

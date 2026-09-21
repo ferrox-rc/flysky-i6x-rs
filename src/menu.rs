@@ -1604,7 +1604,7 @@ impl MenuController {
                     buzzer.click();
                     return;
                 }
-                const SETUP_ITEMS: usize = 8;
+                const SETUP_ITEMS: usize = 9;
 
                 if down_pressed {
                     if self.selected_item + 1 < SETUP_ITEMS {
@@ -1632,9 +1632,9 @@ impl MenuController {
                 }
 
                 if ok_pressed {
-                    buzzer.click();
                     match self.selected_item {
                         0 => {
+                            buzzer.click();
                             // Cycle Throttle Trim Method: 0=OFF (Lock), 1=IDLE (T-Trim), 2=LINEAR
                             storage.radio.throttle_trim = (storage.radio.throttle_trim + 1) % 3;
                             trims.throttle_enabled = storage.radio.throttle_trim != 0;
@@ -1644,14 +1644,31 @@ impl MenuController {
                             // Toggle Audio
                             storage.radio.audio_enabled = if storage.radio.audio_enabled == 0 { 1 } else { 0 };
                             buzzer.enabled = storage.radio.audio_enabled != 0;
+                            if buzzer.enabled {
+                                buzzer.click();
+                            }
                             storage::save_storage(storage);
                         }
                         2 => {
+                            // Toggle Tone Style: 0=Simple, 1=Rich
+                            storage.radio.tone_style = if storage.radio.tone_style == 0 { 1 } else { 0 };
+                            buzzer.tone_style = crate::buzzer::ToneStyle::from_u8(storage.radio.tone_style);
+                            storage::save_storage(storage);
+                            // Auditory preview of selected tone style
+                            if buzzer.tone_style == crate::buzzer::ToneStyle::Rich {
+                                buzzer.chime_armed();
+                            } else {
+                                buzzer.click();
+                            }
+                        }
+                        3 => {
+                            buzzer.click();
                             // Cycle Backlight Timeout: 0=Always On, 1=15s, 2=30s, 3=60s
                             storage.radio.backlight_timeout = (storage.radio.backlight_timeout + 1) % 4;
                             storage::save_storage(storage);
                         }
-                        3 => {
+                        4 => {
+                            buzzer.click();
                             // Cycle Backlight Brightness: 1..10 (10%..100%)
                             storage.radio.backlight_brightness = if storage.radio.backlight_brightness >= 10 {
                                 1
@@ -1661,7 +1678,8 @@ impl MenuController {
                             lcd.set_backlight_level(storage.radio.backlight_brightness * 10);
                             storage::save_storage(storage);
                         }
-                        4 => {
+                        5 => {
+                            buzzer.click();
                             // Cycle Contrast: 20 .. 50 in steps of 3 (wraps back to 20)
                             storage.radio.lcd_contrast = if storage.radio.lcd_contrast >= 50 {
                                 20
@@ -1671,7 +1689,8 @@ impl MenuController {
                             lcd.set_contrast(storage.radio.lcd_contrast);
                             storage::save_storage(storage);
                         }
-                        5 => {
+                        6 => {
+                            buzzer.click();
                             // Cycle Battery Alarm: 4.0V .. 5.0V (40..50 deci-volts)
                             storage.radio.vbat_warn_deci = if storage.radio.vbat_warn_deci >= 50 {
                                 40
@@ -1680,13 +1699,15 @@ impl MenuController {
                             };
                             storage::save_storage(storage);
                         }
-                        6 => {
+                        7 => {
+                            buzzer.click();
                             // Cycle USB Mode: 0=OFF, 1=JOYSTICK, 2=SERIAL, 3=COMPOSITE
                             storage.radio.usb_mode = (storage.radio.usb_mode + 1) % 4;
                             storage::save_storage(storage);
                             crate::usb::init(storage.radio.usb_mode);
                         }
-                        7 => {
+                        8 => {
+                            buzzer.click();
                             // Cycle External Module Power Pin (PC13): 0=HIGH (N-type), 1=LOW (P-type)
                             storage.radio.ext_module_pwr = if storage.radio.ext_module_pwr == 0 { 1 } else { 0 };
                             crate::crsf::set_power_polarity(storage.radio.ext_module_pwr == 0);
@@ -1731,6 +1752,11 @@ impl MenuController {
                             Text::new(beeper_str, Point::new(62, y + 7), style).draw(lcd).ok();
                         }
                         2 => {
+                            let tone_str = if storage.radio.tone_style != 0 { "RICH" } else { "SIMPLE" };
+                            Text::new("Tones:", Point::new(4, y + 7), style).draw(lcd).ok();
+                            Text::new(tone_str, Point::new(62, y + 7), style).draw(lcd).ok();
+                        }
+                        3 => {
                             let timer_str = match storage.radio.backlight_timeout {
                                 1 => "15 SEC",
                                 2 => "30 SEC",
@@ -1740,7 +1766,7 @@ impl MenuController {
                             Text::new("BL Timer:", Point::new(4, y + 7), style).draw(lcd).ok();
                             Text::new(timer_str, Point::new(62, y + 7), style).draw(lcd).ok();
                         }
-                        3 => {
+                        4 => {
                             let mut b_buf = *b"   %";
                             let pct = (storage.radio.backlight_brightness * 10).min(100);
                             if pct == 100 {
@@ -1755,7 +1781,7 @@ impl MenuController {
                             Text::new("BL Level:", Point::new(4, y + 7), style).draw(lcd).ok();
                             Text::new(b_str, Point::new(62, y + 7), style).draw(lcd).ok();
                         }
-                        4 => {
+                        5 => {
                             let mut c_buf = *b"00";
                             c_buf[0] = b'0' + (storage.radio.lcd_contrast / 10);
                             c_buf[1] = b'0' + (storage.radio.lcd_contrast % 10);
@@ -1763,7 +1789,7 @@ impl MenuController {
                             Text::new("Contrast:", Point::new(4, y + 7), style).draw(lcd).ok();
                             Text::new(c_str, Point::new(62, y + 7), style).draw(lcd).ok();
                         }
-                        5 => {
+                        6 => {
                             let mut v_buf = *b"0.0V";
                             v_buf[0] = b'0' + (storage.radio.vbat_warn_deci / 10);
                             v_buf[2] = b'0' + (storage.radio.vbat_warn_deci % 10);
@@ -1771,7 +1797,7 @@ impl MenuController {
                             Text::new("Bat Warn:", Point::new(4, y + 7), style).draw(lcd).ok();
                             Text::new(v_str, Point::new(62, y + 7), style).draw(lcd).ok();
                         }
-                        6 => {
+                        7 => {
                             let usb_str = match storage.radio.usb_mode {
                                 1 => "JOYSTICK",
                                 2 => "SERIAL",
@@ -1781,7 +1807,7 @@ impl MenuController {
                             Text::new("USB Mode:", Point::new(4, y + 7), style).draw(lcd).ok();
                             Text::new(usb_str, Point::new(62, y + 7), style).draw(lcd).ok();
                         }
-                        7 => {
+                        8 => {
                             let pwr_str = if storage.radio.ext_module_pwr == 0 { "HIGH (N)" } else { "LOW (P)" };
                             Text::new("PC13 Pwr:", Point::new(4, y + 7), style).draw(lcd).ok();
                             Text::new(pwr_str, Point::new(62, y + 7), style).draw(lcd).ok();
