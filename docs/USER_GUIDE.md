@@ -279,11 +279,12 @@ The Radio Setup menu features a scrollable 4-item viewport with 9px row heights 
 ### Submenu 9: Protocol Setup (`PROTOCOL SETUP`)
 Replaces the redundant bind menu with universal RF protocol management:
 - **`Proto: AFHDS 2A`**: Uses the built-in A7105 transceiver. Displays active model name and bound receiver ID (e.g. `Rx ID: 1A2B3C4D`). Pressing **`[OK]`** triggers receiver binding. Pressing **`[UP]`** or **`[DOWN]`** cycles protocol.
-- **`Proto: CRSF / ELRS`**: Drives external Crossfire or ExpressLRS transmitter modules connected to the rear expansion bay (`PD5` TX, `PA15` RX) with hardware power control on `PC13`. Pressing **`[OK]`** toggles selection between the Protocol and Baud Rate row. Pressing **`[UP]`** or **`[DOWN]`** cycles options:
+- **`Proto: CRSF / ELRS`**: Drives external Crossfire or ExpressLRS transmitter modules connected to the rear expansion bay (`PD5` TX, `PA15` RX) with hardware power control on `PC13`. Pressing **`[OK]`** cycles selection through Protocol, Baud Rate, and Configure Module:
   - `Baud: 420k (ELRS)`: Default recommended speed for ExpressLRS.
   - `Baud: 416.6k (TBS)`: Standard TBS Crossfire module rate.
   - `Baud: 115.2k (Low)`: Low-speed compatibility / diagnostic rate.
   - `Baud: 921.6k (Fast)`: High-throughput ExpressLRS rate.
+  - `[Configure Module]`: Opens the native ExpressLRS configurator screen to adjust Packet Rate, Power, Wi-Fi Mode, and trigger binding.
 
 ### Submenu 10: Channel Monitor (`CHANNEL MONITOR`)
 - Displays live pulse widths (1000..2000 µs) across all 14 channels with 40-pixel horizontal graphic bar indicators and exact microsecond numbers.

@@ -72,6 +72,7 @@ impl CalibWizard {
     pub fn update(
         &mut self,
         lcd: &mut St7567,
+        storage: &mut crate::storage::RadioStorage,
         raw_adc: &[u16; adc::NUM_CHANNELS],
         keys: u16,
         dt_ms: u16,
@@ -183,15 +184,14 @@ impl CalibWizard {
                 if ok_pressed {
                     if all_ready {
                         // Apply OpenTX STICK_TOLERANCE 64 margin (62/64 = ~96.8%)
-                        let mut cfg = storage::load_config();
-                        cfg.magic = storage::FLASH_MAGIC;
-                        cfg.version = storage::CONFIG_VERSION;
+                        storage.radio.magic = storage::FLASH_MAGIC;
+                        storage.radio.version = storage::CONFIG_VERSION;
 
                         for i in 0..4 {
                             let center = self.centers[i];
                             let span_neg = ((center.saturating_sub(self.mins[i]) as u32 * 63) / 64) as u16;
                             let span_pos = ((self.maxs[i].saturating_sub(center) as u32 * 63) / 64) as u16;
-                            cfg.sticks[i] = ChannelCalib::new(
+                            storage.radio.sticks[i] = ChannelCalib::new(
                                 center.saturating_sub(span_neg),
                                 center,
                                 center.saturating_add(span_pos),
@@ -206,7 +206,7 @@ impl CalibWizard {
                                 let center = self.centers[p_idx];
                                 let span_neg = ((center.saturating_sub(self.mins[p_idx]) as u32 * 63) / 64) as u16;
                                 let span_pos = ((self.maxs[p_idx].saturating_sub(center) as u32 * 63) / 64) as u16;
-                                cfg.pots[i] = ChannelCalib::new(
+                                storage.radio.pots[i] = ChannelCalib::new(
                                     center.saturating_sub(span_neg),
                                     center,
                                     center.saturating_add(span_pos),
@@ -214,8 +214,8 @@ impl CalibWizard {
                             }
                         }
 
-                        input::apply_calibration(&cfg);
-                        storage::save_config(&cfg);
+                        input::apply_calibration(&storage.radio);
+                        storage::save_storage(storage);
 
                         buzzer.chime_calib_success();
                         self.step = CalibStep::Complete;

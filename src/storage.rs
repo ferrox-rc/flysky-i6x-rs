@@ -195,15 +195,25 @@ pub struct RadioStorage {
 }
 
 impl RadioStorage {
+    pub const fn empty() -> Self {
+        Self {
+            radio: RadioConfig::default_factory(),
+            models: [ModelConfig::default_for_index(0); NUM_MODELS],
+        }
+    }
+
+    #[allow(dead_code)]
     pub const fn default_factory() -> Self {
-        let radio = RadioConfig::default_factory();
-        let mut models = [ModelConfig::default_for_index(0); NUM_MODELS];
-        let mut i = 1;
+        Self::empty()
+    }
+
+    pub fn init_default(&mut self) {
+        self.radio = RadioConfig::default_factory();
+        let mut i = 0;
         while i < NUM_MODELS {
-            models[i] = ModelConfig::default_for_index(i);
+            self.models[i] = ModelConfig::default_for_index(i);
             i += 1;
         }
-        Self { radio, models }
     }
 
     pub fn active_model(&self) -> &ModelConfig {
@@ -238,6 +248,22 @@ impl RadioStorage {
         }
         if self.radio.ext_module_pwr > 1 {
             self.radio.ext_module_pwr = 0;
+        }
+
+        for (idx, stick) in self.radio.sticks.iter_mut().enumerate() {
+            let half_span = if idx == 0 || idx == 3 { 1400 } else { 1700 };
+            if stick.min >= stick.center || stick.center >= stick.max || stick.min < 50 || stick.max > 4050 {
+                stick.min = 2048 - half_span;
+                stick.center = 2048;
+                stick.max = 2048 + half_span;
+            }
+        }
+        for pot in self.radio.pots.iter_mut() {
+            if pot.min >= pot.center || pot.center >= pot.max || pot.min < 50 || pot.max > 4050 {
+                pot.min = 2048 - 1950;
+                pot.center = 2048;
+                pot.max = 2048 + 1950;
+            }
         }
 
         for (idx, m) in self.models.iter_mut().enumerate() {
@@ -306,32 +332,31 @@ const _: () = assert!(core::mem::size_of::<RadioConfig>() == 128);
 const _: () = assert!(core::mem::size_of::<ModelConfig>() == 128);
 const _: () = assert!(core::mem::size_of::<RadioStorage>() == 2688);
 
-/// Load complete storage from Flash (with automatic migration from legacy v1/v2/v3).
-pub fn load_storage() -> RadioStorage {
+/// Load complete storage from Flash into caller-supplied memory (0 stack allocation for storage).
+pub fn load_storage_into(storage: &mut RadioStorage) {
     unsafe {
         let magic = core::ptr::read_volatile(FLASH_STORAGE_ADDR as *const u32);
         let version = core::ptr::read_volatile((FLASH_STORAGE_ADDR + 4) as *const u32);
 
         if magic == FLASH_MAGIC && (version == CONFIG_VERSION || version == 3) {
-            let mut storage = RadioStorage::default_factory();
             let src = FLASH_STORAGE_ADDR as *const u32;
-            let dst = &mut storage as *mut RadioStorage as *mut u32;
+            let dst = storage as *mut RadioStorage as *mut u32;
             let word_count = core::mem::size_of::<RadioStorage>() / 4;
             for i in 0..word_count {
                 *dst.add(i) = core::ptr::read_volatile(src.add(i));
             }
             storage.sanitize();
             if version == 3 {
-                save_storage(&storage);
+                save_storage(storage);
             }
-            return storage;
+            return;
         }
 
         // Check for legacy v1/v2 at FLASH_LEGACY_ADDR (0x0801_F800)
         let legacy_magic = core::ptr::read_volatile(FLASH_LEGACY_ADDR as *const u32);
         let legacy_ver = core::ptr::read_volatile((FLASH_LEGACY_ADDR + 4) as *const u32);
         if legacy_magic == FLASH_MAGIC && (legacy_ver == 1 || legacy_ver == 2) {
-            let mut storage = RadioStorage::default_factory();
+            storage.init_default();
             let rx_id = core::ptr::read_volatile((FLASH_LEGACY_ADDR + 8) as *const u32);
             if rx_id != 0 && rx_id != 0xFFFF_FFFF {
                 storage.models[0].rx_id = rx_id;
@@ -355,12 +380,20 @@ pub fn load_storage() -> RadioStorage {
             }
 
             // Immediately persist upgraded v3 storage to 0x0801_F000
-            save_storage(&storage);
-            return storage;
+            save_storage(storage);
+            return;
         }
 
-        RadioStorage::default_factory()
+        storage.init_default();
     }
+}
+
+/// Load complete storage from Flash.
+#[allow(dead_code)]
+pub fn load_storage() -> RadioStorage {
+    let mut storage = RadioStorage::empty();
+    load_storage_into(&mut storage);
+    storage
 }
 
 /// Save complete storage to Flash (Pages 62 and 63).
@@ -415,14 +448,45 @@ pub fn save_storage(storage: &RadioStorage) {
     });
 }
 
-/// Convenience helper to load current RadioConfig.
+/// Convenience helper to load current RadioConfig directly from Flash (only 128 bytes, 0 stack bloat).
 pub fn load_config() -> RadioConfig {
-    load_storage().radio
-}
+    unsafe {
+        let magic = core::ptr::read_volatile(FLASH_STORAGE_ADDR as *const u32);
+        let version = core::ptr::read_volatile((FLASH_STORAGE_ADDR + 4) as *const u32);
 
-/// Convenience helper to save current RadioConfig while preserving models.
-pub fn save_config(config: &RadioConfig) {
-    let mut storage = load_storage();
-    storage.radio = *config;
-    save_storage(&storage);
+        if magic == FLASH_MAGIC && (version == CONFIG_VERSION || version == 3) {
+            let mut cfg = RadioConfig::default_factory();
+            let src = FLASH_STORAGE_ADDR as *const u32;
+            let dst = &mut cfg as *mut RadioConfig as *mut u32;
+            let word_count = core::mem::size_of::<RadioConfig>() / 4;
+            for i in 0..word_count {
+                *dst.add(i) = core::ptr::read_volatile(src.add(i));
+            }
+            return cfg;
+        }
+
+        // Check legacy v1/v2
+        let legacy_magic = core::ptr::read_volatile(FLASH_LEGACY_ADDR as *const u32);
+        let legacy_ver = core::ptr::read_volatile((FLASH_LEGACY_ADDR + 4) as *const u32);
+        if legacy_magic == FLASH_MAGIC && (legacy_ver == 1 || legacy_ver == 2) {
+            let mut cfg = RadioConfig::default_factory();
+            let src_sticks = (FLASH_LEGACY_ADDR + 12) as *const ChannelCalib;
+            for i in 0..4 {
+                cfg.sticks[i] = core::ptr::read_volatile(src_sticks.add(i));
+            }
+            let src_pots = (FLASH_LEGACY_ADDR + 44) as *const ChannelCalib;
+            for i in 0..2 {
+                cfg.pots[i] = core::ptr::read_volatile(src_pots.add(i));
+            }
+            if legacy_ver == 2 {
+                cfg.throttle_trim = core::ptr::read_volatile((FLASH_LEGACY_ADDR + 60) as *const u8);
+                cfg.audio_enabled = core::ptr::read_volatile((FLASH_LEGACY_ADDR + 61) as *const u8);
+                cfg.backlight_timeout = core::ptr::read_volatile((FLASH_LEGACY_ADDR + 62) as *const u8);
+                cfg.backlight_brightness = core::ptr::read_volatile((FLASH_LEGACY_ADDR + 63) as *const u8);
+            }
+            return cfg;
+        }
+
+        RadioConfig::default_factory()
+    }
 }

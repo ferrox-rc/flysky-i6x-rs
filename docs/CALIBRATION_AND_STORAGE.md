@@ -181,3 +181,19 @@ stateDiagram-v2
 - **Hold `OK` for 1.2s** on the flight dashboard: launches calibration.
 - **Hold `OK` during Power-On**: launches calibration immediately on boot.
 - **Press `Cancel` (`ESC`)**: aborts calibration at any stage without changing saved values.
+
+---
+
+## 5. SRAM Budgeting & Zero-Alloc In-Place Loading
+
+The STM32F072VB microcontroller features **16 KB (16,384 bytes) of internal SRAM** (`0x2000_0000` .. `0x2000_4000`). Because the stack grows downward from `0x2000_4000` while static `.data` and `.bss` variables grow upward from `0x2000_0000`, strict stack budgeting is required:
+
+### Stack vs. Static Safety Architecture
+- **In-Place Storage Loading (`load_storage_into`)**: Rather than returning a 2,688-byte `RadioStorage` struct by value on the stack (which would duplicate 2.7 KB across nested call frames), flash routines populate caller-provided memory directly (`storage: &mut RadioStorage`).
+- **Targeted Header Reads (`load_config`)**: Routines requiring only system settings read the 128-byte `RadioConfig` directly from `0x0801_F000` without loading the 20-model array.
+- **Direct Receiver ID Parsing (`load_saved_rx_id`)**: The AFHDS 2A driver directly extracts the 4-byte `rx_id` from Flash without touching the stack.
+- **BSS Relocation**: Volatile runtime caches (such as ExpressLRS parameter cache `CONFIG_ENGINE`) are zero-initialized in `.bss` rather than occupying `.data`.
+- **Memory Margins**:
+  - Total static RAM (`.data` + `.bss`): **~2,896 bytes** (terminates at `0x2000_0b50`).
+  - Total stack consumption during deepest boot call: **~7,200 bytes** (stack lowest point: `0x2000_23f4`).
+  - **Guaranteed safety buffer**: **> 6.3 KB of unallocated headroom**, preventing any risk of stack collision with static stick calibration structures.

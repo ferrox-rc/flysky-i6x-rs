@@ -4,8 +4,11 @@
 
 #![allow(dead_code)]
 
+pub const CRSF_SYNC_BYTE: u8 = 0xC8;
+pub const CRSF_ADDRESS_BROADCAST: u8 = 0x00;
 pub const CRSF_ADDRESS_CRSF_TRANSMITTER: u8 = 0xEE;
 pub const CRSF_ADDRESS_RADIO_TRANSMITTER: u8 = 0xEA;
+pub const CRSF_ADDRESS_CRSF_RECEIVER: u8 = 0xEC;
 pub const CRSF_ADDRESS_FLIGHT_CONTROLLER: u8 = 0xC8;
 
 // Frame types
@@ -16,6 +19,32 @@ pub const CRSF_FRAMETYPE_LINK_STATISTICS: u8 = 0x14;
 pub const CRSF_FRAMETYPE_RC_CHANNELS_PACKED: u8 = 0x16;
 pub const CRSF_FRAMETYPE_DEVICE_PING: u8 = 0x28;
 pub const CRSF_FRAMETYPE_DEVICE_INFO: u8 = 0x29;
+pub const CRSF_FRAMETYPE_PARAMETER_SETTINGS_ENTRY: u8 = 0x2B;
+pub const CRSF_FRAMETYPE_PARAMETER_READ: u8 = 0x2C;
+pub const CRSF_FRAMETYPE_PARAMETER_WRITE: u8 = 0x2D;
+pub const CRSF_FRAMETYPE_ELRS_STATUS: u8 = 0x2E;
+
+// Parameter data types
+pub const CRSF_TYPE_UINT8: u8 = 0;
+pub const CRSF_TYPE_INT8: u8 = 1;
+pub const CRSF_TYPE_UINT16: u8 = 2;
+pub const CRSF_TYPE_INT16: u8 = 3;
+pub const CRSF_TYPE_FLOAT: u8 = 8;
+pub const CRSF_TYPE_SELECT: u8 = 9;
+pub const CRSF_TYPE_STRING: u8 = 10;
+pub const CRSF_TYPE_FOLDER: u8 = 11;
+pub const CRSF_TYPE_INFO: u8 = 12;
+pub const CRSF_TYPE_COMMAND: u8 = 13;
+pub const CRSF_TYPE_BACK: u8 = 14;
+
+// Command statuses
+pub const STATUS_READY: u8 = 0;
+pub const STATUS_START: u8 = 1;
+pub const STATUS_PROGRESS: u8 = 2;
+pub const STATUS_CONFIRMATION_NEEDED: u8 = 3;
+pub const STATUS_CONFIRM: u8 = 4;
+pub const STATUS_CANCEL: u8 = 5;
+pub const STATUS_POLL: u8 = 6;
 
 pub const CRSF_FRAME_MAX_SIZE: usize = 64;
 pub const CRSF_RC_FRAME_SIZE: usize = 26; // 1 (addr) + 1 (len) + 1 (type) + 22 (payload) + 1 (crc)
@@ -207,4 +236,65 @@ pub fn parse_telemetry_frame(frame: &[u8], telem: &mut CrsfTelemetry, now_ms: u3
     }
 
     false
+}
+
+/// Convert ExpressLRS RF mode index to standard readable packet rate string.
+pub fn rf_mode_to_str(rf_mode: u8) -> &'static str {
+    match rf_mode {
+        0 => "4Hz",
+        1 => "25Hz",
+        2 => "50Hz",
+        3 => "100Hz",
+        4 => "100F",
+        5 => "150Hz",
+        6 => "200Hz",
+        7 => "250Hz",
+        8 => "333Hz",
+        9 => "500Hz",
+        10 => "D250",
+        11 => "D500",
+        12 => "F500",
+        13 => "F1000",
+        _ => "---",
+    }
+}
+
+/// Build a Device Ping frame (0x28) to discover connected CRSF/ELRS modules.
+/// Wire frame format: [Sync (0xC8)] [Len (4)] [Type (0x28)] [Dest (0x00)] [Orig (0xEA)] [CRC]
+pub fn build_ping_frame(out_frame: &mut [u8]) -> usize {
+    out_frame[0] = CRSF_SYNC_BYTE;
+    out_frame[1] = 4; // Type (1) + Payload (2) + CRC (1)
+    out_frame[2] = CRSF_FRAMETYPE_DEVICE_PING;
+    out_frame[3] = CRSF_ADDRESS_BROADCAST;
+    out_frame[4] = CRSF_ADDRESS_RADIO_TRANSMITTER;
+    out_frame[5] = crc8(&out_frame[2..5]);
+    6
+}
+
+/// Build a Parameter Read frame (0x2C) requesting metadata/options for `param_id`.
+/// Wire frame format: [Sync (0xC8)] [Len (6)] [Type (0x2C)] [Dest] [Orig (0xEA)] [Param] [Chunk] [CRC]
+pub fn build_param_read_frame(target: u8, param_id: u8, chunk: u8, out_frame: &mut [u8]) -> usize {
+    out_frame[0] = CRSF_SYNC_BYTE;
+    out_frame[1] = 6; // Type (1) + Dest (1) + Orig (1) + Param (1) + Chunk (1) + CRC (1) = 6
+    out_frame[2] = CRSF_FRAMETYPE_PARAMETER_READ;
+    out_frame[3] = target;
+    out_frame[4] = CRSF_ADDRESS_RADIO_TRANSMITTER;
+    out_frame[5] = param_id;
+    out_frame[6] = chunk;
+    out_frame[7] = crc8(&out_frame[2..7]);
+    8
+}
+
+/// Build a Parameter Write frame (0x2D) updating `param_id` value or command status.
+/// Wire frame format: [Sync (0xC8)] [Len (6)] [Type (0x2D)] [Dest] [Orig (0xEA)] [Param] [Value] [CRC]
+pub fn build_param_write_frame(target: u8, param_id: u8, value: u8, out_frame: &mut [u8]) -> usize {
+    out_frame[0] = CRSF_SYNC_BYTE;
+    out_frame[1] = 6; // Type (1) + Dest (1) + Orig (1) + Param (1) + Value (1) + CRC (1) = 6
+    out_frame[2] = CRSF_FRAMETYPE_PARAMETER_WRITE;
+    out_frame[3] = target;
+    out_frame[4] = CRSF_ADDRESS_RADIO_TRANSMITTER;
+    out_frame[5] = param_id;
+    out_frame[6] = value;
+    out_frame[7] = crc8(&out_frame[2..7]);
+    8
 }

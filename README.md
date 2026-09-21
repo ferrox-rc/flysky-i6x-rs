@@ -235,11 +235,19 @@ Comprehensive technical documentation is maintained in the [`docs/`](docs/) dire
 - [x] True on-the-fly USB mode switching in `Radio Setup` (SE0 disconnect pulse + hardware APB1 reset without requiring reboot). Default mode: `OFF`.
 - [x] Silent RF standby running in Joystick mode: A7105 transceiver and PA/LNA frontend are placed in standby (zero RF radiation, cool running) with `U:SIM` status indicator.
 - [x] Non-volatile `USB Mode` setting in `Radio Setup` (`OFF`, `JOYSTICK`, `SERIAL`, `COMPOSITE`).
-- [x] Main Menu Item 9 repurposed as `Protocol Setup` supporting `AFHDS 2A` internal RF and preparatory support for external `CRSF / ELRS` transmitter modules.
+- [x] Main Menu Item 9 repurposed as `Protocol Setup` supporting `AFHDS 2A` internal RF and external `CRSF / ELRS` transmitter modules.
+
+### Phase 14: CRSF / ExpressLRS & Memory Hardening (COMPLETED)
+- [x] Full Crossfire (CRSF) & ExpressLRS driver on `USART2` (`PD5` TX, `PA15` RX) with selectable baud rates (420k, 416.6k, 115.2k, 921.6k).
+- [x] Configurable external module power switch polarity on `PC13` (`Radio Setup` -> `Ext Module Power: HIGH/LOW`).
+- [x] Native on-radio ExpressLRS configurator engine (0 heap allocations, reads/writes parameters and runs module commands).
+- [x] Native CRSF link diagnostics screen on Flight Page 4 (LQ, RSSI dBm, SNR dB, Active Antenna, TX Power mW, RF Rate, Battery Voltage, Capacity).
+- [x] Universal JSON telemetry streaming over USB CDC including full CRSF downlink telemetry metrics.
+- [x] Zero-alloc in-place Flash loading (`load_storage_into`) and lightweight header reads (`load_config`), cutting boot stack depth in half (from 15.4 KB to ~7.2 KB) and ensuring > 6.3 KB safety margin in SRAM.
 
 ### Current Firmware Footprint
-- **Flash ROM**: **74.1 KB** (74,108 bytes) used out of **128 KB** available (**>53.8 KB / 42.0% free headroom**).
-- **Static RAM**: **2.3 KB** (`.data` 1,776B + `.bss` 604B) out of **16 KB** available (**>85% SRAM free**).
+- **Flash ROM**: **74.9 KB** (84,064 bytes binary) used out of **128 KB** available (**>53 KB / 41.5% free headroom**).
+- **Static RAM**: **2.8 KB** (`.data` 1,776B + `.bss` 1,120B) out of **16 KB** available (**>82% SRAM free** with **>6.3 KB** guaranteed stack safety margin).
 - **Non-Volatile Storage**: **2,688 bytes** allocated across Pages 62 & 63 (1,408 bytes free headroom).
 
 ---
