@@ -44,7 +44,7 @@ pub fn update(
             Text::new("Connecting to module...", Point::new(4, 26), text_style).draw(lcd).ok();
             Text::new("Waiting for ping response", Point::new(4, 38), text_style_small).draw(lcd).ok();
 
-            widgets::draw_footer_small(lcd, "[OK] Retry   [ESC] Back");
+            widgets::draw_footer(lcd, "[OK] Retry   [ESC] Back");
         }
         ElrsConfigState::Connected | ElrsConfigState::LoadingParam(_) => {
             widgets::draw_header(lcd, "ELRS CONFIG");
@@ -62,7 +62,7 @@ pub fn update(
                 Text::new(p_str, Point::new(4, 38), text_style_small).draw(lcd).ok();
             }
 
-            widgets::draw_footer_small(lcd, "Please wait...  [ESC] Back");
+            widgets::draw_footer(lcd, "Please wait...  [ESC] Back");
         }
         ElrsConfigState::Ready => {
             let count = engine.params_len;
@@ -73,7 +73,7 @@ pub fn update(
                 }
                 widgets::draw_header(lcd, "ELRS CONFIG");
                 Text::new("No parameters found", Point::new(8, 28), text_style).draw(lcd).ok();
-                widgets::draw_footer_small(lcd, "[OK] Retry   [ESC] Back");
+                widgets::draw_footer(lcd, "[OK] Retry   [ESC] Back");
             } else {
                 widgets::navigate_4slot_list(
                     &mut ctrl.selected_item,
@@ -139,7 +139,7 @@ pub fn update(
                     }
                 }
 
-                widgets::draw_footer_small(lcd, "[OK] Cycle/Run  [ESC] Back");
+                widgets::draw_footer(lcd, "[OK] Cycle/Run  [ESC] Back");
             }
         }
     }

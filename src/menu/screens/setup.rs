@@ -283,7 +283,7 @@ pub fn update_rx_setup(
         let rx_str = core::str::from_utf8(&rx_buf).unwrap_or("00000000");
         Text::new(rx_str, Point::new(46, 42), text_style).draw(lcd).ok();
 
-        widgets::draw_footer_small(lcd, "[OK] Bind  [UP/DN] Proto");
+        widgets::draw_footer(lcd, "[OK] Bind  [UP/DN] Proto");
     } else {
         let sel_proto = ctrl.selected_item == 0;
         let sel_baud = ctrl.selected_item == 1;
@@ -320,9 +320,9 @@ pub fn update_rx_setup(
         Text::new(full_c_str, Point::new(2, 42), text_style).draw(lcd).ok();
 
         if sel_cfg {
-            widgets::draw_footer_small(lcd, "[OK] Config   [UP/DN] Select");
+            widgets::draw_footer(lcd, "[OK] Config   [UP/DN] Select");
         } else {
-            widgets::draw_footer_small(lcd, "[OK] Next   [UP/DN] Change");
+            widgets::draw_footer(lcd, "[OK] Next   [UP/DN] Change");
         }
     }
 }

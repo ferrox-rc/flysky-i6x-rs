@@ -20,21 +20,19 @@ pub fn draw_header(lcd: &mut St7567, title: &str) {
     Line::new(Point::new(0, 11), Point::new(127, 11)).into_styled(border_style).draw(lcd).ok();
 }
 
-/// Draw a standardized bottom footer with normal font (FONT_6X10) and divider line at y = 52.
+/// Draw a standardized bottom footer with small font (FONT_4X6) and divider line at y = 52.
 pub fn draw_footer(lcd: &mut St7567, text: &str) {
-    let text_style = MonoTextStyle::new(&FONT_6X10, BinaryColor::On);
+    draw_footer_at(lcd, text, 52);
+}
+
+/// Draw a bottom footer with small font (FONT_4X6) and custom divider line y position.
+pub fn draw_footer_at(lcd: &mut St7567, text: &str, y_line: i32) {
+    let text_style = MonoTextStyle::new(&FONT_4X6, BinaryColor::On);
     let border_style = PrimitiveStyle::with_stroke(BinaryColor::On, 1);
-    Line::new(Point::new(0, 52), Point::new(127, 52)).into_styled(border_style).draw(lcd).ok();
+    Line::new(Point::new(0, y_line), Point::new(127, y_line)).into_styled(border_style).draw(lcd).ok();
     Text::new(text, Point::new(2, 62), text_style).draw(lcd).ok();
 }
 
-/// Draw a standardized bottom footer with small font (FONT_4X6) and divider line at y = 52.
-pub fn draw_footer_small(lcd: &mut St7567, text: &str) {
-    let text_style_small = MonoTextStyle::new(&FONT_4X6, BinaryColor::On);
-    let border_style = PrimitiveStyle::with_stroke(BinaryColor::On, 1);
-    Line::new(Point::new(0, 52), Point::new(127, 52)).into_styled(border_style).draw(lcd).ok();
-    Text::new(text, Point::new(2, 62), text_style_small).draw(lcd).ok();
-}
 
 /// Handle 4-slot circular scrolling list navigation with tone feedback.
 pub fn navigate_4slot_list(

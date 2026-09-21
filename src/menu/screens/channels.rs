@@ -4,7 +4,7 @@ use embedded_graphics::{
     mono_font::{ascii::FONT_4X6, MonoTextStyle},
     pixelcolor::BinaryColor,
     prelude::*,
-    primitives::{Line, PrimitiveStyle, Rectangle},
+    primitives::Rectangle,
     text::Text,
 };
 
@@ -200,7 +200,5 @@ pub fn update_channel_monitor(
         Text::new(val_str, Point::new(90, y + 5), text_style_small).draw(lcd).ok();
     }
 
-    let border_style = PrimitiveStyle::with_stroke(BinaryColor::On, 1);
-    Line::new(Point::new(0, 55), Point::new(127, 55)).into_styled(border_style).draw(lcd).ok();
-    Text::new("[UP/DN] Page  [ESC] Back", Point::new(2, 62), text_style_small).draw(lcd).ok();
+    widgets::draw_footer_at(lcd, "[UP/DN] Page  [ESC] Back", 55);
 }
