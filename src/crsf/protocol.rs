@@ -264,9 +264,9 @@ pub fn rf_mode_to_str(rf_mode: u8) -> &'static str {
 }
 
 /// Build a Device Ping frame (0x28) to discover connected CRSF/ELRS modules.
-/// Wire frame format: [Sync (0xC8)] [Len (4)] [Type (0x28)] [Dest (0x00)] [Orig (0xEA)] [CRC]
+/// Wire frame format: [Device (0xEE)] [Len (4)] [Type (0x28)] [Dest (0x00)] [Orig (0xEA)] [CRC]
 pub fn build_ping_frame(out_frame: &mut [u8]) -> usize {
-    out_frame[0] = CRSF_SYNC_BYTE;
+    out_frame[0] = CRSF_ADDRESS_CRSF_TRANSMITTER;
     out_frame[1] = 4; // Type (1) + Payload (2) + CRC (1)
     out_frame[2] = CRSF_FRAMETYPE_DEVICE_PING;
     out_frame[3] = CRSF_ADDRESS_BROADCAST;
@@ -276,7 +276,7 @@ pub fn build_ping_frame(out_frame: &mut [u8]) -> usize {
 }
 
 /// Build an Extended Parameter frame (Read 0x2C or Write 0x2D).
-/// Wire frame format: [Sync (0xC8)] [Len (6)] [Type] [Dest] [Orig (0xEA)] [Param] [Payload] [CRC]
+/// Wire frame format: [Device (0xEE)] [Len (6)] [Type] [Dest] [Orig (0xEA)] [Param] [Payload] [CRC]
 pub fn build_param_ext_frame(
     target: u8,
     frame_type: u8,
@@ -284,7 +284,7 @@ pub fn build_param_ext_frame(
     val_or_chunk: u8,
     out_frame: &mut [u8],
 ) -> usize {
-    out_frame[0] = CRSF_SYNC_BYTE;
+    out_frame[0] = CRSF_ADDRESS_CRSF_TRANSMITTER;
     out_frame[1] = 6; // Type (1) + Dest (1) + Orig (1) + Param (1) + Value/Chunk (1) + CRC (1) = 6
     out_frame[2] = frame_type;
     out_frame[3] = target;
