@@ -10,10 +10,80 @@ pub mod afhds2a;
 pub mod spi;
 
 use afhds2a::{Afhds2a, TelemetryData, NUM_CHANNELS};
+use core::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use stm32f0xx_hal::pac::interrupt;
 
 static mut RF_DRIVER: Option<Afhds2a> = None;
-static mut PENDING_CHANNELS: [u16; NUM_CHANNELS] = [1500; NUM_CHANNELS];
+
+/// Lock-free triple/double buffer for publishing channel updates from the flight
+/// pipeline (writer) to the TIM16 RF interrupt handler (reader).
+///
+/// Writer writes into `channels[write_idx]`, then atomically updates `READ_IDX`.
+/// The TIM16 interrupt always reads `channels[READ_IDX]`.
+/// This eliminates global `cortex_m::interrupt::free` CPSID barriers and eliminates
+/// interrupt latency and jitter on Cortex-M0.
+struct ChannelBuffer {
+    buffers: [[u16; NUM_CHANNELS]; 2],
+    read_idx: AtomicU8,
+}
+
+impl ChannelBuffer {
+    const fn new() -> Self {
+        Self {
+            buffers: [[1500; NUM_CHANNELS]; 2],
+            read_idx: AtomicU8::new(0),
+        }
+    }
+
+    #[inline(always)]
+    fn write(&mut self, channels: &[u16; NUM_CHANNELS]) {
+        let current_read = self.read_idx.load(Ordering::Relaxed) as usize;
+        let write_idx = 1 - current_read;
+        self.buffers[write_idx].copy_from_slice(channels);
+        self.read_idx.store(write_idx as u8, Ordering::Release);
+    }
+
+    #[inline(always)]
+    fn read(&self) -> &[u16; NUM_CHANNELS] {
+        let idx = (self.read_idx.load(Ordering::Acquire) & 1) as usize;
+        &self.buffers[idx]
+    }
+}
+
+static mut CHANNEL_BUFFER: ChannelBuffer = ChannelBuffer::new();
+
+/// Lock-free double buffer for reading downlink telemetry from the EXTI ISR
+/// to the background display/UI task without disabling interrupts.
+struct TelemetryBuffer {
+    buffers: [TelemetryData; 2],
+    read_idx: AtomicU8,
+}
+
+impl TelemetryBuffer {
+    const fn new() -> Self {
+        Self {
+            buffers: [TelemetryData::new(), TelemetryData::new()],
+            read_idx: AtomicU8::new(0),
+        }
+    }
+
+    #[inline(always)]
+    fn write(&mut self, telem: &TelemetryData) {
+        let current_read = self.read_idx.load(Ordering::Relaxed) as usize;
+        let write_idx = 1 - current_read;
+        self.buffers[write_idx] = *telem;
+        self.read_idx.store(write_idx as u8, Ordering::Release);
+    }
+
+    #[inline(always)]
+    fn read(&self) -> TelemetryData {
+        let idx = (self.read_idx.load(Ordering::Acquire) & 1) as usize;
+        self.buffers[idx]
+    }
+}
+
+static mut TELEMETRY_BUFFER: TelemetryBuffer = TelemetryBuffer::new();
+static RF_SILENCED: AtomicBool = AtomicBool::new(false);
 
 /// Initialize RF subsystem: SPI1, A7105 transceiver, and AFHDS 2A stack.
 /// Returns true if A7105 responded and passed silicon verification (0x9E).
@@ -28,9 +98,7 @@ pub fn init(tx_id: u32) -> bool {
     if post_sig == 0x9E {
         reset_ok = true;
     }
-    unsafe {
-        a7105::LAST_CHIP_ID = post_sig;
-    }
+    a7105::LAST_CHIP_ID.store(post_sig, Ordering::Relaxed);
 
     unsafe {
         RF_DRIVER = Some(Afhds2a::new(tx_id));
@@ -44,37 +112,34 @@ pub fn init(tx_id: u32) -> bool {
 
 /// Get the last read byte from A7105 register 0x10 during reset.
 pub fn get_last_chip_id() -> u8 {
-    unsafe { a7105::LAST_CHIP_ID }
+    a7105::LAST_CHIP_ID.load(Ordering::Relaxed)
 }
-
-static mut RF_SILENCED: bool = false;
 
 /// Put RF frontend and A7105 into standby (silent running) during USB Joystick simulator mode.
 pub fn set_silenced(silenced: bool) {
-    cortex_m::interrupt::free(|_| unsafe {
-        if RF_SILENCED != silenced {
-            RF_SILENCED = silenced;
-            if silenced {
-                a7105::strobe(a7105::STROBE_STANDBY);
-                spi::set_tx_rx_mode(spi::RF_MODE_OFF);
-            }
+    let prev = RF_SILENCED.load(Ordering::Relaxed);
+    if prev != silenced {
+        RF_SILENCED.store(silenced, Ordering::Relaxed);
+        if silenced {
+            a7105::strobe(a7105::STROBE_STANDBY);
+            spi::set_tx_rx_mode(spi::RF_MODE_OFF);
         }
-    });
+    }
 }
 
 /// Check if RF transmission is silenced.
 #[allow(dead_code)]
 pub fn is_silenced() -> bool {
-    unsafe { RF_SILENCED }
+    RF_SILENCED.load(Ordering::Relaxed)
 }
 
 /// Update channel outputs (CH1..CH14) in microseconds (1000..2000 µs).
+/// Completely lock-free double-buffered write: zero critical sections, zero interrupt latency.
+#[inline(always)]
 pub fn set_channels(channels: &[u16; NUM_CHANNELS]) {
-    cortex_m::interrupt::free(|_| {
-        unsafe {
-            PENDING_CHANNELS.copy_from_slice(channels);
-        }
-    });
+    unsafe {
+        CHANNEL_BUFFER.write(channels);
+    }
 }
 
 /// Enter or exit binding mode.
@@ -140,12 +205,10 @@ pub fn get_rx_id() -> u32 {
 }
 
 /// Get latest downlink telemetry from the receiver.
+/// Lock-free atomic read: zero critical sections.
+#[inline(always)]
 pub fn get_telemetry() -> TelemetryData {
-    cortex_m::interrupt::free(|_| {
-        unsafe {
-            RF_DRIVER.as_ref().map(|d| d.telemetry).unwrap_or(TelemetryData::new())
-        }
-    })
+    unsafe { TELEMETRY_BUFFER.read() }
 }
 
 /// TIM16 Interrupt Handler: Triggers transmission of next AFHDS 2A frame.
@@ -153,12 +216,12 @@ pub fn get_telemetry() -> TelemetryData {
 fn TIM16() {
     spi::clear_tim16_flag();
 
-    if unsafe { RF_SILENCED } {
+    if RF_SILENCED.load(Ordering::Relaxed) {
         return;
     }
 
     if let Some(ref mut driver) = unsafe { RF_DRIVER.as_mut() } {
-        let chs = unsafe { &PENDING_CHANNELS };
+        let chs = unsafe { CHANNEL_BUFFER.read() };
         driver.set_channels(chs);
         driver.on_timer_tick();
     }
@@ -176,6 +239,8 @@ fn EXTI2_3() {
 
             if let Some(ref mut driver) = RF_DRIVER.as_mut() {
                 driver.on_gio2_event();
+                // Publish updated telemetry to double buffer lock-free
+                TELEMETRY_BUFFER.write(&driver.telemetry);
             }
         }
     }
