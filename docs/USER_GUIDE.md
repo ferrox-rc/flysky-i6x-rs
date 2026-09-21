@@ -197,10 +197,13 @@ Hold **`[OK]` for 1.2 seconds** from the main flight screen to open the Settings
   - Press **`[CANCEL]` (`[ESC]`)** at any time to finish editing name and return to field selection.
 - **Field 1: Model Type**:
   - Press **`[OK]`** to cycle between `AIRPLANE`, `GLIDER`, `HELI`, and `QUAD`.
-- **Field 2: Bind RX**:
+- **Field 2: Arm Switch (`Arm Sw:`)**:
+  - Assign any physical switch and position condition as the model's arming switch: **`NONE`**, **`SA^`**, **`SAv`**, **`SB^`**, **`SB-`**, **`SBv`**, **`SC^`**, **`SC-`**, **`SCv`**, **`SD^`**, or **`SDv`**.
+  - During flight, transitioning into the armed state plays an acoustic **Armed chirp** (rising tone sequence), and transitioning out plays a **Disarmed chirp** (falling tone sequence).
+- **Field 3: Bind RX**:
   - Displays currently bound receiver ID (`Rx: XXXXXXXX`).
   - Press **`[OK]`** on `[OK Bind]` to initiate AFHDS 2A receiver binding directly from Model Setup.
-- **Field 3: Reset Defaults**:
+- **Field 4: Reset Defaults**:
   - Press **`[OK]`** on `[OK Defaults]` to restore default trims, standard channel directions, and linear curves for this model slot.
 
 ### Submenu 3: Dual Rate & Expo (`DUAL RATE/EXPO`)

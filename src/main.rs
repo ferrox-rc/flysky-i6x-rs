@@ -360,12 +360,6 @@ fn main() -> ! {
     let mut ok_hold_ms = 0u16;
     let mut bl_timer_ms: u32 = 30_000;
     let mut prev_stick_samples = [2048u16; 6];
-    let mut prev_switches = input::Switches {
-        sa: input::SwitchPos::Up,
-        sb: input::SwitchPos::Up,
-        sc: input::SwitchPos::Up,
-        sd: input::SwitchPos::Up,
-    };
     let mut prev_bind_key = bind_on_boot;
     let mut flight_page: usize = 0;
     let mut bind_hold_ms: u32 = 0;
@@ -378,6 +372,7 @@ fn main() -> ! {
     let mut inactivity_timer_ms: u32 = 0;
     let mut inactivity_beep_timer: u32 = 0;
     let mut blink_phase: u8 = 0;
+    let mut prev_armed: bool = false;
     let mut last_display_ms: u32 = 0;
     let mut last_tick_ms: u32 = 0;
 
@@ -467,6 +462,13 @@ fn main() -> ! {
     }
 }
 
+    // Initialize previous switch snapshot and armed state so startup does not spuriously chirp
+    let init_state = input::poll();
+    let mut prev_switches = init_state.switches;
+    if storage.active_model().arm_switch > 0 && storage.active_model().arm_switch <= 10 {
+        prev_armed = mixer::is_switch_active(storage.active_model().arm_switch, &init_state.switches);
+    }
+
     loop {
         let now = time::millis();
         let dt_ms = (now.wrapping_sub(last_tick_ms)).min(100) as u16;
@@ -538,6 +540,21 @@ fn main() -> ! {
 
         // Map inputs to 14 AFHDS 2A channels with digital trims (1000..2000 µs)
         let active_model = storage.active_model();
+
+        // Check configured Arm Switch condition and play Armed/Disarmed chimes
+        if active_model.arm_switch > 0 && active_model.arm_switch <= 10 {
+            let is_armed = mixer::is_switch_active(active_model.arm_switch, &state.switches);
+            if is_armed != prev_armed {
+                prev_armed = is_armed;
+                if !menu_controller.is_active() && !calib_wizard.is_active() {
+                    if is_armed {
+                        buzzer.chime_armed();
+                    } else {
+                        buzzer.chime_disarmed();
+                    }
+                }
+            }
+        }
 
         // Evaluate active model throttle curve (normalized 0..1000)
         let thr_input = ((state.sticks.throttle + 1000) / 2).clamp(0, 1000) as u16;
