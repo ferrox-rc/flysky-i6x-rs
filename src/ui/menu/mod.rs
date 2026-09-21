@@ -5,9 +5,9 @@
 //! configuration editing with Flash persistence, live channel monitoring,
 //! raw ADC diagnostics, and native ExpressLRS / CRSF configuration.
 
-pub mod format;
+pub use crate::ui::format;
+pub use crate::ui::widgets;
 pub mod screens;
-pub mod widgets;
 
 use embedded_graphics::pixelcolor::BinaryColor;
 use embedded_graphics::prelude::*;
@@ -61,6 +61,12 @@ pub struct MenuController {
     up_hold_ms: u16,
     down_hold_ms: u16,
     repeat_timer_ms: u16,
+}
+
+impl Default for MenuController {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl MenuController {
