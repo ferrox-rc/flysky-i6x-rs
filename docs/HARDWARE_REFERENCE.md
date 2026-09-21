@@ -148,11 +148,14 @@ The STM32F072 contains a factory-programmed DFU bootloader in System ROM (`0x1FF
 4. **Re-Enable Global Interrupts:** **CRITICAL.** The ST factory DFU bootloader requires USB interrupts to enumerate on the host PC. Global interrupts must be enabled (`cortex_m::interrupt::enable()`) before executing the jump.
 5. **Bootstrap:** Load Main Stack Pointer (`MSP`) from `0x1FFFC800` and branch to reset handler at `0x1FFFC804` via `cortex_m::asm::bootstrap`.
 
-### Hardware Recovery (`R53`)
+### Hardware Recovery & Initial Stock Flash (`R53`)
 
-If custom firmware ever hangs before polling the keys, the hardware override is the **`R53`** solder pads located on the back of the motherboard:
-- Shorting `R53` pulls `BOOT0` to 3.3V.
-- Powering on while shorted forces the chip directly into the ROM bootloader (`0483:df11`).
+The hardware override for forcing the microcontroller into permanent ROM DFU bootloader mode is the **`R53`** solder pads located on the rear of the motherboard (accessible by removing the back case screws):
+- **Function:** Connecting the two pads of `R53` pulls the microcontroller's `BOOT0` pin directly to 3.3V (`VDD`).
+- **Initial Flashing from Stock:** Factory FlySky firmware does not contain the inward-trims software bootloader jump. To flash custom firmware (`flysky-i6x-rs` or `OpenI6X`) for the first time, `R53` must be momentarily bridged while powering the transmitter on.
+- **Hardware Recovery:** If custom firmware ever hangs or crashes before scanning input keys, bridging `R53` during power-on guarantees access to the ST/Geehy ROM bootloader (`0483:df11` / `314b:0106`).
+- **Removal:** The bridge only needs to be held during initial power-on; once the chip samples `BOOT0` at reset, the bridge can be released.
+- **Reference:** See the [OpenI6X Flashing & Upgrading Wiki](https://github.com/OpenI6X/opentx/wiki/Flashing-&-Upgrading) for mainboard layout photos and test point markings.
 
 ---
 

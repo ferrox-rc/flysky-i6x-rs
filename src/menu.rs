@@ -528,30 +528,55 @@ impl MenuController {
 
             MenuState::ModelSetup => {
                 let active_idx = storage.radio.active_model as usize;
-                const FIELD_COUNT: usize = 4;
+                const FIELD_COUNT: usize = 5;
 
                 if !self.editing {
                     if cancel_pressed {
                         storage::save_storage(storage);
                         self.state = MenuState::MainMenu;
                         self.selected_item = 1;
+                        self.scroll_offset = 0;
                         self.waiting_release = true;
                         buzzer.click();
                         return;
                     }
 
                     if down_pressed {
-                        self.selected_item = (self.selected_item + 1) % FIELD_COUNT;
+                        if self.selected_item + 1 < FIELD_COUNT {
+                            self.selected_item += 1;
+                            if self.selected_item >= self.scroll_offset + 4 {
+                                self.scroll_offset = self.selected_item - 3;
+                            }
+                        } else {
+                            self.selected_item = 0;
+                            self.scroll_offset = 0;
+                        }
                         buzzer.play_tone(2200, 20);
                     }
 
                     if up_pressed {
-                        self.selected_item = if self.selected_item == 0 { FIELD_COUNT - 1 } else { self.selected_item - 1 };
+                        if self.selected_item > 0 {
+                            self.selected_item -= 1;
+                            if self.selected_item < self.scroll_offset {
+                                self.scroll_offset = self.selected_item;
+                            }
+                        } else {
+                            self.selected_item = FIELD_COUNT - 1;
+                            self.scroll_offset = FIELD_COUNT.saturating_sub(4);
+                        }
                         buzzer.play_tone(2200, 20);
                     }
 
                     if bind_pressed {
-                        self.selected_item = (self.selected_item + 1) % FIELD_COUNT;
+                        if self.selected_item + 1 < FIELD_COUNT {
+                            self.selected_item += 1;
+                            if self.selected_item >= self.scroll_offset + 4 {
+                                self.scroll_offset = self.selected_item - 3;
+                            }
+                        } else {
+                            self.selected_item = 0;
+                            self.scroll_offset = 0;
+                        }
                         buzzer.play_tone(2200, 20);
                     }
 
@@ -570,13 +595,24 @@ impl MenuController {
                                 buzzer.click();
                             }
                             2 => {
+                                // Cycle Arm Switch condition: 0..10
+                                // 0: None, 1: SA^, 2: SAv, 3: SB^, 4: SB-, 5: SBv, 6: SC^, 7: SC-, 8: SCv, 9: SD^, 10: SDv
+                                storage.models[active_idx].arm_switch = (storage.models[active_idx].arm_switch + 1) % 11;
+                                storage::save_storage(storage);
+                                if storage.models[active_idx].arm_switch != 0 {
+                                    buzzer.chime_armed();
+                                } else {
+                                    buzzer.click();
+                                }
+                            }
+                            3 => {
                                 // Bind RX for this model!
                                 self.request_bind = true;
                                 self.state = MenuState::Closed;
                                 buzzer.click();
                                 return;
                             }
-                            3 => {
+                            4 => {
                                 // Reset to default
                                 storage.models[active_idx] = ModelConfig::default_for_index(active_idx);
                                 storage::save_storage(storage);
@@ -623,73 +659,66 @@ impl MenuController {
                 Text::new("MODEL SETUP", Point::new(30, 9), text_style).draw(lcd).ok();
                 Line::new(Point::new(0, 11), Point::new(127, 11)).into_styled(border_style).draw(lcd).ok();
 
-                // Field 0: Name (y = 13)
-                let y0 = 13;
-                if !self.editing && self.selected_item == 0 {
-                    Rectangle::new(Point::new(2, y0), Size::new(124, 9)).into_styled(fill_style).draw(lcd).ok();
-                    let inv_style = MonoTextStyle::new(&FONT_6X10, BinaryColor::Off);
-                    Text::new("Name:", Point::new(4, y0 + 7), inv_style).draw(lcd).ok();
-                    let name_str = core::str::from_utf8(&storage.models[active_idx].name).unwrap_or("----------");
-                    Text::new(name_str, Point::new(40, y0 + 7), inv_style).draw(lcd).ok();
-                } else {
-                    Text::new("Name:", Point::new(4, y0 + 7), text_style).draw(lcd).ok();
-                    let name_str = core::str::from_utf8(&storage.models[active_idx].name).unwrap_or("----------");
-                    Text::new(name_str, Point::new(40, y0 + 7), text_style).draw(lcd).ok();
-                }
+                // Render 4 visible items with clean 9px row spacing
+                for slot in 0..4 {
+                    let idx = self.scroll_offset + slot;
+                    if idx >= FIELD_COUNT {
+                        break;
+                    }
+                    let y = 14 + (slot as i32 * 9);
+                    let is_sel = !self.editing && idx == self.selected_item;
+                    let style = if is_sel {
+                        Rectangle::new(Point::new(2, y), Size::new(124, 9)).into_styled(fill_style).draw(lcd).ok();
+                        MonoTextStyle::new(&FONT_6X10, BinaryColor::Off)
+                    } else {
+                        text_style
+                    };
 
-                if self.editing {
-                    // Draw inverted box over currently edited character
-                    let char_x = 40 + (self.sub_idx as i32 * 6);
-                    Rectangle::new(Point::new(char_x - 1, y0), Size::new(8, 9)).into_styled(fill_style).draw(lcd).ok();
-                    let inv_style = MonoTextStyle::new(&FONT_6X10, BinaryColor::Off);
-                    let single_char = [storage.models[active_idx].name[self.sub_idx]];
-                    let c_str = core::str::from_utf8(&single_char).unwrap_or("?");
-                    Text::new(c_str, Point::new(char_x, y0 + 7), inv_style).draw(lcd).ok();
-                }
+                    match idx {
+                        0 => {
+                            Text::new("Name:", Point::new(4, y + 7), style).draw(lcd).ok();
+                            let name_str = core::str::from_utf8(&storage.models[active_idx].name).unwrap_or("----------");
+                            Text::new(name_str, Point::new(40, y + 7), style).draw(lcd).ok();
 
-                // Field 1: Type (y = 23)
-                let y1 = 23;
-                let type_str = match storage.models[active_idx].model_type {
-                    0 => "AIRPLANE",
-                    1 => "GLIDER",
-                    2 => "HELICOPTER",
-                    _ => "MULTI / QUAD",
-                };
-                if !self.editing && self.selected_item == 1 {
-                    Rectangle::new(Point::new(2, y1), Size::new(124, 9)).into_styled(fill_style).draw(lcd).ok();
-                    let inv_style = MonoTextStyle::new(&FONT_6X10, BinaryColor::Off);
-                    Text::new("Type:", Point::new(4, y1 + 7), inv_style).draw(lcd).ok();
-                    Text::new(type_str, Point::new(40, y1 + 7), inv_style).draw(lcd).ok();
-                } else {
-                    Text::new("Type:", Point::new(4, y1 + 7), text_style).draw(lcd).ok();
-                    Text::new(type_str, Point::new(40, y1 + 7), text_style).draw(lcd).ok();
-                }
-
-                // Field 2: Bind RX (y = 33)
-                let y2 = 33;
-                let mut rx_buf = [b'0'; 8];
-                u32_to_hex(storage.models[active_idx].rx_id, &mut rx_buf);
-                let rx_hex_str = core::str::from_utf8(&rx_buf).unwrap_or("00000000");
-                if !self.editing && self.selected_item == 2 {
-                    Rectangle::new(Point::new(2, y2), Size::new(124, 9)).into_styled(fill_style).draw(lcd).ok();
-                    let inv_style = MonoTextStyle::new(&FONT_6X10, BinaryColor::Off);
-                    Text::new("Rx:", Point::new(4, y2 + 7), inv_style).draw(lcd).ok();
-                    Text::new(rx_hex_str, Point::new(24, y2 + 7), inv_style).draw(lcd).ok();
-                    Text::new("[OK Bind]", Point::new(74, y2 + 7), inv_style).draw(lcd).ok();
-                } else {
-                    Text::new("Rx:", Point::new(4, y2 + 7), text_style).draw(lcd).ok();
-                    Text::new(rx_hex_str, Point::new(24, y2 + 7), text_style).draw(lcd).ok();
-                    Text::new("[OK Bind]", Point::new(74, y2 + 7), text_style).draw(lcd).ok();
-                }
-
-                // Field 3: Reset Defaults (y = 43)
-                let y3 = 43;
-                if !self.editing && self.selected_item == 3 {
-                    Rectangle::new(Point::new(2, y3), Size::new(124, 9)).into_styled(fill_style).draw(lcd).ok();
-                    let inv_style = MonoTextStyle::new(&FONT_6X10, BinaryColor::Off);
-                    Text::new("Reset: [OK Defaults]", Point::new(4, y3 + 7), inv_style).draw(lcd).ok();
-                } else {
-                    Text::new("Reset: [OK Defaults]", Point::new(4, y3 + 7), text_style).draw(lcd).ok();
+                            if self.editing {
+                                // Draw inverted box over currently edited character
+                                let char_x = 40 + (self.sub_idx as i32 * 6);
+                                Rectangle::new(Point::new(char_x - 1, y), Size::new(8, 9)).into_styled(fill_style).draw(lcd).ok();
+                                let inv_style = MonoTextStyle::new(&FONT_6X10, BinaryColor::Off);
+                                let single_char = [storage.models[active_idx].name[self.sub_idx]];
+                                let c_str = core::str::from_utf8(&single_char).unwrap_or("?");
+                                Text::new(c_str, Point::new(char_x, y + 7), inv_style).draw(lcd).ok();
+                            }
+                        }
+                        1 => {
+                            let type_str = match storage.models[active_idx].model_type {
+                                0 => "AIRPLANE",
+                                1 => "GLIDER",
+                                2 => "HELICOPTER",
+                                _ => "MULTI / QUAD",
+                            };
+                            Text::new("Type:", Point::new(4, y + 7), style).draw(lcd).ok();
+                            Text::new(type_str, Point::new(40, y + 7), style).draw(lcd).ok();
+                        }
+                        2 => {
+                            let arm_idx = (storage.models[active_idx].arm_switch as usize).min(10);
+                            let arm_str = if arm_idx == 0 { "NONE" } else { SWITCH_COND_NAMES[arm_idx] };
+                            Text::new("Arm Sw:", Point::new(4, y + 7), style).draw(lcd).ok();
+                            Text::new(arm_str, Point::new(52, y + 7), style).draw(lcd).ok();
+                        }
+                        3 => {
+                            let mut rx_buf = [b'0'; 8];
+                            u32_to_hex(storage.models[active_idx].rx_id, &mut rx_buf);
+                            let rx_hex_str = core::str::from_utf8(&rx_buf).unwrap_or("00000000");
+                            Text::new("Rx:", Point::new(4, y + 7), style).draw(lcd).ok();
+                            Text::new(rx_hex_str, Point::new(24, y + 7), style).draw(lcd).ok();
+                            Text::new("[OK Bind]", Point::new(74, y + 7), style).draw(lcd).ok();
+                        }
+                        4 => {
+                            Text::new("Reset: [OK Defaults]", Point::new(4, y + 7), style).draw(lcd).ok();
+                        }
+                        _ => {}
+                    }
                 }
 
                 Line::new(Point::new(0, 52), Point::new(127, 52)).into_styled(border_style).draw(lcd).ok();
@@ -1605,7 +1634,7 @@ impl MenuController {
                     buzzer.click();
                     return;
                 }
-                const SETUP_ITEMS: usize = 8;
+                const SETUP_ITEMS: usize = 9;
 
                 if down_pressed {
                     if self.selected_item + 1 < SETUP_ITEMS {
@@ -1633,9 +1662,9 @@ impl MenuController {
                 }
 
                 if ok_pressed {
-                    buzzer.click();
                     match self.selected_item {
                         0 => {
+                            buzzer.click();
                             // Cycle Throttle Trim Method: 0=OFF (Lock), 1=IDLE (T-Trim), 2=LINEAR
                             storage.radio.throttle_trim = (storage.radio.throttle_trim + 1) % 3;
                             trims.throttle_enabled = storage.radio.throttle_trim != 0;
@@ -1645,14 +1674,31 @@ impl MenuController {
                             // Toggle Audio
                             storage.radio.audio_enabled = if storage.radio.audio_enabled == 0 { 1 } else { 0 };
                             buzzer.enabled = storage.radio.audio_enabled != 0;
+                            if buzzer.enabled {
+                                buzzer.click();
+                            }
                             storage::save_storage(storage);
                         }
                         2 => {
+                            // Toggle Tone Style: 0=Simple, 1=Rich
+                            storage.radio.tone_style = if storage.radio.tone_style == 0 { 1 } else { 0 };
+                            buzzer.tone_style = crate::buzzer::ToneStyle::from_u8(storage.radio.tone_style);
+                            storage::save_storage(storage);
+                            // Auditory preview of selected tone style
+                            if buzzer.tone_style == crate::buzzer::ToneStyle::Rich {
+                                buzzer.chime_armed();
+                            } else {
+                                buzzer.click();
+                            }
+                        }
+                        3 => {
+                            buzzer.click();
                             // Cycle Backlight Timeout: 0=Always On, 1=15s, 2=30s, 3=60s
                             storage.radio.backlight_timeout = (storage.radio.backlight_timeout + 1) % 4;
                             storage::save_storage(storage);
                         }
-                        3 => {
+                        4 => {
+                            buzzer.click();
                             // Cycle Backlight Brightness: 1..10 (10%..100%)
                             storage.radio.backlight_brightness = if storage.radio.backlight_brightness >= 10 {
                                 1
@@ -1662,7 +1708,8 @@ impl MenuController {
                             lcd.set_backlight_level(storage.radio.backlight_brightness * 10);
                             storage::save_storage(storage);
                         }
-                        4 => {
+                        5 => {
+                            buzzer.click();
                             // Cycle Contrast: 20 .. 50 in steps of 3 (wraps back to 20)
                             storage.radio.lcd_contrast = if storage.radio.lcd_contrast >= 50 {
                                 20
@@ -1672,7 +1719,8 @@ impl MenuController {
                             lcd.set_contrast(storage.radio.lcd_contrast);
                             storage::save_storage(storage);
                         }
-                        5 => {
+                        6 => {
+                            buzzer.click();
                             // Cycle Battery Alarm: 4.0V .. 5.0V (40..50 deci-volts)
                             storage.radio.vbat_warn_deci = if storage.radio.vbat_warn_deci >= 50 {
                                 40
@@ -1681,13 +1729,15 @@ impl MenuController {
                             };
                             storage::save_storage(storage);
                         }
-                        6 => {
+                        7 => {
+                            buzzer.click();
                             // Cycle USB Mode: 0=OFF, 1=JOYSTICK, 2=SERIAL, 3=COMPOSITE
                             storage.radio.usb_mode = (storage.radio.usb_mode + 1) % 4;
                             storage::save_storage(storage);
                             crate::usb::init(storage.radio.usb_mode);
                         }
-                        7 => {
+                        8 => {
+                            buzzer.click();
                             // Cycle External Module Power Pin (PC13): 0=HIGH (N-type), 1=LOW (P-type)
                             storage.radio.ext_module_pwr = if storage.radio.ext_module_pwr == 0 { 1 } else { 0 };
                             crate::crsf::set_power_polarity(storage.radio.ext_module_pwr == 0);
@@ -1732,6 +1782,11 @@ impl MenuController {
                             Text::new(beeper_str, Point::new(62, y + 7), style).draw(lcd).ok();
                         }
                         2 => {
+                            let tone_str = if storage.radio.tone_style != 0 { "RICH" } else { "SIMPLE" };
+                            Text::new("Tones:", Point::new(4, y + 7), style).draw(lcd).ok();
+                            Text::new(tone_str, Point::new(62, y + 7), style).draw(lcd).ok();
+                        }
+                        3 => {
                             let timer_str = match storage.radio.backlight_timeout {
                                 1 => "15 SEC",
                                 2 => "30 SEC",
@@ -1741,7 +1796,7 @@ impl MenuController {
                             Text::new("BL Timer:", Point::new(4, y + 7), style).draw(lcd).ok();
                             Text::new(timer_str, Point::new(62, y + 7), style).draw(lcd).ok();
                         }
-                        3 => {
+                        4 => {
                             let mut b_buf = *b"   %";
                             let pct = (storage.radio.backlight_brightness * 10).min(100);
                             if pct == 100 {
@@ -1756,7 +1811,7 @@ impl MenuController {
                             Text::new("BL Level:", Point::new(4, y + 7), style).draw(lcd).ok();
                             Text::new(b_str, Point::new(62, y + 7), style).draw(lcd).ok();
                         }
-                        4 => {
+                        5 => {
                             let mut c_buf = *b"00";
                             c_buf[0] = b'0' + (storage.radio.lcd_contrast / 10);
                             c_buf[1] = b'0' + (storage.radio.lcd_contrast % 10);
@@ -1764,7 +1819,7 @@ impl MenuController {
                             Text::new("Contrast:", Point::new(4, y + 7), style).draw(lcd).ok();
                             Text::new(c_str, Point::new(62, y + 7), style).draw(lcd).ok();
                         }
-                        5 => {
+                        6 => {
                             let mut v_buf = *b"0.0V";
                             v_buf[0] = b'0' + (storage.radio.vbat_warn_deci / 10);
                             v_buf[2] = b'0' + (storage.radio.vbat_warn_deci % 10);
@@ -1772,7 +1827,7 @@ impl MenuController {
                             Text::new("Bat Warn:", Point::new(4, y + 7), style).draw(lcd).ok();
                             Text::new(v_str, Point::new(62, y + 7), style).draw(lcd).ok();
                         }
-                        6 => {
+                        7 => {
                             let usb_str = match storage.radio.usb_mode {
                                 1 => "JOYSTICK",
                                 2 => "SERIAL",
@@ -1782,7 +1837,7 @@ impl MenuController {
                             Text::new("USB Mode:", Point::new(4, y + 7), style).draw(lcd).ok();
                             Text::new(usb_str, Point::new(62, y + 7), style).draw(lcd).ok();
                         }
-                        7 => {
+                        8 => {
                             let pwr_str = if storage.radio.ext_module_pwr == 0 { "HIGH (N)" } else { "LOW (P)" };
                             Text::new("PC13 Pwr:", Point::new(4, y + 7), style).draw(lcd).ok();
                             Text::new(pwr_str, Point::new(62, y + 7), style).draw(lcd).ok();

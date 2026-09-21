@@ -322,7 +322,8 @@ fn main() -> ! {
     let mut storage = storage::RadioStorage::empty();
     storage::load_storage_into(&mut storage);
     buzzer.enabled = storage.radio.audio_enabled != 0;
-    buzzer.click(); // Power-on audible confirmation
+    buzzer.tone_style = buzzer::ToneStyle::from_u8(storage.radio.tone_style);
+    buzzer.chime_welcome(); // Power-on audible confirmation
 
     // Initialize USB peripheral (Joystick / Serial / Composite / Off)
     usb::init(storage.radio.usb_mode);
@@ -360,12 +361,6 @@ fn main() -> ! {
     let mut ok_hold_ms = 0u16;
     let mut bl_timer_ms: u32 = 30_000;
     let mut prev_stick_samples = [2048u16; 6];
-    let mut prev_switches = input::Switches {
-        sa: input::SwitchPos::Up,
-        sb: input::SwitchPos::Up,
-        sc: input::SwitchPos::Up,
-        sd: input::SwitchPos::Up,
-    };
     let mut prev_bind_key = bind_on_boot;
     let mut flight_page: usize = 0;
     let mut bind_hold_ms: u32 = 0;
@@ -378,6 +373,9 @@ fn main() -> ! {
     let mut inactivity_timer_ms: u32 = 0;
     let mut inactivity_beep_timer: u32 = 0;
     let mut blink_phase: u8 = 0;
+    let mut prev_armed: bool = false;
+    let mut prev_active_model: u8 = storage.radio.active_model;
+    let mut menu_was_active: bool = false;
     let mut last_display_ms: u32 = 0;
     let mut last_tick_ms: u32 = 0;
 
@@ -385,6 +383,8 @@ fn main() -> ! {
     if !calib_wizard.is_active() {
         let mut preflight_beep_timer: u32 = 0;
         let mut preflight_last_render: u32 = 0;
+
+        let mut warned = false;
 
         loop {
             let now = time::millis();
@@ -402,9 +402,12 @@ fn main() -> ! {
             let cancel_pressed = (keys & (1 << 11)) != 0;
 
             if (!thr_unsafe && !sw_unsafe) || cancel_pressed {
-                buzzer.play_tone(2200, 40);
+                if warned {
+                    buzzer.play_tone(2200, 40);
+                }
                 break;
             }
+            warned = true;
 
         // Lock RF transmission to safe idle/failsafe during warning
         rf::set_channels(&[1500, 1500, 1000, 1500, 1000, 1000, 1500, 1500, 1000, 1000, 1500, 1500, 1500, 1500]);
@@ -466,6 +469,13 @@ fn main() -> ! {
         }
     }
 }
+
+    // Initialize previous switch snapshot and armed state so startup does not spuriously chirp
+    let init_state = input::poll();
+    let mut prev_switches = init_state.switches;
+    if storage.active_model().arm_switch > 0 && storage.active_model().arm_switch <= 10 {
+        prev_armed = mixer::is_switch_active(storage.active_model().arm_switch, &init_state.switches);
+    }
 
     loop {
         let now = time::millis();
@@ -538,6 +548,33 @@ fn main() -> ! {
 
         // Map inputs to 14 AFHDS 2A channels with digital trims (1000..2000 µs)
         let active_model = storage.active_model();
+
+        // Resynchronize arm state when active model changes or when exiting settings menu
+        let menu_active = menu_controller.is_active() || calib_wizard.is_active();
+        if storage.radio.active_model != prev_active_model || (menu_was_active && !menu_active) {
+            prev_active_model = storage.radio.active_model;
+            prev_armed = if active_model.arm_switch > 0 && active_model.arm_switch <= 10 {
+                mixer::is_switch_active(active_model.arm_switch, &state.switches)
+            } else {
+                false
+            };
+        }
+        menu_was_active = menu_active;
+
+        // Check configured Arm Switch condition and play Armed/Disarmed chimes
+        if active_model.arm_switch > 0 && active_model.arm_switch <= 10 {
+            let is_armed = mixer::is_switch_active(active_model.arm_switch, &state.switches);
+            if is_armed != prev_armed {
+                prev_armed = is_armed;
+                if !menu_active {
+                    if is_armed {
+                        buzzer.chime_armed();
+                    } else {
+                        buzzer.chime_disarmed();
+                    }
+                }
+            }
+        }
 
         // Evaluate active model throttle curve (normalized 0..1000)
         let thr_input = ((state.sticks.throttle + 1000) / 2).clamp(0, 1000) as u16;

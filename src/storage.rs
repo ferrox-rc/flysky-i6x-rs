@@ -54,7 +54,8 @@ pub struct RadioConfig {
     pub sticks: [ChannelCalib; 4], // 16..48 (32 bytes: Roll, Pitch, Throttle, Yaw)
     pub pots: [ChannelCalib; 2],   // 48..64 (16 bytes: VRA, VRB)
     pub ext_module_pwr: u8,        // 64 (0: Active HIGH / N-type, 1: Active LOW / P-type)
-    pub _reserved: [u8; 63],       // 65..128
+    pub tone_style: u8,            // 65 (0: Simple / Standard, 1: Rich / Melodic)
+    pub _reserved: [u8; 62],       // 66..128
 }
 
 impl RadioConfig {
@@ -81,7 +82,8 @@ impl RadioConfig {
                 ChannelCalib::new(2048 - 1950, 2048, 2048 + 1950), // VRB
             ],
             ext_module_pwr: 0,
-            _reserved: [0; 63],
+            tone_style: 1,
+            _reserved: [0; 62],
         }
     }
 }
@@ -141,7 +143,8 @@ pub struct ModelConfig {
     pub failsafe_timeout: u8,      // 113: 10..50 (1.0s..5.0s)
     pub rf_protocol: u8,           // 114: 0: AFHDS 2A, 1: CRSF / ELRS
     pub crsf_baud: u8,             // 115: 0: 420k, 1: 416.6k, 2: 115.2k, 3: 921.6k
-    pub _reserved: [u8; 12],       // 116..128: 12 reserved bytes
+    pub arm_switch: u8,            // 116: 0: None, 1: SA^, 2: SAv, 3: SB^, 4: SB-, 5: SBv, 6: SC^, 7: SC-, 8: SCv, 9: SD^, 10: SDv
+    pub _reserved: [u8; 11],       // 117..128: 11 reserved bytes
 }
 
 impl ModelConfig {
@@ -177,7 +180,8 @@ impl ModelConfig {
             failsafe_timeout: 20,
             rf_protocol: 0,
             crsf_baud: 0,
-            _reserved: [0; 12],
+            arm_switch: 0,
+            _reserved: [0; 11],
         }
     }
 }
