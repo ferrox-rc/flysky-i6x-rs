@@ -53,18 +53,18 @@ pub const CRSF_RC_FRAME_SIZE: usize = 26; // 1 (addr) + 1 (len) + 1 (type) + 22 
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub struct CrsfTelemetry {
     pub connected: bool,
-    pub uplink_rssi_1: i8,      // dBm (-130..0)
-    pub uplink_rssi_2: i8,      // dBm (-130..0)
-    pub uplink_link_quality: u8,// 0..100%
-    pub uplink_snr: i8,         // dB (-30..30)
-    pub active_antenna: u8,     // 0 or 1
-    pub rf_mode: u8,            // ExpressLRS / CRSF rate mode index
-    pub tx_power_mw: u16,       // Transmit power in milliwatts
-    pub rx_battery_mv: u16,     // Flight pack voltage in millivolts
-    pub rx_current_ma: u16,     // Current in 100mA units
-    pub rx_capacity_mah: u32,   // Capacity consumed in mAh
-    pub rx_battery_pct: u8,     // Battery remaining percentage (0..100)
-    pub last_telemetry_ms: u32, // System tick when last valid frame was received
+    pub uplink_rssi_1: i8,       // dBm (-130..0)
+    pub uplink_rssi_2: i8,       // dBm (-130..0)
+    pub uplink_link_quality: u8, // 0..100%
+    pub uplink_snr: i8,          // dB (-30..30)
+    pub active_antenna: u8,      // 0 or 1
+    pub rf_mode: u8,             // ExpressLRS / CRSF rate mode index
+    pub tx_power_mw: u16,        // Transmit power in milliwatts
+    pub rx_battery_mv: u16,      // Flight pack voltage in millivolts
+    pub rx_current_ma: u16,      // Current in 100mA units
+    pub rx_capacity_mah: u32,    // Capacity consumed in mAh
+    pub rx_battery_pct: u8,      // Battery remaining percentage (0..100)
+    pub last_telemetry_ms: u32,  // System tick when last valid frame was received
 }
 
 impl CrsfTelemetry {
@@ -129,10 +129,13 @@ pub fn us_to_crsf(us: u16) -> u16 {
 
 /// Build a packed 16-channel CRSF RC packet (Type 0x16) into `out_frame`.
 /// Returns the number of bytes written (always 26 bytes).
-pub fn build_channels_frame(channels: &[u16; 14], out_frame: &mut [u8; CRSF_RC_FRAME_SIZE]) -> usize {
+pub fn build_channels_frame(
+    channels: &[u16; 14],
+    out_frame: &mut [u8; CRSF_RC_FRAME_SIZE],
+) -> usize {
     // Header
     out_frame[0] = CRSF_ADDRESS_CRSF_TRANSMITTER; // 0xEE
-    out_frame[1] = 24;                            // Length: Type (1) + Payload (22) + CRC (1) = 24
+    out_frame[1] = 24; // Length: Type (1) + Payload (22) + CRC (1) = 24
     out_frame[2] = CRSF_FRAMETYPE_RC_CHANNELS_PACKED; // 0x16
 
     // Convert 14 radio channels to 16 CRSF 11-bit values (fill channels 15 & 16 with neutral 992)
@@ -225,7 +228,8 @@ pub fn parse_telemetry_frame(frame: &[u8], telem: &mut CrsfTelemetry, now_ms: u3
             telem.rx_battery_mv = v_deci * 100;
             let c_deci = u16::from_be_bytes([payload[2], payload[3]]);
             telem.rx_current_ma = c_deci * 100;
-            let cap = ((payload[4] as u32) << 16) | ((payload[5] as u32) << 8) | (payload[6] as u32);
+            let cap =
+                ((payload[4] as u32) << 16) | ((payload[5] as u32) << 8) | (payload[6] as u32);
             telem.rx_capacity_mah = cap;
             telem.rx_battery_pct = payload[7];
             telem.connected = true;
@@ -271,30 +275,46 @@ pub fn build_ping_frame(out_frame: &mut [u8]) -> usize {
     6
 }
 
-/// Build a Parameter Read frame (0x2C) requesting metadata/options for `param_id`.
-/// Wire frame format: [Sync (0xC8)] [Len (6)] [Type (0x2C)] [Dest] [Orig (0xEA)] [Param] [Chunk] [CRC]
-pub fn build_param_read_frame(target: u8, param_id: u8, chunk: u8, out_frame: &mut [u8]) -> usize {
+/// Build an Extended Parameter frame (Read 0x2C or Write 0x2D).
+/// Wire frame format: [Sync (0xC8)] [Len (6)] [Type] [Dest] [Orig (0xEA)] [Param] [Payload] [CRC]
+pub fn build_param_ext_frame(
+    target: u8,
+    frame_type: u8,
+    param_id: u8,
+    val_or_chunk: u8,
+    out_frame: &mut [u8],
+) -> usize {
     out_frame[0] = CRSF_SYNC_BYTE;
-    out_frame[1] = 6; // Type (1) + Dest (1) + Orig (1) + Param (1) + Chunk (1) + CRC (1) = 6
-    out_frame[2] = CRSF_FRAMETYPE_PARAMETER_READ;
+    out_frame[1] = 6; // Type (1) + Dest (1) + Orig (1) + Param (1) + Value/Chunk (1) + CRC (1) = 6
+    out_frame[2] = frame_type;
     out_frame[3] = target;
     out_frame[4] = CRSF_ADDRESS_RADIO_TRANSMITTER;
     out_frame[5] = param_id;
-    out_frame[6] = chunk;
+    out_frame[6] = val_or_chunk;
     out_frame[7] = crc8(&out_frame[2..7]);
     8
 }
 
+/// Build a Parameter Read frame (0x2C) requesting metadata/options for `param_id`.
+#[inline]
+pub fn build_param_read_frame(target: u8, param_id: u8, chunk: u8, out_frame: &mut [u8]) -> usize {
+    build_param_ext_frame(
+        target,
+        CRSF_FRAMETYPE_PARAMETER_READ,
+        param_id,
+        chunk,
+        out_frame,
+    )
+}
+
 /// Build a Parameter Write frame (0x2D) updating `param_id` value or command status.
-/// Wire frame format: [Sync (0xC8)] [Len (6)] [Type (0x2D)] [Dest] [Orig (0xEA)] [Param] [Value] [CRC]
+#[inline]
 pub fn build_param_write_frame(target: u8, param_id: u8, value: u8, out_frame: &mut [u8]) -> usize {
-    out_frame[0] = CRSF_SYNC_BYTE;
-    out_frame[1] = 6; // Type (1) + Dest (1) + Orig (1) + Param (1) + Value (1) + CRC (1) = 6
-    out_frame[2] = CRSF_FRAMETYPE_PARAMETER_WRITE;
-    out_frame[3] = target;
-    out_frame[4] = CRSF_ADDRESS_RADIO_TRANSMITTER;
-    out_frame[5] = param_id;
-    out_frame[6] = value;
-    out_frame[7] = crc8(&out_frame[2..7]);
-    8
+    build_param_ext_frame(
+        target,
+        CRSF_FRAMETYPE_PARAMETER_WRITE,
+        param_id,
+        value,
+        out_frame,
+    )
 }

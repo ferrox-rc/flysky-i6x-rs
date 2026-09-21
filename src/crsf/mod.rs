@@ -70,6 +70,58 @@ pub fn update_channels(now_ms: u32, channels: &[u16; 14]) {
 
 pub const MAX_PARAMS: usize = 8;
 
+#[inline]
+unsafe fn send_ping() {
+    let mut buf = [0u8; 8];
+    let len = protocol::build_ping_frame(&mut buf);
+    uart::write_bytes(&buf[..len]);
+}
+
+#[inline]
+unsafe fn send_param_read(target: u8, param_id: u8, chunk: u8) {
+    let mut buf = [0u8; 8];
+    let len = protocol::build_param_read_frame(target, param_id, chunk, &mut buf);
+    uart::write_bytes(&buf[..len]);
+}
+
+#[inline]
+unsafe fn send_param_write(target: u8, param_id: u8, val: u8) {
+    let mut buf = [0u8; 8];
+    let len = protocol::build_param_write_frame(target, param_id, val, &mut buf);
+    uart::write_bytes(&buf[..len]);
+}
+
+/// Extract null-terminated string from `data` starting at `offset` into `dest`,
+/// returning (offset_after_null, length_copied).
+fn extract_null_string(data: &[u8], offset: usize, dest: &mut [u8]) -> (usize, u8) {
+    let mut end = offset;
+    while end < data.len() && data[end] != 0 {
+        end += 1;
+    }
+    let full_len = end.saturating_sub(offset);
+    let copy_len = full_len.min(dest.len());
+    dest[..copy_len].copy_from_slice(&data[offset..offset + copy_len]);
+    let next_offset = if end < data.len() { end + 1 } else { end };
+    (next_offset, copy_len as u8)
+}
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum ActiveCommandState {
+    Idle,
+    Starting {
+        param_id: u8,
+        timeout_ms: u32,
+    },
+    WaitingConfirm {
+        param_id: u8,
+    },
+    Running {
+        param_id: u8,
+        poll_timer_ms: u32,
+        timeout_ms: u32,
+    },
+}
+
 #[derive(Copy, Clone, Debug)]
 pub struct Parameter {
     pub id: u8,
@@ -134,14 +186,15 @@ impl Parameter {
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum ElrsConfigState {
     Idle,
-    Discovering,        // Sending ping 0x28
-    Connected,          // Received device info 0x29
-    LoadingParam(u8),   // Requesting param 1..param_count
-    Ready,              // All parameters cached and interactive
+    Discovering,      // Sending ping 0x28
+    Connected,        // Received device info 0x29
+    LoadingParam(u8), // Requesting param 1..param_count
+    Ready,            // All parameters cached and interactive
 }
 
 pub struct ElrsConfigEngine {
     pub state: ElrsConfigState,
+    pub active_cmd: ActiveCommandState,
     pub device_id: u8,
     pub device_name: [u8; 20],
     pub device_name_len: u8,
@@ -156,6 +209,7 @@ impl ElrsConfigEngine {
     pub const fn new() -> Self {
         Self {
             state: ElrsConfigState::Idle,
+            active_cmd: ActiveCommandState::Idle,
             device_id: 0, // Zeroed by default to sit in .bss
             device_name: [0; 20],
             device_name_len: 0,
@@ -259,18 +313,11 @@ unsafe fn handle_device_info_frame(payload: &[u8], now_ms: u32) {
     let orig = payload[1];
     CONFIG_ENGINE.device_id = orig;
 
-    // Extract device name (find true null-terminator without prematurely aborting search)
-    let mut name_end = 2;
-    while name_end < payload.len() && payload[name_end] != 0 {
-        name_end += 1;
-    }
-    let full_name_len = name_end.saturating_sub(2);
-    let name_len = full_name_len.min(20);
-    CONFIG_ENGINE.device_name[..name_len].copy_from_slice(&payload[2..2 + name_len]);
-    CONFIG_ENGINE.device_name_len = name_len as u8;
+    let (next_offset, name_len) = extract_null_string(payload, 2, &mut CONFIG_ENGINE.device_name);
+    CONFIG_ENGINE.device_name_len = name_len;
 
-    // Skip past name null terminator, serial (4B), hw (4B), fw (4B) to read param_count
-    let param_count_offset = name_end + 1 + 4 + 4 + 4;
+    // Skip past serial (4B), hw (4B), fw (4B) to read param_count
+    let param_count_offset = next_offset + 4 + 4 + 4;
     if param_count_offset < payload.len() {
         CONFIG_ENGINE.param_count = payload[param_count_offset];
     } else {
@@ -282,11 +329,7 @@ unsafe fn handle_device_info_frame(payload: &[u8], now_ms: u32) {
         CONFIG_ENGINE.params_len = 0;
         CONFIG_ENGINE.current_chunk = 0;
         CONFIG_ENGINE.last_req_ms = now_ms;
-
-        // Immediately dispatch request for parameter 1
-        let mut req = [0u8; 16];
-        let len = protocol::build_param_read_frame(CONFIG_ENGINE.device_id, 1, 0, &mut req);
-        uart::write_bytes(&req[..len]);
+        send_param_read(CONFIG_ENGINE.device_id, 1, 0);
     } else {
         CONFIG_ENGINE.state = ElrsConfigState::Ready;
         CONFIG_ENGINE.params_len = 0;
@@ -305,22 +348,15 @@ unsafe fn handle_param_entry_frame(payload: &[u8], now_ms: u32) {
         let parent = chunk[0];
         let p_type = chunk[1] & 0x7F;
 
-        // Extract name: scan for true null-terminator without prematurely aborting search
-        let mut name_end = 2;
-        while name_end < chunk.len() && chunk[name_end] != 0 {
-            name_end += 1;
-        }
-        let full_name_len = name_end.saturating_sub(2);
-        let name_len = full_name_len.min(16);
         let mut name_buf = [0u8; 16];
-        name_buf[..name_len].copy_from_slice(&chunk[2..2 + name_len]);
+        let (rest_start, name_len) = extract_null_string(chunk, 2, &mut name_buf);
 
         let mut opt_buf = [0u8; 36];
         let mut opt_len = 0u8;
         let mut val = 0u8;
         let mut max_val = 0u8;
+        let mut status = 0u8;
 
-        let rest_start = name_end + 1;
         if rest_start < chunk.len() {
             if p_type == protocol::CRSF_TYPE_SELECT {
                 let mut opt_end = rest_start;
@@ -341,7 +377,35 @@ unsafe fn handle_param_entry_frame(payload: &[u8], now_ms: u32) {
                     val = chunk[val_pos];
                 }
             } else if p_type == protocol::CRSF_TYPE_COMMAND {
-                val = chunk[rest_start];
+                status = chunk[rest_start];
+                val = status;
+
+                // Drive active command state transitions based on module response
+                match CONFIG_ENGINE.active_cmd {
+                    ActiveCommandState::Starting {
+                        param_id: cmd_id, ..
+                    }
+                    | ActiveCommandState::Running {
+                        param_id: cmd_id, ..
+                    } if cmd_id == param_id => match status {
+                        protocol::STATUS_CONFIRMATION_NEEDED => {
+                            CONFIG_ENGINE.active_cmd =
+                                ActiveCommandState::WaitingConfirm { param_id };
+                        }
+                        protocol::STATUS_PROGRESS => {
+                            CONFIG_ENGINE.active_cmd = ActiveCommandState::Running {
+                                param_id,
+                                poll_timer_ms: now_ms.wrapping_add(250),
+                                timeout_ms: now_ms.wrapping_add(8000),
+                            };
+                        }
+                        protocol::STATUS_READY => {
+                            CONFIG_ENGINE.active_cmd = ActiveCommandState::Idle;
+                        }
+                        _ => {}
+                    },
+                    _ => {}
+                }
             }
         }
 
@@ -349,6 +413,7 @@ unsafe fn handle_param_entry_frame(payload: &[u8], now_ms: u32) {
         for p in &mut CONFIG_ENGINE.params[..CONFIG_ENGINE.params_len] {
             if p.id == param_id {
                 p.value = val;
+                p.status = status;
                 p.options = opt_buf;
                 p.options_len = opt_len;
                 p.max_value = max_val;
@@ -362,12 +427,12 @@ unsafe fn handle_param_entry_frame(payload: &[u8], now_ms: u32) {
                 parent,
                 param_type: p_type,
                 name: name_buf,
-                name_len: name_len as u8,
+                name_len,
                 value: val,
                 max_value: max_val,
                 options: opt_buf,
                 options_len: opt_len,
-                status: 0,
+                status,
             };
             CONFIG_ENGINE.params_len += 1;
         }
@@ -375,17 +440,17 @@ unsafe fn handle_param_entry_frame(payload: &[u8], now_ms: u32) {
 
     if chunks_remain > 0 {
         CONFIG_ENGINE.current_chunk += 1;
-        let mut req = [0u8; 16];
-        let len = protocol::build_param_read_frame(CONFIG_ENGINE.device_id, param_id, CONFIG_ENGINE.current_chunk, &mut req);
-        uart::write_bytes(&req[..len]);
+        send_param_read(
+            CONFIG_ENGINE.device_id,
+            param_id,
+            CONFIG_ENGINE.current_chunk,
+        );
         CONFIG_ENGINE.last_req_ms = now_ms;
     } else if param_id < CONFIG_ENGINE.param_count && CONFIG_ENGINE.params_len < MAX_PARAMS {
         let next_id = param_id + 1;
         CONFIG_ENGINE.state = ElrsConfigState::LoadingParam(next_id);
         CONFIG_ENGINE.current_chunk = 0;
-        let mut req = [0u8; 16];
-        let len = protocol::build_param_read_frame(CONFIG_ENGINE.device_id, next_id, 0, &mut req);
-        uart::write_bytes(&req[..len]);
+        send_param_read(CONFIG_ENGINE.device_id, next_id, 0);
         CONFIG_ENGINE.last_req_ms = now_ms;
     } else {
         CONFIG_ENGINE.state = ElrsConfigState::Ready;
@@ -397,16 +462,40 @@ unsafe fn elrs_tick(now_ms: u32) {
         ElrsConfigState::Discovering => {
             if now_ms.wrapping_sub(CONFIG_ENGINE.last_req_ms) >= 300 {
                 CONFIG_ENGINE.last_req_ms = now_ms;
-                let mut ping = [0u8; 8];
-                let len = protocol::build_ping_frame(&mut ping);
-                uart::write_bytes(&ping[..len]);
+                send_ping();
             }
         }
-        ElrsConfigState::LoadingParam(id) if now_ms.wrapping_sub(CONFIG_ENGINE.last_req_ms) >= 350 => {
+        ElrsConfigState::LoadingParam(id)
+            if now_ms.wrapping_sub(CONFIG_ENGINE.last_req_ms) >= 350 =>
+        {
             CONFIG_ENGINE.last_req_ms = now_ms;
-            let mut req = [0u8; 16];
-            let len = protocol::build_param_read_frame(CONFIG_ENGINE.device_id, id, CONFIG_ENGINE.current_chunk, &mut req);
-            uart::write_bytes(&req[..len]);
+            send_param_read(CONFIG_ENGINE.device_id, id, CONFIG_ENGINE.current_chunk);
+        }
+        _ => {}
+    }
+
+    // Process active command polling and timeouts
+    match CONFIG_ENGINE.active_cmd {
+        ActiveCommandState::Starting { timeout_ms, .. } => {
+            if now_ms.wrapping_sub(timeout_ms) < 0x8000_0000 {
+                CONFIG_ENGINE.active_cmd = ActiveCommandState::Idle;
+            }
+        }
+        ActiveCommandState::Running {
+            param_id,
+            poll_timer_ms,
+            timeout_ms,
+        } => {
+            if now_ms.wrapping_sub(timeout_ms) < 0x8000_0000 {
+                CONFIG_ENGINE.active_cmd = ActiveCommandState::Idle;
+            } else if now_ms.wrapping_sub(poll_timer_ms) < 0x8000_0000 {
+                send_param_write(CONFIG_ENGINE.device_id, param_id, protocol::STATUS_POLL);
+                CONFIG_ENGINE.active_cmd = ActiveCommandState::Running {
+                    param_id,
+                    poll_timer_ms: now_ms.wrapping_add(250),
+                    timeout_ms,
+                };
+            }
         }
         _ => {}
     }
@@ -419,9 +508,8 @@ pub fn start_config() {
         CONFIG_ENGINE.state = ElrsConfigState::Discovering;
         CONFIG_ENGINE.params_len = 0;
         CONFIG_ENGINE.last_req_ms = 0;
-        let mut ping = [0u8; 8];
-        let len = protocol::build_ping_frame(&mut ping);
-        uart::write_bytes(&ping[..len]);
+        CONFIG_ENGINE.active_cmd = ActiveCommandState::Idle;
+        send_ping();
     }
 }
 
@@ -432,23 +520,46 @@ pub fn cycle_param(param_idx: usize) {
             let p = &mut CONFIG_ENGINE.params[param_idx];
             if p.param_type == protocol::CRSF_TYPE_SELECT && p.max_value > 0 {
                 p.value = (p.value + 1) % (p.max_value + 1);
-                let mut frame = [0u8; 16];
-                let len = protocol::build_param_write_frame(CONFIG_ENGINE.device_id, p.id, p.value, &mut frame);
-                uart::write_bytes(&frame[..len]);
+                send_param_write(CONFIG_ENGINE.device_id, p.id, p.value);
             }
         }
     }
 }
 
-/// Trigger an action command (Wi-Fi, Bind, etc.) on module.
+/// Trigger an action command on module: starts the command handshake with STATUS_START (1).
 pub fn trigger_command(param_idx: usize) {
     unsafe {
         if param_idx < CONFIG_ENGINE.params_len {
             let p = &mut CONFIG_ENGINE.params[param_idx];
-            if p.param_type == protocol::CRSF_TYPE_COMMAND {
-                let mut frame = [0u8; 16];
-                let len = protocol::build_param_write_frame(CONFIG_ENGINE.device_id, p.id, protocol::STATUS_CONFIRM, &mut frame);
-                uart::write_bytes(&frame[..len]);
+            if p.param_type == protocol::CRSF_TYPE_COMMAND
+                && CONFIG_ENGINE.active_cmd == ActiveCommandState::Idle
+            {
+                let now = crate::time::millis();
+                send_param_write(CONFIG_ENGINE.device_id, p.id, protocol::STATUS_START);
+                CONFIG_ENGINE.active_cmd = ActiveCommandState::Starting {
+                    param_id: p.id,
+                    timeout_ms: now.wrapping_add(1500),
+                };
+            }
+        }
+    }
+}
+
+/// Confirm or cancel a command requiring pilot confirmation.
+pub fn confirm_command(accept: bool) {
+    unsafe {
+        if let ActiveCommandState::WaitingConfirm { param_id } = CONFIG_ENGINE.active_cmd {
+            let now = crate::time::millis();
+            if accept {
+                send_param_write(CONFIG_ENGINE.device_id, param_id, protocol::STATUS_CONFIRM);
+                CONFIG_ENGINE.active_cmd = ActiveCommandState::Running {
+                    param_id,
+                    poll_timer_ms: now.wrapping_add(250),
+                    timeout_ms: now.wrapping_add(8000),
+                };
+            } else {
+                send_param_write(CONFIG_ENGINE.device_id, param_id, protocol::STATUS_CANCEL);
+                CONFIG_ENGINE.active_cmd = ActiveCommandState::Idle;
             }
         }
     }

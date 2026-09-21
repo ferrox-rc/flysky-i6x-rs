@@ -50,11 +50,7 @@ static mut POWER_ON: bool = false;
 
 /// Apply current PC13 pin state based on power state and active polarity.
 unsafe fn apply_power_pin() {
-    let pin_high = if ACTIVE_HIGH {
-        POWER_ON
-    } else {
-        !POWER_ON
-    };
+    let pin_high = if ACTIVE_HIGH { POWER_ON } else { !POWER_ON };
     if pin_high {
         ptr::write_volatile(GPIOC_BSRR, 1 << 13); // High
     } else {
