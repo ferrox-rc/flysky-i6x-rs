@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [0.16.0] - 2026-09-21
+## [0.16.0-rc.1] - 2026-09-21
 
 ### Added
 - **Unified UI Subsystem (`src/ui/`)**:
@@ -16,10 +16,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `src/ui/dashboard/`: Modular 4-page live flight dashboard (`pages/gimbals.rs`, `pages/channels.rs`, `pages/model.rs`, `pages/telemetry.rs`, `status_bar.rs`).
   - `src/ui/menu/`: Modular settings menu decomposed into discrete screen controllers.
   - Standardized 8-pixel footer geometry ($y = 55$ divider, $y = 62$ `FONT_4X6` baseline) across all flight dashboards and settings screens, eliminating text clipping on 128px displays.
-- Native ExpressLRS / CRSF configuration engine with 8 parameter slots.
-- Native CRSF telemetry sensor dashboard on Flight Page 3 (LQ, RSSI dBm, SNR, Antenna, Output Power, RF Rate, Battery Voltage, Capacity consumed).
-- Live JSON telemetry streaming over USB CDC Serial including CRSF telemetry fields.
-- Configurable external module power switch polarity (PC13 Active HIGH / Active LOW).
+- **Rich Audio & Switch Chimes (PR #4)**:
+  - Melodic welcome and goodbye chimes with selectable tone styles (`RICH` vs `SIMPLE`).
+  - Per-model configurable arm switch assignments and armed/disarmed audio notifications.
+- **ExpressLRS / CRSF Integration & Hardened Command Lifecycle**:
+  - Native ELRS configuration engine with 8 parameter slots (`CRSF_FRAMETYPE_PARAMETER_READ` 0x2C / `PARAMETER_WRITE` 0x2D / `PARAMETER_ENTRY` 0x2B), labeled `ELRS Setup (Beta)`.
+  - Robust non-blocking `ActiveCommandState` machine for actions (Wi-Fi, Bind, etc.) with automatic 250ms periodic `STATUS_POLL` transmission, watchdog timeouts, and interactive modal confirmation dialogs.
+  - Unified extended parameter wire frame serialization via `build_param_ext_frame`.
+  - Native CRSF telemetry sensor dashboard on Flight Page 3 (LQ, RSSI dBm, SNR, Antenna, Output Power, RF Rate, Battery Voltage, Capacity consumed).
+  - Live JSON telemetry streaming over USB CDC Serial including CRSF telemetry fields.
+  - Configurable external module power switch polarity (PC13 Active HIGH / Active LOW).
 
 ### Changed
 - Slimmed `src/main.rs` by over 570 lines, delegating inline display rendering to `DashboardController`.
