@@ -123,7 +123,7 @@ In `Serial` or `Composite` USB mode, the transmitter streams JSON telemetry over
 The CLI `status` command reports the active protocol:
 ```text
 i6x> status
-FlySky FS-i6X Rust Firmware v0.15.1
+FlySky FS-i6X Rust Firmware v0.16.0
 Protocol: CRSF / ExpressLRS (PD5 UART active)
 {"vbat":5.18,...}
 ```
