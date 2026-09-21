@@ -6,7 +6,7 @@ The FlySky FS-i6X is an accessible, well-engineered RC transmitter powered by an
 
 ## 1. The OpenI6X Project: Paving the Way
 
-The open-source development of the FlySky FS-i6X was made possible by the pioneering work of **Kuba (qba667)** and the contributors to the [OpenI6X](https://github.com/OpenI6X/opentx) project. 
+The open-source development of the FlySky FS-i6X was made possible by the pioneering work of **Kuba (qba667)**, **Janek (ajjjjjjjj)**, and the contributors to the [OpenI6X](https://github.com/OpenI6X/opentx) project. 
 
 OpenI6X accomplished a remarkable engineering achievement: adapting the powerful, full-featured OpenTX/EdgeTX operating system to run on an MCU with 128 KB Flash and 16 KB SRAM. In doing so, the OpenI6X project:
 - Reverse-engineered the motherboard schematics, MCU pinouts, and peripheral connections.
