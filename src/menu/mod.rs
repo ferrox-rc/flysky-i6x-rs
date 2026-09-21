@@ -9,6 +9,9 @@ pub mod format;
 pub mod screens;
 pub mod widgets;
 
+use embedded_graphics::pixelcolor::BinaryColor;
+use embedded_graphics::prelude::*;
+
 use crate::adc;
 use crate::buzzer::Buzzer;
 use crate::display::St7567;
@@ -170,6 +173,12 @@ impl MenuController {
             down: down_pressed,
             bind: (newly_pressed & (1 << 12)) != 0,
         };
+
+        if self.state == MenuState::Closed {
+            return;
+        }
+
+        lcd.clear(BinaryColor::Off).ok();
 
         match self.state {
             MenuState::Closed => {}
