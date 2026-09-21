@@ -424,12 +424,16 @@ fn main() -> ! {
             }
         }
 
-        // Persist newly bound RX ID safely to Flash outside ISR
+        // Persist newly bound RX ID safely to Flash outside ISR.
+        // UAV Safety Guarantee: Never perform blocking Flash sector erases while armed!
         if let Some(new_rx_id) = rf::take_pending_rx_save() {
             if new_rx_id != 0 && new_rx_id != 0xFFFF_FFFF && storage.active_model().rx_id != new_rx_id {
                 storage.active_model_mut().rx_id = new_rx_id;
-                storage::save_storage(&storage);
-                buzzer.play_tone_pattern(2400, 70, 50, 2);
+                // Only write to Flash if the aircraft is confirmed disarmed
+                if !prev_armed {
+                    storage::save_storage(&storage);
+                    buzzer.play_tone_pattern(2400, 70, 50, 2);
+                }
             }
         }
 

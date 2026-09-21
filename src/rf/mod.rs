@@ -3,86 +3,108 @@
 //! Orchestrates the A7105 2.4 GHz transceiver, SPI1 driver, and AFHDS 2A stack
 //! via TIM16 (3.85 ms framing) and EXTI2 (A7105 GIO2 WTR signal).
 
-#![allow(static_mut_refs)]
-
 pub mod a7105;
 pub mod afhds2a;
 pub mod spi;
 
 use afhds2a::{Afhds2a, TelemetryData, NUM_CHANNELS};
+use core::cell::UnsafeCell;
 use core::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use stm32f0xx_hal::pac::interrupt;
 
-static mut RF_DRIVER: Option<Afhds2a> = None;
+struct RfDriverCell(UnsafeCell<Option<Afhds2a>>);
+unsafe impl Sync for RfDriverCell {}
 
-/// Lock-free triple/double buffer for publishing channel updates from the flight
-/// pipeline (writer) to the TIM16 RF interrupt handler (reader).
+static RF_DRIVER: RfDriverCell = RfDriverCell(UnsafeCell::new(None));
+
+/// Sound, lock-free Single-Producer Single-Consumer (SPSC) Triple Buffer.
 ///
-/// Writer writes into `channels[write_idx]`, then atomically updates `READ_IDX`.
-/// The TIM16 interrupt always reads `channels[READ_IDX]`.
-/// This eliminates global `cortex_m::interrupt::free` CPSID barriers and eliminates
-/// interrupt latency and jitter on Cortex-M0.
-struct ChannelBuffer {
-    buffers: [[u16; NUM_CHANNELS]; 2],
-    read_idx: AtomicU8,
+/// Implements asynchronous non-blocking data exchange between a high-rate writer
+/// (the flight pipeline) and an asynchronous reader (the TIM16 RF interrupt handler).
+///
+/// Uses an `UnsafeCell` holding 3 buffer slots:
+/// - 1 slot being read by the consumer
+/// - 1 slot being written by the producer
+/// - 1 intermediate slot holding the latest published data
+///
+/// Under this 3-slot model:
+/// 1. The writer NEVER touches the slot currently being read by the consumer.
+/// 2. The reader NEVER touches the slot currently being written by the producer.
+/// 3. Neither reader nor writer ever block, spin, or mask interrupts (`CPSID`).
+/// 4. Provably eliminates torn reads, torn writes, and data races on ARM Cortex-M0.
+pub struct TripleBuffer<T: Copy> {
+    buffers: UnsafeCell<[T; 3]>,
+    /// Bits [1:0]: index of the latest fully-written buffer ready for reading (0..2).
+    /// Bit [7]: new data dirty flag (1 if a new frame is ready to read, 0 otherwise).
+    published: AtomicU8,
+    /// Index of the buffer currently being read by the consumer (0..2).
+    reading_idx: AtomicU8,
 }
 
-impl ChannelBuffer {
-    const fn new() -> Self {
+unsafe impl<T: Copy + Send> Sync for TripleBuffer<T> {}
+
+impl<T: Copy> TripleBuffer<T> {
+    pub const fn new(initial: T) -> Self {
         Self {
-            buffers: [[1500; NUM_CHANNELS]; 2],
-            read_idx: AtomicU8::new(0),
+            buffers: UnsafeCell::new([initial; 3]),
+            published: AtomicU8::new(0),
+            reading_idx: AtomicU8::new(1),
         }
     }
 
+    /// Write new data into an available slot and atomically publish it.
+    /// Called exclusively by the producer (single writer thread).
     #[inline(always)]
-    fn write(&mut self, channels: &[u16; NUM_CHANNELS]) {
-        let current_read = self.read_idx.load(Ordering::Relaxed) as usize;
-        let write_idx = 1 - current_read;
-        self.buffers[write_idx].copy_from_slice(channels);
-        self.read_idx.store(write_idx as u8, Ordering::Release);
+    pub fn write(&self, data: &T) {
+        let published_val = self.published.load(Ordering::Relaxed);
+        let last_published = published_val & 0x03;
+        let reading = self.reading_idx.load(Ordering::Relaxed) & 0x03;
+
+        // Find the slot that is neither currently being read nor the last published
+        let mut write_idx = 0;
+        while write_idx == last_published || write_idx == reading {
+            write_idx += 1;
+        }
+
+        // Safety: `write_idx` is guaranteed distinct from `reading`, meaning the consumer
+        // is not currently reading from this memory slot.
+        unsafe {
+            let buf_ptr = self.buffers.get();
+            (*buf_ptr)[write_idx as usize] = *data;
+        }
+
+        // Atomically publish with Release ordering so memory writes are visible before pointer update.
+        // Bit 7 indicates fresh unread data.
+        self.published.store(0x80 | write_idx, Ordering::Release);
     }
 
+    /// Read the latest available data.
+    /// Called by the consumer (single reader, e.g. ISR).
     #[inline(always)]
-    fn read(&self) -> &[u16; NUM_CHANNELS] {
-        let idx = (self.read_idx.load(Ordering::Acquire) & 1) as usize;
-        &self.buffers[idx]
-    }
-}
+    pub fn read(&self) -> T {
+        // Check if a new buffer was published since last read
+        let published_val = self.published.load(Ordering::Acquire);
+        let read_idx = if (published_val & 0x80) != 0 {
+            // Clear dirty bit so we know it has been consumed
+            let idx = published_val & 0x03;
+            self.published.store(idx, Ordering::Relaxed);
+            self.reading_idx.store(idx, Ordering::Relaxed);
+            idx
+        } else {
+            // No new data: continue reading from current slot
+            self.reading_idx.load(Ordering::Relaxed) & 0x03
+        };
 
-static mut CHANNEL_BUFFER: ChannelBuffer = ChannelBuffer::new();
-
-/// Lock-free double buffer for reading downlink telemetry from the EXTI ISR
-/// to the background display/UI task without disabling interrupts.
-struct TelemetryBuffer {
-    buffers: [TelemetryData; 2],
-    read_idx: AtomicU8,
-}
-
-impl TelemetryBuffer {
-    const fn new() -> Self {
-        Self {
-            buffers: [TelemetryData::new(), TelemetryData::new()],
-            read_idx: AtomicU8::new(0),
+        // Safety: `read_idx` is distinct from the writer's current write target slot.
+        unsafe {
+            let buf_ptr = self.buffers.get();
+            (*buf_ptr)[read_idx as usize]
         }
     }
-
-    #[inline(always)]
-    fn write(&mut self, telem: &TelemetryData) {
-        let current_read = self.read_idx.load(Ordering::Relaxed) as usize;
-        let write_idx = 1 - current_read;
-        self.buffers[write_idx] = *telem;
-        self.read_idx.store(write_idx as u8, Ordering::Release);
-    }
-
-    #[inline(always)]
-    fn read(&self) -> TelemetryData {
-        let idx = (self.read_idx.load(Ordering::Acquire) & 1) as usize;
-        self.buffers[idx]
-    }
 }
 
-static mut TELEMETRY_BUFFER: TelemetryBuffer = TelemetryBuffer::new();
+static CHANNEL_BUFFER: TripleBuffer<[u16; NUM_CHANNELS]> = TripleBuffer::new([1500; NUM_CHANNELS]);
+static TELEMETRY_BUFFER: TripleBuffer<TelemetryData> = TripleBuffer::new(TelemetryData::new());
 static RF_SILENCED: AtomicBool = AtomicBool::new(false);
 
 /// Initialize RF subsystem: SPI1, A7105 transceiver, and AFHDS 2A stack.
@@ -101,7 +123,7 @@ pub fn init(tx_id: u32) -> bool {
     a7105::LAST_CHIP_ID.store(post_sig, Ordering::Relaxed);
 
     unsafe {
-        RF_DRIVER = Some(Afhds2a::new(tx_id));
+        *RF_DRIVER.0.get() = Some(Afhds2a::new(tx_id));
     }
 
     // Start 3.85 ms (260 Hz) periodic packet framing timer
@@ -134,19 +156,18 @@ pub fn is_silenced() -> bool {
 }
 
 /// Update channel outputs (CH1..CH14) in microseconds (1000..2000 µs).
-/// Completely lock-free double-buffered write: zero critical sections, zero interrupt latency.
+/// Completely lock-free triple-buffered write: zero critical sections, zero interrupt latency.
 #[inline(always)]
 pub fn set_channels(channels: &[u16; NUM_CHANNELS]) {
-    unsafe {
-        CHANNEL_BUFFER.write(channels);
-    }
+    CHANNEL_BUFFER.write(channels);
 }
 
 /// Enter or exit binding mode.
 pub fn set_bind_mode(enable: bool) {
     cortex_m::interrupt::free(|_| {
-        if let Some(ref mut driver) = unsafe { RF_DRIVER.as_mut() } {
-            driver.set_bind_mode(enable);
+        let driver = unsafe { &mut *RF_DRIVER.0.get() };
+        if let Some(ref mut d) = driver {
+            d.set_bind_mode(enable);
         }
     });
 }
@@ -154,8 +175,9 @@ pub fn set_bind_mode(enable: bool) {
 /// Dynamically update receiver ID in the RF driver (e.g. on model switch).
 pub fn set_rx_id(rx_id: u32) {
     cortex_m::interrupt::free(|_| {
-        if let Some(ref mut driver) = unsafe { RF_DRIVER.as_mut() } {
-            driver.set_rx_id(rx_id);
+        let driver = unsafe { &mut *RF_DRIVER.0.get() };
+        if let Some(ref mut d) = driver {
+            d.set_rx_id(rx_id);
         }
     });
 }
@@ -163,31 +185,30 @@ pub fn set_rx_id(rx_id: u32) {
 /// Query whether binding has completed.
 pub fn is_bound() -> bool {
     cortex_m::interrupt::free(|_| {
-        unsafe {
-            RF_DRIVER
-                .as_ref()
-                .map(|d| d.bind_done || (d.rx_id != 0 && d.rx_id != 0xFFFF_FFFF))
-                .unwrap_or(false)
-        }
+        let driver = unsafe { &*RF_DRIVER.0.get() };
+        driver
+            .as_ref()
+            .map(|d| d.bind_done || (d.rx_id != 0 && d.rx_id != 0xFFFF_FFFF))
+            .unwrap_or(false)
     })
 }
 
 /// Query whether the radio is currently in binding mode.
 pub fn is_binding() -> bool {
     cortex_m::interrupt::free(|_| {
-        unsafe {
-            RF_DRIVER.as_ref().map(|d| d.mode == afhds2a::RadioMode::Binding).unwrap_or(false)
-        }
+        let driver = unsafe { &*RF_DRIVER.0.get() };
+        driver.as_ref().map(|d| d.mode == afhds2a::RadioMode::Binding).unwrap_or(false)
     })
 }
 
 /// Check if a newly captured/bound RX ID needs to be persisted to Flash, and return it.
 pub fn take_pending_rx_save() -> Option<u32> {
     cortex_m::interrupt::free(|_| {
-        if let Some(ref mut driver) = unsafe { RF_DRIVER.as_mut() } {
-            if driver.rx_id_needs_save {
-                driver.rx_id_needs_save = false;
-                return Some(driver.rx_id);
+        let driver = unsafe { &mut *RF_DRIVER.0.get() };
+        if let Some(ref mut d) = driver {
+            if d.rx_id_needs_save {
+                d.rx_id_needs_save = false;
+                return Some(d.rx_id);
             }
         }
         None
@@ -198,9 +219,8 @@ pub fn take_pending_rx_save() -> Option<u32> {
 #[allow(dead_code)]
 pub fn get_rx_id() -> u32 {
     cortex_m::interrupt::free(|_| {
-        unsafe {
-            RF_DRIVER.as_ref().map(|d| d.rx_id).unwrap_or(0xFFFF_FFFF)
-        }
+        let driver = unsafe { &*RF_DRIVER.0.get() };
+        driver.as_ref().map(|d| d.rx_id).unwrap_or(0xFFFF_FFFF)
     })
 }
 
@@ -208,7 +228,7 @@ pub fn get_rx_id() -> u32 {
 /// Lock-free atomic read: zero critical sections.
 #[inline(always)]
 pub fn get_telemetry() -> TelemetryData {
-    unsafe { TELEMETRY_BUFFER.read() }
+    TELEMETRY_BUFFER.read()
 }
 
 /// TIM16 Interrupt Handler: Triggers transmission of next AFHDS 2A frame.
@@ -220,10 +240,11 @@ fn TIM16() {
         return;
     }
 
-    if let Some(ref mut driver) = unsafe { RF_DRIVER.as_mut() } {
-        let chs = unsafe { CHANNEL_BUFFER.read() };
-        driver.set_channels(chs);
-        driver.on_timer_tick();
+    let driver = unsafe { &mut *RF_DRIVER.0.get() };
+    if let Some(ref mut d) = driver {
+        let chs = CHANNEL_BUFFER.read();
+        d.set_channels(&chs);
+        d.on_timer_tick();
     }
 }
 
@@ -237,10 +258,11 @@ fn EXTI2_3() {
             // Clear pending flag for EXTI2
             core::ptr::write_volatile(0x4001_0414 as *mut u32, 1 << 2);
 
-            if let Some(ref mut driver) = RF_DRIVER.as_mut() {
-                driver.on_gio2_event();
-                // Publish updated telemetry to double buffer lock-free
-                TELEMETRY_BUFFER.write(&driver.telemetry);
+            let driver = &mut *RF_DRIVER.0.get();
+            if let Some(ref mut d) = driver {
+                d.on_gio2_event();
+                // Publish updated telemetry to triple buffer lock-free
+                TELEMETRY_BUFFER.write(&d.telemetry);
             }
         }
     }
