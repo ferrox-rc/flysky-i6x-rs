@@ -64,7 +64,7 @@ pub fn update_diag_anas(
         Text::new(val_str, Point::new(90, y + 5), text_style_small).draw(lcd).ok();
     }
 
-    widgets::draw_footer_at(lcd, "[UP/DN] Page  [ESC] Back", 55);
+    widgets::draw_footer(lcd, "[UP/DN] Page  [ESC] Back");
 }
 
 pub fn update_system_info(

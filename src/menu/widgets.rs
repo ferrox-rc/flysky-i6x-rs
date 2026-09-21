@@ -20,16 +20,12 @@ pub fn draw_header(lcd: &mut St7567, title: &str) {
     Line::new(Point::new(0, 11), Point::new(127, 11)).into_styled(border_style).draw(lcd).ok();
 }
 
-/// Draw a standardized bottom footer with small font (FONT_4X6) and divider line at y = 52.
+/// Draw a standardized bottom footer with small font (FONT_4X6) and divider line at y = 55,
+/// matching the flight pages' 8-pixel footer height and baseline at y = 62.
 pub fn draw_footer(lcd: &mut St7567, text: &str) {
-    draw_footer_at(lcd, text, 52);
-}
-
-/// Draw a bottom footer with small font (FONT_4X6) and custom divider line y position.
-pub fn draw_footer_at(lcd: &mut St7567, text: &str, y_line: i32) {
     let text_style = MonoTextStyle::new(&FONT_4X6, BinaryColor::On);
     let border_style = PrimitiveStyle::with_stroke(BinaryColor::On, 1);
-    Line::new(Point::new(0, y_line), Point::new(127, y_line)).into_styled(border_style).draw(lcd).ok();
+    Line::new(Point::new(0, 55), Point::new(127, 55)).into_styled(border_style).draw(lcd).ok();
     Text::new(text, Point::new(2, 62), text_style).draw(lcd).ok();
 }
 
