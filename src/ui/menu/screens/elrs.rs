@@ -30,8 +30,14 @@ pub fn update(ctrl: &mut MenuController, lcd: &mut St7567, keys: &NavKeys, buzze
             return;
         }
     } else if keys.cancel {
-        ctrl.state = MenuState::RxSetup;
-        ctrl.selected_item = 2;
+        if ctrl.return_state == MenuState::MainMenu {
+            ctrl.state = MenuState::MainMenu;
+            ctrl.selected_item = 8;
+            ctrl.scroll_offset = 5;
+        } else {
+            ctrl.state = MenuState::RxSetup;
+            ctrl.selected_item = 2;
+        }
         ctrl.waiting_release = true;
         buzzer.click();
         return;

@@ -241,6 +241,7 @@ pub fn update_rx_setup(
         if keys.ok {
             if ctrl.selected_item == 2 {
                 ctrl.state = MenuState::ElrsSetup;
+                ctrl.return_state = MenuState::RxSetup;
                 ctrl.selected_item = 0;
                 ctrl.scroll_offset = 0;
                 crate::crsf::start_config();

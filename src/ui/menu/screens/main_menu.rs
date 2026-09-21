@@ -99,6 +99,7 @@ pub fn update(
             8 => {
                 if is_crsf {
                     ctrl.state = MenuState::ElrsSetup;
+                    ctrl.return_state = MenuState::MainMenu;
                     ctrl.selected_item = 0;
                     ctrl.scroll_offset = 0;
                     crate::crsf::start_config();
