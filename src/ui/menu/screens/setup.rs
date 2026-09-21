@@ -31,7 +31,7 @@ pub fn update_radio_setup(
         buzzer.click();
         return;
     }
-    const SETUP_ITEMS: usize = 8;
+    const SETUP_ITEMS: usize = 9;
 
     widgets::navigate_4slot_list(
         &mut ctrl.selected_item,
@@ -43,9 +43,9 @@ pub fn update_radio_setup(
     );
 
     if keys.ok {
-        buzzer.click();
         match ctrl.selected_item {
             0 => {
+                buzzer.click();
                 storage.radio.throttle_trim = (storage.radio.throttle_trim + 1) % 3;
                 trims.throttle_enabled = storage.radio.throttle_trim != 0;
                 storage::save_storage(storage);
@@ -53,13 +53,29 @@ pub fn update_radio_setup(
             1 => {
                 storage.radio.audio_enabled = if storage.radio.audio_enabled == 0 { 1 } else { 0 };
                 buzzer.enabled = storage.radio.audio_enabled != 0;
+                if buzzer.enabled {
+                    buzzer.click();
+                }
                 storage::save_storage(storage);
             }
             2 => {
+                // Toggle Tone Style: 0=Simple, 1=Rich
+                storage.radio.tone_style = if storage.radio.tone_style == 0 { 1 } else { 0 };
+                buzzer.tone_style = crate::buzzer::ToneStyle::from_u8(storage.radio.tone_style);
+                storage::save_storage(storage);
+                if buzzer.tone_style == crate::buzzer::ToneStyle::Rich {
+                    buzzer.chime_armed();
+                } else {
+                    buzzer.click();
+                }
+            }
+            3 => {
+                buzzer.click();
                 storage.radio.backlight_timeout = (storage.radio.backlight_timeout + 1) % 4;
                 storage::save_storage(storage);
             }
-            3 => {
+            4 => {
+                buzzer.click();
                 storage.radio.backlight_brightness = if storage.radio.backlight_brightness >= 10 {
                     1
                 } else {
@@ -68,7 +84,8 @@ pub fn update_radio_setup(
                 lcd.set_backlight_level(storage.radio.backlight_brightness * 10);
                 storage::save_storage(storage);
             }
-            4 => {
+            5 => {
+                buzzer.click();
                 storage.radio.lcd_contrast = if storage.radio.lcd_contrast >= 50 {
                     20
                 } else {
@@ -77,7 +94,8 @@ pub fn update_radio_setup(
                 lcd.set_contrast(storage.radio.lcd_contrast);
                 storage::save_storage(storage);
             }
-            5 => {
+            6 => {
+                buzzer.click();
                 storage.radio.vbat_warn_deci = if storage.radio.vbat_warn_deci >= 50 {
                     40
                 } else {
@@ -85,12 +103,14 @@ pub fn update_radio_setup(
                 };
                 storage::save_storage(storage);
             }
-            6 => {
+            7 => {
+                buzzer.click();
                 storage.radio.usb_mode = (storage.radio.usb_mode + 1) % 4;
                 storage::save_storage(storage);
                 crate::usb::init(storage.radio.usb_mode);
             }
-            7 => {
+            8 => {
+                buzzer.click();
                 storage.radio.ext_module_pwr = if storage.radio.ext_module_pwr == 0 { 1 } else { 0 };
                 crate::crsf::set_power_polarity(storage.radio.ext_module_pwr == 0);
                 storage::save_storage(storage);
@@ -122,6 +142,10 @@ pub fn update_radio_setup(
                 widgets::draw_list_row(lcd, slot, is_sel, "Beeper:", Some(beeper_str), 62);
             }
             2 => {
+                let tone_str = if storage.radio.tone_style != 0 { "RICH" } else { "SIMPLE" };
+                widgets::draw_list_row(lcd, slot, is_sel, "Tones:", Some(tone_str), 62);
+            }
+            3 => {
                 let timer_str = match storage.radio.backlight_timeout {
                     1 => "15 SEC",
                     2 => "30 SEC",
@@ -130,7 +154,7 @@ pub fn update_radio_setup(
                 };
                 widgets::draw_list_row(lcd, slot, is_sel, "BL Timer:", Some(timer_str), 62);
             }
-            3 => {
+            4 => {
                 let mut b_buf = *b"   %";
                 let pct = (storage.radio.backlight_brightness * 10).min(100);
                 if pct == 100 {
@@ -144,21 +168,21 @@ pub fn update_radio_setup(
                 let b_str = core::str::from_utf8(&b_buf).unwrap_or("100%");
                 widgets::draw_list_row(lcd, slot, is_sel, "BL Level:", Some(b_str), 62);
             }
-            4 => {
+            5 => {
                 let mut c_buf = *b"00";
                 c_buf[0] = b'0' + (storage.radio.lcd_contrast / 10);
                 c_buf[1] = b'0' + (storage.radio.lcd_contrast % 10);
                 let c_str = core::str::from_utf8(&c_buf).unwrap_or("37");
                 widgets::draw_list_row(lcd, slot, is_sel, "Contrast:", Some(c_str), 62);
             }
-            5 => {
+            6 => {
                 let mut v_buf = *b"0.0V";
                 v_buf[0] = b'0' + (storage.radio.vbat_warn_deci / 10);
                 v_buf[2] = b'0' + (storage.radio.vbat_warn_deci % 10);
                 let v_str = core::str::from_utf8(&v_buf).unwrap_or("4.4V");
                 widgets::draw_list_row(lcd, slot, is_sel, "Bat Warn:", Some(v_str), 62);
             }
-            6 => {
+            7 => {
                 let usb_str = match storage.radio.usb_mode {
                     1 => "JOYSTICK",
                     2 => "SERIAL",
@@ -167,7 +191,7 @@ pub fn update_radio_setup(
                 };
                 widgets::draw_list_row(lcd, slot, is_sel, "USB Mode:", Some(usb_str), 62);
             }
-            7 => {
+            8 => {
                 let pwr_str = if storage.radio.ext_module_pwr == 0 { "HIGH (N)" } else { "LOW (P)" };
                 widgets::draw_list_row(lcd, slot, is_sel, "PC13 Pwr:", Some(pwr_str), 62);
             }

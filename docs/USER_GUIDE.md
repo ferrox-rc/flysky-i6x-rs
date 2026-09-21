@@ -197,10 +197,13 @@ Hold **`[OK]` for 1.2 seconds** from the main flight screen to open the Settings
   - Press **`[CANCEL]` (`[ESC]`)** at any time to finish editing name and return to field selection.
 - **Field 1: Model Type**:
   - Press **`[OK]`** to cycle between `AIRPLANE`, `GLIDER`, `HELI`, and `QUAD`.
-- **Field 2: Bind RX**:
+- **Field 2: Arm Switch (`Arm Sw:`)**:
+  - Assign any physical switch and position condition as the model's arming switch: **`NONE`**, **`SA^`**, **`SAv`**, **`SB^`**, **`SB-`**, **`SBv`**, **`SC^`**, **`SC-`**, **`SCv`**, **`SD^`**, or **`SDv`**.
+  - During flight, transitioning into the armed state plays an acoustic **Armed chirp** (rising tone sequence), and transitioning out plays a **Disarmed chirp** (falling tone sequence).
+- **Field 3: Bind RX**:
   - Displays currently bound receiver ID (`Rx: XXXXXXXX`).
   - Press **`[OK]`** on `[OK Bind]` to initiate AFHDS 2A receiver binding directly from Model Setup.
-- **Field 3: Reset Defaults**:
+- **Field 4: Reset Defaults**:
   - Press **`[OK]`** on `[OK Defaults]` to restore default trims, standard channel directions, and linear curves for this model slot.
 
 ### Submenu 3: Dual Rate & Expo (`DUAL RATE/EXPO`)
@@ -258,21 +261,20 @@ Assigns physical controls (switches `SA..SD`, pots `VRA/VRB`, sticks, or `None`)
 - Automatically saved to non-volatile Flash upon exit.
 
 ### Submenu 8: Radio Setup (`RADIO SETUP`)
-The Radio Setup menu features a scrollable 4-item viewport with 9px row heights and automatic vertical scrolling across 8 configuration parameters:
+The Radio Setup menu features a scrollable 4-item viewport with 9px row heights and automatic vertical scrolling across 9 configuration parameters:
 - **`Thr Trim:`**: Toggle between `OFF (Lock)`, `IDLE`, and `LINEAR`.
 - **`Beeper:`**: Toggle audio sound between `ENABLED` and `MUTED`.
+- **`Tones:`**: Select audio notification style between **`RICH`** (melodic multi-tone chime sequences) and **`SIMPLE`** (classic single-tone buzzer beeps). Toggling gives an immediate live audio preview!
 - **`BL Timer:`**: LCD backlight auto-shutoff timeout: `ALWAYS ON`, `15 SEC`, `30 SEC`, or `60 SEC`. Touching any key or moving any stick wakes the backlight instantly.
 - **`BL Level:`**: Backlight brightness level from `10%` to `100%` in 10% steps (supports both stock transistors and the `PC9` hardware PWM dimming mod).
 - **`Contrast:`**: LCD Electronic Volume (EV) contrast adjustment from `20` to `50` in steps of 3 (default: **`37`** / `0x25`). Adjusting this value provides instant live visual preview on the ST7567 display and persists across reboots.
-- **`Bat Warn:`**: Low battery alarm threshold from `4.0V` to `5.0V` in 0.1V steps (default: **`4.4V`**, or 1.10V/cell for 4xAA). When battery drops below this voltage, the status bar badge flashes inverted and an audible double-chirp alarm sounds every 8 seconds.
+- **`Bat Warn:`**: Low battery alarm threshold from `4.0V` to `5.0V` in 0.1V steps (default: **`4.4V`**, or 1.10V/cell for 4xAA). When battery drops below this voltage, the status bar badge flashes inverted and an audible warning chirp sounds.
 - **`USB Mode:`**: Selects active USB peripheral personality (switches on-the-fly without rebooting):
   - **`OFF`** (Default): Disables USB peripheral and D+ pullup to prevent unwanted PC inputs and minimize power draw.
   - **`JOYSTICK`**: 100 Hz native USB Gamepad for flight simulators with silent RF standby (zero RF radiation, cool running).
   - **`SERIAL`**: Virtual COM Port (CDC-ACM) at 115200 baud streaming live JSON telemetry while maintaining normal RF transmission.
   - **`COMPOSITE`**: Simultaneous HID Gamepad + CDC-ACM Virtual COM Port.
-- **`Ext Module Power:`**: External module power switch polarity on `PC13`:
-  - **`HIGH`** (Default): Active HIGH (drives PC13 high for N-channel MOSFET or active-high switch).
-  - **`LOW`**: Active LOW (drives PC13 low for P-channel MOSFET or direct PNP switch).
+- **`PC13 Pwr:`**: Configures external module power polarity on `PC13`: `HIGH (N)` (default active-HIGH for N-channel MOSFET switches) or `LOW (P)` (active-LOW for P-channel MOSFET switches).
 
 ### Submenu 9: Protocol Setup (`PROTOCOL SETUP`)
 Replaces the redundant bind menu with universal RF protocol management:
@@ -351,13 +353,28 @@ The firmware provides 4 convenient ways to initiate AFHDS 2A binding with clean 
 
 ## 7. Firmware Flashing, Full Flash Backup, & DFU Recovery
 
-The FlySky FS-i6X can be backed up and flashed directly over USB without specialized hardware programmer probes or soldering:
+The FlySky FS-i6X can be backed up and flashed directly over USB without specialized hardware programmer probes:
 
 ### 1. Enter Factory ROM DFU Bootloader
-- With the transmitter powered off, hold **Roll Left + Yaw Right** inward towards the power switch while switching on the radio.
-- The LCD screen remains blank, and the transmitter enumerates over USB as `0483:df11` (STM32 BOOTLOADER in permanent factory ROM).
 
-### 2. Backup Entire Flash (RECOMMENDED)
+#### A. Initial Flash from Stock FlySky Factory Firmware (R53 Bootloader Access)
+The stock FlySky factory firmware does not include the software key-check logic to jump into the DFU bootloader. Therefore, entering DFU mode for the very first time requires access to the hardware `BOOT0` line:
+1. Ensure the transmitter is switched **OFF** and remove the rear case screws.
+2. Carefully separate the rear case. Be aware of the battery wires connected between the two halves. Once separated, locate the two unpopulated solder pads labeled **`R53`** on the back of the motherboard (near the microcontroller). It is best to connect the USB cable to the rear case now.
+3. Momentarily bridge/short the two `R53` pads using tweezers, a jumper wire, or a screwdriver tip.
+4. While holding the bridge across `R53`, have the USB cable connected to your PC and switch the transmitter power switch **ON**.
+5. Bridging `R53` pulls the MCU's `BOOT0` pin to 3.3V, causing the chip to boot directly into its factory ROM DFU bootloader (`0483:df11` for STM32, `314b:0106` for APM32). The transmitter screen remains blank, and the PC detects the device as `STM32 BOOTLOADER`.
+6. Once powered on, you can remove the bridge across `R53`. You do not need to keep it bridged while flashing.
+
+> [!TIP]
+> For board photos and detailed platform walk-throughs, refer to the [OpenI6X Flashing & Upgrading Documentation](https://github.com/OpenI6X/opentx/wiki/Flashing-&-Upgrading).
+
+#### B. Upgrading from OpenI6X or flysky-i6x-rs (No Disassembly Needed)
+Once custom firmware has been flashed to the radio, hardware pad bridging is never needed again:
+- With the transmitter powered off, hold **Roll Left + Yaw Right** inward towards the power switch while switching on the radio.
+- The LCD screen remains blank, and the transmitter enumerates over USB as `0483:df11` (STM32 BOOTLOADER).
+
+### 2. Backup Entire Flash (CRITICAL BEFORE FIRST FLASH)
 Before flashing any custom firmware, pull your entire 128 KB on-chip Flash memory to a local file for 100% safe, instant reversion:
 ```bash
 # Backup complete 128 KB on-chip Flash (firmware + calibration + models)
@@ -367,7 +384,11 @@ dfu-util -a 0 -s 0x08000000:131072 -U stock_backup.bin
 ### 3. Flash flysky-i6x-rs Firmware
 Flash the compiled binary via `dfu-util`:
 ```bash
+# For STM32F072:
 dfu-util -a 0 -s 0x08000000:leave -D flysky-i6x.bin
+
+# For APM32F072:
+dfu-util -a 0 -d 314b:0106 -s 0x08000000:leave -D flysky-i6x.bin
 ```
 The radio will immediately reboot into the new firmware upon completion.
 

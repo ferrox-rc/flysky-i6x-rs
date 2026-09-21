@@ -110,7 +110,7 @@ pub fn update_setup(
     buzzer: &mut Buzzer,
 ) {
     let active_idx = storage.radio.active_model as usize;
-    const FIELD_COUNT: usize = 4;
+    const FIELD_COUNT: usize = 5;
 
     if !ctrl.editing {
         if keys.cancel {
@@ -122,19 +122,14 @@ pub fn update_setup(
             return;
         }
 
-        if keys.down || keys.bind {
-            ctrl.selected_item = (ctrl.selected_item + 1) % FIELD_COUNT;
-            buzzer.play_tone(2200, 20);
-        }
-
-        if keys.up {
-            ctrl.selected_item = if ctrl.selected_item == 0 {
-                FIELD_COUNT - 1
-            } else {
-                ctrl.selected_item - 1
-            };
-            buzzer.play_tone(2200, 20);
-        }
+        widgets::navigate_4slot_list(
+            &mut ctrl.selected_item,
+            &mut ctrl.scroll_offset,
+            FIELD_COUNT,
+            keys.up,
+            keys.down || keys.bind,
+            buzzer,
+        );
 
         if keys.ok {
             match ctrl.selected_item {
@@ -149,12 +144,21 @@ pub fn update_setup(
                     buzzer.click();
                 }
                 2 => {
+                    storage.models[active_idx].arm_switch = (storage.models[active_idx].arm_switch + 1) % 11;
+                    storage::save_storage(storage);
+                    if storage.models[active_idx].arm_switch != 0 {
+                        buzzer.chime_armed();
+                    } else {
+                        buzzer.click();
+                    }
+                }
+                3 => {
                     ctrl.request_bind = true;
                     ctrl.state = MenuState::Closed;
                     buzzer.click();
                     return;
                 }
-                3 => {
+                4 => {
                     storage.models[active_idx] = ModelConfig::default_for_index(active_idx);
                     storage::save_storage(storage);
                     buzzer.play_tone_pattern(2200, 80, 50, 2);
@@ -198,72 +202,64 @@ pub fn update_setup(
     let fill_style = PrimitiveStyle::with_fill(BinaryColor::On);
     let text_style = MonoTextStyle::new(&FONT_6X10, BinaryColor::On);
 
-    // Field 0: Name (y = 13)
-    let y0 = 13;
-    if !ctrl.editing && ctrl.selected_item == 0 {
-        Rectangle::new(Point::new(2, y0), Size::new(124, 9)).into_styled(fill_style).draw(lcd).ok();
-        let inv_style = MonoTextStyle::new(&FONT_6X10, BinaryColor::Off);
-        Text::new("Name:", Point::new(4, y0 + 7), inv_style).draw(lcd).ok();
-        let name_str = core::str::from_utf8(&storage.models[active_idx].name).unwrap_or("----------");
-        Text::new(name_str, Point::new(40, y0 + 7), inv_style).draw(lcd).ok();
-    } else {
-        Text::new("Name:", Point::new(4, y0 + 7), text_style).draw(lcd).ok();
-        let name_str = core::str::from_utf8(&storage.models[active_idx].name).unwrap_or("----------");
-        Text::new(name_str, Point::new(40, y0 + 7), text_style).draw(lcd).ok();
-    }
+    for slot in 0..4 {
+        let idx = ctrl.scroll_offset + slot;
+        if idx >= FIELD_COUNT {
+            break;
+        }
+        let y = 14 + (slot as i32 * 9);
+        let is_sel = !ctrl.editing && idx == ctrl.selected_item;
+        let style = if is_sel {
+            Rectangle::new(Point::new(2, y), Size::new(124, 9)).into_styled(fill_style).draw(lcd).ok();
+            MonoTextStyle::new(&FONT_6X10, BinaryColor::Off)
+        } else {
+            text_style
+        };
 
-    if ctrl.editing {
-        let char_x = 40 + (ctrl.sub_idx as i32 * 6);
-        Rectangle::new(Point::new(char_x - 1, y0), Size::new(8, 9)).into_styled(fill_style).draw(lcd).ok();
-        let inv_style = MonoTextStyle::new(&FONT_6X10, BinaryColor::Off);
-        let single_char = [storage.models[active_idx].name[ctrl.sub_idx]];
-        let c_str = core::str::from_utf8(&single_char).unwrap_or("?");
-        Text::new(c_str, Point::new(char_x, y0 + 7), inv_style).draw(lcd).ok();
-    }
+        match idx {
+            0 => {
+                Text::new("Name:", Point::new(4, y + 7), style).draw(lcd).ok();
+                let name_str = core::str::from_utf8(&storage.models[active_idx].name).unwrap_or("----------");
+                Text::new(name_str, Point::new(40, y + 7), style).draw(lcd).ok();
 
-    // Field 1: Type (y = 23)
-    let y1 = 23;
-    let type_str = match storage.models[active_idx].model_type {
-        0 => "AIRPLANE",
-        1 => "GLIDER",
-        2 => "HELICOPTER",
-        _ => "MULTI / QUAD",
-    };
-    if !ctrl.editing && ctrl.selected_item == 1 {
-        Rectangle::new(Point::new(2, y1), Size::new(124, 9)).into_styled(fill_style).draw(lcd).ok();
-        let inv_style = MonoTextStyle::new(&FONT_6X10, BinaryColor::Off);
-        Text::new("Type:", Point::new(4, y1 + 7), inv_style).draw(lcd).ok();
-        Text::new(type_str, Point::new(40, y1 + 7), inv_style).draw(lcd).ok();
-    } else {
-        Text::new("Type:", Point::new(4, y1 + 7), text_style).draw(lcd).ok();
-        Text::new(type_str, Point::new(40, y1 + 7), text_style).draw(lcd).ok();
-    }
-
-    // Field 2: Bind RX (y = 33)
-    let y2 = 33;
-    let mut rx_buf = [b'0'; 8];
-    u32_to_hex(storage.models[active_idx].rx_id, &mut rx_buf);
-    let rx_hex_str = core::str::from_utf8(&rx_buf).unwrap_or("00000000");
-    if !ctrl.editing && ctrl.selected_item == 2 {
-        Rectangle::new(Point::new(2, y2), Size::new(124, 9)).into_styled(fill_style).draw(lcd).ok();
-        let inv_style = MonoTextStyle::new(&FONT_6X10, BinaryColor::Off);
-        Text::new("Rx:", Point::new(4, y2 + 7), inv_style).draw(lcd).ok();
-        Text::new(rx_hex_str, Point::new(24, y2 + 7), inv_style).draw(lcd).ok();
-        Text::new("[OK Bind]", Point::new(74, y2 + 7), inv_style).draw(lcd).ok();
-    } else {
-        Text::new("Rx:", Point::new(4, y2 + 7), text_style).draw(lcd).ok();
-        Text::new(rx_hex_str, Point::new(24, y2 + 7), text_style).draw(lcd).ok();
-        Text::new("[OK Bind]", Point::new(74, y2 + 7), text_style).draw(lcd).ok();
-    }
-
-    // Field 3: Reset Defaults (y = 43)
-    let y3 = 43;
-    if !ctrl.editing && ctrl.selected_item == 3 {
-        Rectangle::new(Point::new(2, y3), Size::new(124, 9)).into_styled(fill_style).draw(lcd).ok();
-        let inv_style = MonoTextStyle::new(&FONT_6X10, BinaryColor::Off);
-        Text::new("Reset: [OK Defaults]", Point::new(4, y3 + 7), inv_style).draw(lcd).ok();
-    } else {
-        Text::new("Reset: [OK Defaults]", Point::new(4, y3 + 7), text_style).draw(lcd).ok();
+                if ctrl.editing {
+                    let char_x = 40 + (ctrl.sub_idx as i32 * 6);
+                    Rectangle::new(Point::new(char_x - 1, y), Size::new(8, 9)).into_styled(fill_style).draw(lcd).ok();
+                    let inv_style = MonoTextStyle::new(&FONT_6X10, BinaryColor::Off);
+                    let single_char = [storage.models[active_idx].name[ctrl.sub_idx]];
+                    let c_str = core::str::from_utf8(&single_char).unwrap_or("?");
+                    Text::new(c_str, Point::new(char_x, y + 7), inv_style).draw(lcd).ok();
+                }
+            }
+            1 => {
+                let type_str = match storage.models[active_idx].model_type {
+                    0 => "AIRPLANE",
+                    1 => "GLIDER",
+                    2 => "HELICOPTER",
+                    _ => "MULTI / QUAD",
+                };
+                Text::new("Type:", Point::new(4, y + 7), style).draw(lcd).ok();
+                Text::new(type_str, Point::new(40, y + 7), style).draw(lcd).ok();
+            }
+            2 => {
+                let arm_idx = (storage.models[active_idx].arm_switch as usize).min(10);
+                let arm_str = if arm_idx == 0 { "NONE" } else { crate::ui::format::SWITCH_COND_NAMES[arm_idx] };
+                Text::new("Arm Sw:", Point::new(4, y + 7), style).draw(lcd).ok();
+                Text::new(arm_str, Point::new(52, y + 7), style).draw(lcd).ok();
+            }
+            3 => {
+                let mut rx_buf = [b'0'; 8];
+                u32_to_hex(storage.models[active_idx].rx_id, &mut rx_buf);
+                let rx_hex_str = core::str::from_utf8(&rx_buf).unwrap_or("00000000");
+                Text::new("Rx:", Point::new(4, y + 7), style).draw(lcd).ok();
+                Text::new(rx_hex_str, Point::new(24, y + 7), style).draw(lcd).ok();
+                Text::new("[OK Bind]", Point::new(74, y + 7), style).draw(lcd).ok();
+            }
+            4 => {
+                Text::new("Reset: [OK Defaults]", Point::new(4, y + 7), style).draw(lcd).ok();
+            }
+            _ => {}
+        }
     }
 
     if ctrl.editing {
