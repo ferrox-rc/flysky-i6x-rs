@@ -2,6 +2,10 @@
 
 Technical guide and user documentation for the native Crossfire (CRSF) and ExpressLRS (ELRS) subsystem in the FlySky FS-i6X Rust firmware.
 
+> [!IMPORTANT]
+> **Subsystem Status & Ground Testing Notice:**
+> The CRSF/ELRS subsystem implements the serial CRSF protocol specification in bare-metal Rust as an open-source community contribution. While the serial drivers, frame parsing, CRC arithmetic, and baud timing have been implemented per specification, pilots using external transmitter modules must conduct thorough bench tests, fail-safe verification, and physical ground range checks before flying any model. Like all open-source RC software, this module is provided strictly "AS IS" without warranty of any kind.
+
 ---
 
 ## 1. Hardware Interface

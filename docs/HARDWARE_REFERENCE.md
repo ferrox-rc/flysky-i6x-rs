@@ -106,7 +106,7 @@ The ST7567 controller contains 132 column segment drivers, while the FS-i6X phys
 - **Control Pin:** **`GPIOC` Pin 9 (`PC9`)**
 - **Circuit:** Solder jumper added from the unpopulated `PC9` pad to the backlight transistor base pad (`BL`).
 - **Dimming:** Driven via `TIM3_CH4` (AF0) with hardware PWM for variable brightness levels (0..100%).
-- **Credit:** This universal solution was designed and documented by the OpenI6X project maintainer (Kotak), providing hardware PWM control without conflicting with any other radio peripherals.
+- **Credit:** This universal solution was designed and documented by the OpenI6X project contributors (notably Kuba / qba667), providing hardware PWM control without conflicting with any other radio peripherals.
 - **Software Strategy:** The firmware simultaneously drives `PF3` and `PC9` HIGH, supporting both stock and modded hardware transparently.
 
 > [!NOTE]
