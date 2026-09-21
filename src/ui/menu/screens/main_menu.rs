@@ -15,7 +15,7 @@ pub fn update(
 ) {
     let is_crsf = storage.active_model().rf_protocol == 1;
     let p9_str = if is_crsf {
-        "9. ELRS Config"
+        "9. ELRS Setup (Beta)"
     } else {
         "9. Protocol Setup"
     };
