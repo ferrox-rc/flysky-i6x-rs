@@ -115,9 +115,7 @@ impl AxisCalib {
     }
 }
 
-pub const GIMBAL_H_HALF_SPAN: u16 = 1670; // Horizontal axes (Roll / Aileron, Yaw / Rudder)
-pub const GIMBAL_V_HALF_SPAN: u16 = 1580; // Vertical axes (Pitch / Elevator, Throttle)
-const DEFAULT_STICK_CENTER: u16 = 2048;
+use crate::adc::{ADC_CENTER, ADC_MAX, ADC_MIN};
 
 #[derive(Copy, Clone, Debug)]
 pub struct InputCalibration {
@@ -133,32 +131,12 @@ pub struct InputCalibration {
 impl InputCalibration {
     pub const fn default_factory() -> Self {
         Self {
-            roll: AxisCalib::new(
-                DEFAULT_STICK_CENTER - GIMBAL_H_HALF_SPAN,
-                DEFAULT_STICK_CENTER,
-                DEFAULT_STICK_CENTER + GIMBAL_H_HALF_SPAN,
-                true,
-            ),
-            pitch: AxisCalib::new(
-                DEFAULT_STICK_CENTER - GIMBAL_V_HALF_SPAN,
-                DEFAULT_STICK_CENTER,
-                DEFAULT_STICK_CENTER + GIMBAL_V_HALF_SPAN,
-                true,
-            ),
-            throttle: AxisCalib::new(
-                DEFAULT_STICK_CENTER - GIMBAL_V_HALF_SPAN,
-                DEFAULT_STICK_CENTER,
-                DEFAULT_STICK_CENTER + GIMBAL_V_HALF_SPAN,
-                false,
-            ),
-            yaw: AxisCalib::new(
-                DEFAULT_STICK_CENTER - GIMBAL_H_HALF_SPAN,
-                DEFAULT_STICK_CENTER,
-                DEFAULT_STICK_CENTER + GIMBAL_H_HALF_SPAN,
-                false,
-            ),
-            vra: AxisCalib::new(2048 - 1950, 2048, 2048 + 1950, false),
-            vrb: AxisCalib::new(2048 - 1950, 2048, 2048 + 1950, false),
+            roll: AxisCalib::new(ADC_MIN, ADC_CENTER, ADC_MAX, true),
+            pitch: AxisCalib::new(ADC_MIN, ADC_CENTER, ADC_MAX, true),
+            throttle: AxisCalib::new(ADC_MIN, ADC_CENTER, ADC_MAX, false),
+            yaw: AxisCalib::new(ADC_MIN, ADC_CENTER, ADC_MAX, false),
+            vra: AxisCalib::new(ADC_MIN, ADC_CENTER, ADC_MAX, false),
+            vrb: AxisCalib::new(ADC_MIN, ADC_CENTER, ADC_MAX, false),
             filtered_battery_mv: 0,
         }
     }

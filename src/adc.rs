@@ -13,6 +13,13 @@ use core::ptr;
 
 pub const NUM_CHANNELS: usize = 11;
 
+/// Minimum 12-bit ADC conversion count (0V).
+pub const ADC_MIN: u16 = 0;
+/// Theoretical midpoint of 12-bit ADC (VDD / 2).
+pub const ADC_CENTER: u16 = 2048;
+/// Maximum 12-bit ADC conversion count (VDD).
+pub const ADC_MAX: u16 = 4095;
+
 use core::cell::UnsafeCell;
 
 struct AdcDmaBuffer(UnsafeCell<[u16; NUM_CHANNELS]>);

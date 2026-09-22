@@ -72,14 +72,14 @@ impl RadioConfig {
             lcd_contrast: 37,
             usb_mode: 0,
             sticks: [
-                ChannelCalib::new(2048 - 1670, 2048, 2048 + 1670), // Roll (Horizontal)
-                ChannelCalib::new(2048 - 1580, 2048, 2048 + 1580), // Pitch (Vertical)
-                ChannelCalib::new(2048 - 1580, 2048, 2048 + 1580), // Throttle (Vertical)
-                ChannelCalib::new(2048 - 1670, 2048, 2048 + 1670), // Yaw (Horizontal)
+                ChannelCalib::new(crate::adc::ADC_MIN, crate::adc::ADC_CENTER, crate::adc::ADC_MAX), // Roll (Horizontal)
+                ChannelCalib::new(crate::adc::ADC_MIN, crate::adc::ADC_CENTER, crate::adc::ADC_MAX), // Pitch (Vertical)
+                ChannelCalib::new(crate::adc::ADC_MIN, crate::adc::ADC_CENTER, crate::adc::ADC_MAX), // Throttle (Vertical)
+                ChannelCalib::new(crate::adc::ADC_MIN, crate::adc::ADC_CENTER, crate::adc::ADC_MAX), // Yaw (Horizontal)
             ],
             pots: [
-                ChannelCalib::new(2048 - 1950, 2048, 2048 + 1950), // VRA
-                ChannelCalib::new(2048 - 1950, 2048, 2048 + 1950), // VRB
+                ChannelCalib::new(crate::adc::ADC_MIN, crate::adc::ADC_CENTER, crate::adc::ADC_MAX), // VRA
+                ChannelCalib::new(crate::adc::ADC_MIN, crate::adc::ADC_CENTER, crate::adc::ADC_MAX), // VRB
             ],
             ext_module_pwr: 0,
             tone_style: 1,
@@ -250,19 +250,18 @@ impl RadioStorage {
             self.radio.ext_module_pwr = 0;
         }
 
-        for (idx, stick) in self.radio.sticks.iter_mut().enumerate() {
-            let half_span = if idx == 0 || idx == 3 { 1400 } else { 1700 };
-            if stick.min >= stick.center || stick.center >= stick.max || stick.min < 50 || stick.max > 4050 {
-                stick.min = 2048 - half_span;
-                stick.center = 2048;
-                stick.max = 2048 + half_span;
+        for stick in self.radio.sticks.iter_mut() {
+            if stick.min >= stick.center || stick.center >= stick.max || stick.max > crate::adc::ADC_MAX {
+                stick.min = crate::adc::ADC_MIN;
+                stick.center = crate::adc::ADC_CENTER;
+                stick.max = crate::adc::ADC_MAX;
             }
         }
         for pot in self.radio.pots.iter_mut() {
-            if pot.min >= pot.center || pot.center >= pot.max || pot.min < 50 || pot.max > 4050 {
-                pot.min = 2048 - 1950;
-                pot.center = 2048;
-                pot.max = 2048 + 1950;
+            if pot.min >= pot.center || pot.center >= pot.max || pot.max > crate::adc::ADC_MAX {
+                pot.min = crate::adc::ADC_MIN;
+                pot.center = crate::adc::ADC_CENTER;
+                pot.max = crate::adc::ADC_MAX;
             }
         }
 
