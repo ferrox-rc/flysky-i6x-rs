@@ -34,6 +34,373 @@ mod usb;
 use display::St7567;
 
 
+/// High-rate flight pipeline state and outputs.
+struct FlightSnapshot {
+    state: input::InputState,
+    rf_chs: [u16; 14],
+    telem: rf::afhds2a::TelemetryData,
+    is_binding: bool,
+}
+
+/// Flight pipeline context: manages stick sampling, mixing, and RF/USB publication.
+struct FlightPipeline {
+    prev_armed: bool,
+    prev_active_model: u8,
+}
+
+impl FlightPipeline {
+    fn new(storage: &storage::RadioStorage, init_state: &input::InputState) -> Self {
+        let active = storage.active_model();
+        let prev_armed = if active.arm_switch > 0 && active.arm_switch <= 10 {
+            mixer::is_switch_active(active.arm_switch, &init_state.switches)
+        } else {
+            false
+        };
+        Self {
+            prev_armed,
+            prev_active_model: storage.radio.active_model,
+        }
+    }
+
+    /// High-rate flight pipeline execution tick (multi-kHz execution speed).
+    /// Polls physical sticks, evaluates throttle curves, computes matrix mixer,
+    /// checks arm status, and publishes channels to RF (AFHDS 2A / CRSF) and USB.
+    #[inline(always)]
+    fn tick(
+        &mut self,
+        now: u32,
+        storage: &storage::RadioStorage,
+        trims: &trim::TrimController,
+        menu_active: bool,
+        buzzer: &mut buzzer::Buzzer,
+    ) -> FlightSnapshot {
+        // 1. Poll continuous DMA analog and digital inputs (sub-microsecond)
+        let state = input::poll();
+        let active_model = storage.active_model();
+
+        // 2. Resynchronize arm state when active model changes or when exiting settings menu
+        if storage.radio.active_model != self.prev_active_model {
+            self.prev_active_model = storage.radio.active_model;
+            self.prev_armed = if active_model.arm_switch > 0 && active_model.arm_switch <= 10 {
+                mixer::is_switch_active(active_model.arm_switch, &state.switches)
+            } else {
+                false
+            };
+        }
+
+        // 3. Check configured Arm Switch condition and play Armed/Disarmed chimes
+        if active_model.arm_switch > 0 && active_model.arm_switch <= 10 {
+            let is_armed = mixer::is_switch_active(active_model.arm_switch, &state.switches);
+            if is_armed != self.prev_armed {
+                self.prev_armed = is_armed;
+                if !menu_active {
+                    if is_armed {
+                        buzzer.chime_armed();
+                    } else {
+                        buzzer.chime_disarmed();
+                    }
+                }
+            }
+        }
+
+        // 4. Evaluate active model throttle curve (normalized 0..1000)
+        let thr_input = ((state.sticks.throttle + 1000) / 2).clamp(0, 1000) as u16;
+        let thr_curved = curve::evaluate_curve(
+            thr_input,
+            active_model.thr_curve_pts,
+            active_model.thr_curve_smooth != 0,
+            &active_model.thr_curve,
+        );
+
+        // 5. Compute all 14 channels via 4-stage pipeline (D/R, Expo, Matrix Mixer, Trims, Reversing)
+        let rf_chs = mixer::compute_channels(
+            state.sticks.roll,
+            state.sticks.pitch,
+            thr_curved,
+            state.sticks.yaw,
+            &[state.pots.vr1, state.pots.vr2],
+            &state.switches,
+            active_model,
+            trims,
+            storage.radio.throttle_trim,
+        );
+
+        // 6. Publish channels to active RF subsystem
+        let is_crsf = active_model.rf_protocol == 1;
+        let sim_mode = usb::is_sim_mode();
+
+        if is_crsf {
+            let crsf_active = !sim_mode;
+            crsf::set_enabled(crsf_active, active_model.crsf_baud);
+            if crsf_active {
+                crsf::update_channels(now, &rf_chs);
+                crsf::poll_telemetry(now);
+            }
+            rf::set_silenced(true);
+        } else {
+            crsf::set_enabled(false, 0);
+            rf::set_silenced(sim_mode);
+            if !sim_mode {
+                rf::set_channels(&rf_chs);
+            }
+        }
+
+        // 7. Map telemetry data based on active protocol
+        let telem = if is_crsf {
+            let ct = crsf::get_telemetry();
+            rf::afhds2a::TelemetryData {
+                connected: ct.connected,
+                rssi: ct.uplink_link_quality,
+                rx_voltage_mv: ct.rx_battery_mv,
+                packets_sent: 0,
+                packets_received: 0,
+            }
+        } else {
+            rf::get_telemetry()
+        };
+        let is_binding = !is_crsf && rf::is_binding();
+
+        // 8. Poll USB subsystem (Joystick HID @ 100Hz, Serial CLI / Telemetry)
+        usb::poll(now, &rf_chs, &state.switches, &telem, state.battery_mv);
+
+        FlightSnapshot {
+            state,
+            rf_chs,
+            telem,
+            is_binding,
+        }
+    }
+}
+
+/// Background idle and UI context: tracks inactivity, backlight timers, user input, and screen rendering.
+struct BackgroundIdleManager {
+    prev_stick_samples: [u16; 6],
+    prev_switches: input::Switches,
+    prev_bind_key: bool,
+    bind_hold_ms: u32,
+    bind_was_held: bool,
+    ok_hold_ms: u16,
+    bl_timer_ms: u32,
+    inactivity_timer_ms: u32,
+    inactivity_beep_timer: u32,
+    last_display_ms: u32,
+    menu_was_active: bool,
+}
+
+impl BackgroundIdleManager {
+    fn new(init_state: &input::InputState, bind_on_boot: bool) -> Self {
+        Self {
+            prev_stick_samples: [
+                init_state.raw[0],
+                init_state.raw[1],
+                init_state.raw[2],
+                init_state.raw[3],
+                init_state.raw[6],
+                init_state.raw[7],
+            ],
+            prev_switches: init_state.switches,
+            prev_bind_key: bind_on_boot,
+            bind_hold_ms: 0,
+            bind_was_held: false,
+            ok_hold_ms: 0,
+            bl_timer_ms: 30_000,
+            inactivity_timer_ms: 0,
+            inactivity_beep_timer: 0,
+            last_display_ms: 0,
+            menu_was_active: false,
+        }
+    }
+
+    /// Background idle execution tick: manages timers, power save, bind key gestures, Flash saves, and display frames.
+    fn tick(
+        &mut self,
+        now: u32,
+        dt_ms: u16,
+        keys: u16,
+        flight: &FlightSnapshot,
+        pipeline: &mut FlightPipeline,
+        storage: &mut storage::RadioStorage,
+        trims: &mut trim::TrimController,
+        lcd: &mut St7567,
+        buzzer: &mut buzzer::Buzzer,
+        dashboard: &mut ui::dashboard::DashboardController,
+        menu_controller: &mut menu::MenuController,
+        calib_wizard: &mut calib::CalibWizard,
+        rf_ok: bool,
+    ) {
+        let menu_active = menu_controller.is_active() || calib_wizard.is_active();
+
+        // 1. Resynchronize arm tracking when exiting settings menu
+        if self.menu_was_active && !menu_active {
+            let active = storage.active_model();
+            pipeline.prev_armed = if active.arm_switch > 0 && active.arm_switch <= 10 {
+                mixer::is_switch_active(active.arm_switch, &flight.state.switches)
+            } else {
+                false
+            };
+        }
+        self.menu_was_active = menu_active;
+
+        // 2. Physical activity & inactivity tracking
+        let stick_moved = (flight.state.raw[0] as i32 - self.prev_stick_samples[0] as i32).abs() > 30
+            || (flight.state.raw[1] as i32 - self.prev_stick_samples[1] as i32).abs() > 30
+            || (flight.state.raw[2] as i32 - self.prev_stick_samples[2] as i32).abs() > 30
+            || (flight.state.raw[3] as i32 - self.prev_stick_samples[3] as i32).abs() > 30
+            || (flight.state.raw[6] as i32 - self.prev_stick_samples[4] as i32).abs() > 40
+            || (flight.state.raw[7] as i32 - self.prev_stick_samples[5] as i32).abs() > 40;
+        self.prev_stick_samples[0] = flight.state.raw[0];
+        self.prev_stick_samples[1] = flight.state.raw[1];
+        self.prev_stick_samples[2] = flight.state.raw[2];
+        self.prev_stick_samples[3] = flight.state.raw[3];
+        self.prev_stick_samples[4] = flight.state.raw[6];
+        self.prev_stick_samples[5] = flight.state.raw[7];
+
+        let sw_changed = flight.state.switches != self.prev_switches;
+        self.prev_switches = flight.state.switches;
+
+        let user_active = keys != 0 || stick_moved || sw_changed;
+
+        // 3. Backlight auto-dim timeout tracking
+        if user_active {
+            let timeout_ms: u32 = match storage.radio.backlight_timeout {
+                1 => 15_000,
+                2 => 30_000,
+                3 => 60_000,
+                _ => 0,
+            };
+            self.bl_timer_ms = timeout_ms;
+            lcd.set_backlight_level(storage.radio.backlight_brightness * 10);
+        } else if storage.radio.backlight_timeout != 0 && dt_ms > 0 {
+            if self.bl_timer_ms > dt_ms as u32 {
+                self.bl_timer_ms -= dt_ms as u32;
+            } else {
+                self.bl_timer_ms = 0;
+                lcd.set_backlight_level(0);
+            }
+        }
+
+        // 4. Radio Inactivity Alarm (10 minutes without physical control activity)
+        if user_active {
+            self.inactivity_timer_ms = 0;
+            self.inactivity_beep_timer = 0;
+        } else if dt_ms > 0 {
+            self.inactivity_timer_ms = self.inactivity_timer_ms.saturating_add(dt_ms as u32);
+            if self.inactivity_timer_ms >= 600_000 {
+                if self.inactivity_beep_timer >= 30_000 {
+                    self.inactivity_beep_timer = 0;
+                    buzzer.warn_inactivity();
+                } else {
+                    self.inactivity_beep_timer += dt_ms as u32;
+                }
+            }
+        }
+
+        // 5. Bind Key (PF2) and Cancel key handling
+        let bind_key_raw = (keys & (1 << 12)) != 0;
+        let bind_pressed = bind_key_raw && !self.prev_bind_key;
+        self.prev_bind_key = bind_key_raw;
+
+        let cancel_key = (keys & (1 << 11)) != 0;
+
+        if flight.is_binding {
+            if cancel_key || bind_pressed {
+                rf::set_bind_mode(false);
+                buzzer.click();
+            }
+        } else if menu_active {
+            self.bind_hold_ms = 0;
+            self.bind_was_held = false;
+        } else {
+            if bind_key_raw {
+                self.bind_hold_ms = self.bind_hold_ms.saturating_add(dt_ms as u32);
+                if self.bind_hold_ms >= 1000 && !self.bind_was_held {
+                    rf::set_bind_mode(true);
+                    buzzer.play_tone(2400, 150);
+                    self.bind_was_held = true;
+                }
+            } else {
+                if !self.bind_was_held && self.bind_hold_ms >= 40 {
+                    dashboard.next_page(buzzer);
+                }
+                self.bind_hold_ms = 0;
+                self.bind_was_held = false;
+            }
+        }
+
+        // 6. Persist newly bound RX ID safely to Flash outside ISR (inhibit while armed)
+        if let Some(new_rx_id) = rf::take_pending_rx_save() {
+            if new_rx_id != 0 && new_rx_id != 0xFFFF_FFFF && storage.active_model().rx_id != new_rx_id {
+                storage.active_model_mut().rx_id = new_rx_id;
+                if !pipeline.prev_armed {
+                    storage::save_storage(storage);
+                    buzzer.play_tone_pattern(2400, 70, 50, 2);
+                }
+            }
+        }
+
+        // 7. Long-press OK (1.2s) from flight dashboard opens Settings Menu
+        if !menu_active {
+            if (keys & (1 << 10)) != 0 {
+                self.ok_hold_ms = self.ok_hold_ms.saturating_add(dt_ms);
+                if self.ok_hold_ms >= 1200 {
+                    menu_controller.open(buzzer);
+                    self.ok_hold_ms = 0;
+                }
+            } else {
+                self.ok_hold_ms = 0;
+            }
+        }
+
+        // 8. Display Frame Rendering (~30 Hz)
+        let run_display = now.wrapping_sub(self.last_display_ms) >= 33;
+        if !run_display {
+            return;
+        }
+        self.last_display_ms = now;
+
+        if menu_controller.is_active() {
+            menu_controller.update(
+                lcd,
+                keys,
+                storage,
+                trims,
+                &flight.state.raw,
+                &flight.rf_chs,
+                buzzer,
+            );
+
+            if menu_controller.request_calibration {
+                calib_wizard.start(buzzer);
+                menu_controller.request_calibration = false;
+            }
+
+            if menu_controller.request_bind {
+                rf::set_bind_mode(true);
+                menu_controller.request_bind = false;
+                buzzer.play_tone(2400, 150);
+            }
+
+            lcd.flush();
+        } else if calib_wizard.is_active() {
+            calib_wizard.update(lcd, storage, &flight.state.raw, keys, dt_ms.max(20), buzzer);
+            lcd.flush();
+        } else {
+            dashboard.render(
+                lcd,
+                &flight.state,
+                storage,
+                trims,
+                &flight.rf_chs,
+                rf_ok,
+                flight.is_binding,
+                &flight.telem,
+                buzzer,
+            );
+            lcd.flush();
+        }
+    }
+}
+
 #[entry]
 fn main() -> ! {
     // 1. MCU Profile & Fast DFU Bootloader Check
@@ -55,7 +422,7 @@ fn main() -> ! {
     // 5. Initialize input calibration and capture resting stick centers
     input::init();
 
-    // 5. Initialize A7105 RF transceiver & AFHDS 2A stack
+    // 6. Initialize A7105 RF transceiver & AFHDS 2A stack
     let uid = chip::read_uid(&mcu_profile);
     let w0 = u32::from_le_bytes([uid[0], uid[1], uid[2], uid[3]]);
     let w1 = u32::from_le_bytes([uid[4], uid[5], uid[6], uid[7]]);
@@ -70,16 +437,16 @@ fn main() -> ! {
         rf::set_bind_mode(true);
     }
 
-    // 6. Initialize Buzzer & Digital Trims
+    // 7. Initialize Buzzer & Digital Trims
     let mut buzzer = buzzer::Buzzer::new();
     buzzer.init();
 
-    // 7. Load persistent radio storage and 20-model configuration
+    // 8. Load persistent radio storage and 20-model configuration
     let mut storage = storage::RadioStorage::empty();
     storage::load_storage_into(&mut storage);
     buzzer.enabled = storage.radio.audio_enabled != 0;
     buzzer.tone_style = buzzer::ToneStyle::from_u8(storage.radio.tone_style);
-    buzzer.chime_welcome(); // Power-on audible confirmation
+    buzzer.chime_welcome();
 
     // Initialize USB peripheral (Joystick / Serial / Composite / Off)
     usb::init(storage.radio.usb_mode);
@@ -114,26 +481,10 @@ fn main() -> ! {
     let text_style_small = MonoTextStyle::new(&FONT_4X6, BinaryColor::On);
     let sep_style = PrimitiveStyle::with_stroke(BinaryColor::On, 1);
 
-    let mut ok_hold_ms = 0u16;
-    let mut bl_timer_ms: u32 = 30_000;
-    let mut prev_stick_samples = [2048u16; 6];
-    let mut prev_bind_key = bind_on_boot;
-    let mut dashboard = ui::dashboard::DashboardController::new();
-    let mut bind_hold_ms: u32 = 0;
-    let mut bind_was_held: bool = false;
-    let mut inactivity_timer_ms: u32 = 0;
-    let mut inactivity_beep_timer: u32 = 0;
-    let mut prev_armed: bool = false;
-    let mut prev_active_model: u8 = storage.radio.active_model;
-    let mut menu_was_active: bool = false;
-    let mut last_display_ms: u32 = 0;
-    let mut last_tick_ms: u32 = 0;
-
-    // 8. Pre-flight Startup Safety Check: Throttle at idle and switches in safe (UP) positions
+    // 9. Pre-flight Startup Safety Check: Throttle at idle and switches in safe (UP) positions
     if !calib_wizard.is_active() {
         let mut preflight_beep_timer: u32 = 0;
         let mut preflight_last_render: u32 = 0;
-
         let mut warned = false;
 
         loop {
@@ -148,7 +499,6 @@ fn main() -> ! {
             let sd_unsafe = state.switches.sd != input::SwitchPos::Up;
             let sw_unsafe = sa_unsafe || sb_unsafe || sc_unsafe || sd_unsafe;
 
-            // Cancel key (Bit 11: KEY_CANCEL) allows pilot to bypass warning
             let cancel_pressed = (keys & (1 << 11)) != 0;
 
             if (!thr_unsafe && !sw_unsafe) || cancel_pressed {
@@ -159,83 +509,74 @@ fn main() -> ! {
             }
             warned = true;
 
-        // Lock RF transmission to safe idle/failsafe during warning
-        rf::set_channels(&[1500, 1500, 1000, 1500, 1000, 1000, 1500, 1500, 1000, 1000, 1500, 1500, 1500, 1500]);
+            // Lock RF transmission to safe idle/failsafe during warning
+            rf::set_channels(&[1500, 1500, 1000, 1500, 1000, 1000, 1500, 1500, 1000, 1000, 1500, 1500, 1500, 1500]);
+            usb::poll(now, &[1500, 1500, 1000, 1500, 1000, 1000, 1500, 1500, 1000, 1000, 1500, 1500, 1500, 1500], &state.switches, &rf::get_telemetry(), state.battery_mv);
 
-        // Service USB subsystem so host enumeration and connection succeed during preflight safety hold
-        usb::poll(now, &[1500, 1500, 1000, 1500, 1000, 1000, 1500, 1500, 1000, 1000, 1500, 1500, 1500, 1500], &state.switches, &rf::get_telemetry(), state.battery_mv);
-
-        // Beep alarm every 800 ms
-        if now.wrapping_sub(preflight_beep_timer) >= 800 {
-            preflight_beep_timer = now;
-            buzzer.warn_preflight();
-        }
-
-        // Render Safety Warning Screen at ~30 Hz
-        if now.wrapping_sub(preflight_last_render) >= 33 {
-            let dt = (now.wrapping_sub(preflight_last_render)).min(100) as u16;
-            preflight_last_render = now;
-            buzzer.tick(dt);
-
-            lcd.clear(BinaryColor::Off).ok();
-            Text::new("SAFETY WARNING!", Point::new(16, 9), text_style).draw(&mut lcd).ok();
-            Line::new(Point::new(0, 11), Point::new(127, 11)).into_styled(sep_style).draw(&mut lcd).ok();
-
-            if thr_unsafe {
-                Text::new("THROTTLE NOT AT IDLE!", Point::new(2, 23), text_style).draw(&mut lcd).ok();
+            if now.wrapping_sub(preflight_beep_timer) >= 800 {
+                preflight_beep_timer = now;
+                buzzer.warn_preflight();
             }
 
-            if sw_unsafe {
-                Text::new("SWITCH WARNING:", Point::new(2, 34), text_style).draw(&mut lcd).ok();
-                let mut sw_warn = *b"                ";
-                let mut col = 0;
-                if sa_unsafe && col + 4 <= 16 {
-                    sw_warn[col..col + 4].copy_from_slice(b"[SA]");
-                    col += 4;
-                    if col < 16 { sw_warn[col] = b' '; col += 1; }
+            if now.wrapping_sub(preflight_last_render) >= 33 {
+                let dt = (now.wrapping_sub(preflight_last_render)).min(100) as u16;
+                preflight_last_render = now;
+                buzzer.tick(dt);
+
+                lcd.clear(BinaryColor::Off).ok();
+                Text::new("SAFETY WARNING!", Point::new(16, 9), text_style).draw(&mut lcd).ok();
+                Line::new(Point::new(0, 11), Point::new(127, 11)).into_styled(sep_style).draw(&mut lcd).ok();
+
+                if thr_unsafe {
+                    Text::new("THROTTLE NOT AT IDLE!", Point::new(2, 23), text_style).draw(&mut lcd).ok();
                 }
-                if sb_unsafe && col + 4 <= 16 {
-                    sw_warn[col..col + 4].copy_from_slice(b"[SB]");
-                    col += 4;
-                    if col < 16 { sw_warn[col] = b' '; col += 1; }
+
+                if sw_unsafe {
+                    Text::new("SWITCH WARNING:", Point::new(2, 34), text_style).draw(&mut lcd).ok();
+                    let mut sw_warn = *b"                ";
+                    let mut col = 0;
+                    if sa_unsafe && col + 4 <= 16 {
+                        sw_warn[col..col + 4].copy_from_slice(b"[SA]");
+                        col += 4;
+                        if col < 16 { sw_warn[col] = b' '; col += 1; }
+                    }
+                    if sb_unsafe && col + 4 <= 16 {
+                        sw_warn[col..col + 4].copy_from_slice(b"[SB]");
+                        col += 4;
+                        if col < 16 { sw_warn[col] = b' '; col += 1; }
+                    }
+                    if sc_unsafe && col + 4 <= 16 {
+                        sw_warn[col..col + 4].copy_from_slice(b"[SC]");
+                        col += 4;
+                        if col < 16 { sw_warn[col] = b' '; col += 1; }
+                    }
+                    if sd_unsafe && col + 4 <= 16 {
+                        sw_warn[col..col + 4].copy_from_slice(b"[SD]");
+                        col += 4;
+                    }
+                    let sw_str = core::str::from_utf8(&sw_warn[..col.min(16)]).unwrap_or("CHECK SWITCHES");
+                    Text::new(sw_str, Point::new(2, 44), text_style).draw(&mut lcd).ok();
                 }
-                if sc_unsafe && col + 4 <= 16 {
-                    sw_warn[col..col + 4].copy_from_slice(b"[SC]");
-                    col += 4;
-                    if col < 16 { sw_warn[col] = b' '; col += 1; }
-                }
-                if sd_unsafe && col + 4 <= 16 {
-                    sw_warn[col..col + 4].copy_from_slice(b"[SD]");
-                    col += 4;
-                }
-                let sw_str = core::str::from_utf8(&sw_warn[..col.min(16)]).unwrap_or("CHECK SWITCHES");
-                Text::new(sw_str, Point::new(2, 44), text_style).draw(&mut lcd).ok();
+
+                Line::new(Point::new(0, 55), Point::new(127, 55)).into_styled(sep_style).draw(&mut lcd).ok();
+                Text::new("Lower Thr/Safe SW  [ESC]Skip", Point::new(2, 62), text_style_small).draw(&mut lcd).ok();
+                lcd.flush();
             }
-
-            Line::new(Point::new(0, 55), Point::new(127, 55)).into_styled(sep_style).draw(&mut lcd).ok();
-            Text::new("Lower Thr/Safe SW  [ESC]Skip", Point::new(2, 62), text_style_small).draw(&mut lcd).ok();
-
-            lcd.flush();
         }
     }
-}
 
-    // Initialize previous switch snapshot and armed state so startup does not spuriously chirp
+    // Initialize execution tiers
     let init_state = input::poll();
-    let mut prev_switches = init_state.switches;
-    if storage.active_model().arm_switch > 0 && storage.active_model().arm_switch <= 10 {
-        prev_armed = mixer::is_switch_active(storage.active_model().arm_switch, &init_state.switches);
-    }
+    let mut pipeline = FlightPipeline::new(&storage, &init_state);
+    let mut idle_manager = BackgroundIdleManager::new(&init_state, bind_on_boot);
+    let mut dashboard = ui::dashboard::DashboardController::new();
+    let mut last_tick_ms: u32 = 0;
 
+    // Main event loop: decoupled into high-rate flight pipeline and 30 Hz background idle tasks
     loop {
         let now = time::millis();
         let dt_ms = (now.wrapping_sub(last_tick_ms)).min(100) as u16;
-        let run_display = now.wrapping_sub(last_display_ms) >= 33; // ~30 Hz frame rate
 
-        // Poll continuous DMA inputs (sub-microsecond)
-        let state = input::poll();
-
-        // Check keys and update trims and buzzer
         let keys = boot::scan_keys();
         if dt_ms > 0 {
             last_tick_ms = now;
@@ -243,275 +584,26 @@ fn main() -> ! {
             trims.update(keys, dt_ms, &mut buzzer);
         }
 
-        // Backlight & inactivity activity tracking across all physical controls
-        let stick_moved = (state.raw[0] as i32 - prev_stick_samples[0] as i32).abs() > 30   // Roll / Aileron
-            || (state.raw[1] as i32 - prev_stick_samples[1] as i32).abs() > 30              // Pitch / Elevator
-            || (state.raw[2] as i32 - prev_stick_samples[2] as i32).abs() > 30              // Throttle
-            || (state.raw[3] as i32 - prev_stick_samples[3] as i32).abs() > 30              // Yaw / Rudder
-            || (state.raw[6] as i32 - prev_stick_samples[4] as i32).abs() > 40              // Pot VRA
-            || (state.raw[7] as i32 - prev_stick_samples[5] as i32).abs() > 40;             // Pot VRB
-        prev_stick_samples[0] = state.raw[0];
-        prev_stick_samples[1] = state.raw[1];
-        prev_stick_samples[2] = state.raw[2];
-        prev_stick_samples[3] = state.raw[3];
-        prev_stick_samples[4] = state.raw[6];
-        prev_stick_samples[5] = state.raw[7];
-
-        let sw_changed = state.switches != prev_switches;
-        prev_switches = state.switches;
-
-        let user_active = keys != 0 || stick_moved || sw_changed;
-
-        if user_active {
-            let timeout_ms: u32 = match storage.radio.backlight_timeout {
-                1 => 15_000,
-                2 => 30_000,
-                3 => 60_000,
-                _ => 0,
-            };
-            bl_timer_ms = timeout_ms;
-            lcd.set_backlight_level(storage.radio.backlight_brightness * 10);
-        } else if storage.radio.backlight_timeout != 0 && dt_ms > 0 {
-            if bl_timer_ms > dt_ms as u32 {
-                bl_timer_ms -= dt_ms as u32;
-            } else {
-                bl_timer_ms = 0;
-                lcd.set_backlight_level(0);
-            }
-        }
-
-        // Radio Inactivity Alarm (10 minutes without physical control activity)
-        if user_active {
-            inactivity_timer_ms = 0;
-            inactivity_beep_timer = 0;
-        } else if dt_ms > 0 {
-            inactivity_timer_ms = inactivity_timer_ms.saturating_add(dt_ms as u32);
-            if inactivity_timer_ms >= 600_000 {
-                if inactivity_beep_timer >= 30_000 {
-                    inactivity_beep_timer = 0;
-                    buzzer.warn_inactivity();
-                } else {
-                    inactivity_beep_timer += dt_ms as u32;
-                }
-            }
-        }
-
-        // Map inputs to 14 AFHDS 2A channels with digital trims (1000..2000 µs)
-        let active_model = storage.active_model();
-
-        // Resynchronize arm state when active model changes or when exiting settings menu
         let menu_active = menu_controller.is_active() || calib_wizard.is_active();
-        if storage.radio.active_model != prev_active_model || (menu_was_active && !menu_active) {
-            prev_active_model = storage.radio.active_model;
-            prev_armed = if active_model.arm_switch > 0 && active_model.arm_switch <= 10 {
-                mixer::is_switch_active(active_model.arm_switch, &state.switches)
-            } else {
-                false
-            };
-        }
-        menu_was_active = menu_active;
 
-        // Check configured Arm Switch condition and play Armed/Disarmed chimes
-        if active_model.arm_switch > 0 && active_model.arm_switch <= 10 {
-            let is_armed = mixer::is_switch_active(active_model.arm_switch, &state.switches);
-            if is_armed != prev_armed {
-                prev_armed = is_armed;
-                if !menu_active {
-                    if is_armed {
-                        buzzer.chime_armed();
-                    } else {
-                        buzzer.chime_disarmed();
-                    }
-                }
-            }
-        }
+        // Tier 1: High-Rate Flight Pipeline Tick (multi-kHz)
+        let flight_snapshot = pipeline.tick(now, &storage, &trims, menu_active, &mut buzzer);
 
-        // Evaluate active model throttle curve (normalized 0..1000)
-        let thr_input = ((state.sticks.throttle + 1000) / 2).clamp(0, 1000) as u16;
-        let thr_curved = curve::evaluate_curve(
-            thr_input,
-            active_model.thr_curve_pts,
-            active_model.thr_curve_smooth != 0,
-            &active_model.thr_curve,
-        );
-
-        // Compute all 14 channels via 4-stage pipeline (D/R, Expo, Templates, Matrix Mixer, Trims, Reversing)
-        let rf_chs = mixer::compute_channels(
-            state.sticks.roll,
-            state.sticks.pitch,
-            thr_curved,
-            state.sticks.yaw,
-            &[state.pots.vr1, state.pots.vr2],
-            &state.switches,
-            active_model,
-            &trims,
-            storage.radio.throttle_trim,
-        );
-
-        let is_crsf = active_model.rf_protocol == 1;
-        let sim_mode = usb::is_sim_mode();
-
-        if is_crsf {
-            // Enable CRSF UART and PC13 power switch (unless in USB Simulator mode)
-            let crsf_active = !sim_mode;
-            crsf::set_enabled(crsf_active, active_model.crsf_baud);
-            if crsf_active {
-                crsf::update_channels(now, &rf_chs);
-                crsf::poll_telemetry(now);
-            }
-            // Silence internal A7105 transceiver
-            rf::set_silenced(true);
-        } else {
-            // AFHDS 2A mode: disable CRSF external module and power switch
-            crsf::set_enabled(false, 0);
-            rf::set_silenced(sim_mode);
-            if !sim_mode {
-                rf::set_channels(&rf_chs);
-            }
-        }
-
-        // Map telemetry data for USB and display based on active protocol
-        let telem = if is_crsf {
-            let ct = crsf::get_telemetry();
-            rf::afhds2a::TelemetryData {
-                connected: ct.connected,
-                rssi: ct.uplink_link_quality, // Display Link Quality (0..100%) as primary link indicator
-                rx_voltage_mv: ct.rx_battery_mv,
-                packets_sent: 0,
-                packets_received: 0,
-            }
-        } else {
-            rf::get_telemetry()
-        };
-        let is_binding = !is_crsf && rf::is_binding();
-
-        // Poll USB subsystem (Joystick HID @ 100Hz, Serial CLI / Telemetry)
-        usb::poll(now, &rf_chs, &state.switches, &telem, state.battery_mv);
-
-        // Check dedicated Bind key (PF2) and Cancel key (bit 11) for binding and page navigation
-        let bind_key_raw = (keys & (1 << 12)) != 0;
-        let bind_pressed = bind_key_raw && !prev_bind_key;
-        prev_bind_key = bind_key_raw;
-
-        let cancel_key = (keys & (1 << 11)) != 0;
-
-        if is_binding {
-            if cancel_key || bind_pressed {
-                rf::set_bind_mode(false);
-                buzzer.click();
-            }
-        } else if menu_controller.is_active() || calib_wizard.is_active() {
-            // Inside menus: bind key is handled by the menu without side effects
-            bind_hold_ms = 0;
-            bind_was_held = false;
-        } else {
-            // Flight dashboard active:
-            // - Hold BIND (PF2) >= 1000ms: trigger AFHDS 2A binding mode
-            // - Tap BIND (release 40..1000ms): cycle flight display page (0 -> 1 -> 2 -> 0)
-            if bind_key_raw {
-                bind_hold_ms = bind_hold_ms.saturating_add(dt_ms as u32);
-                if bind_hold_ms >= 1000 && !bind_was_held {
-                    rf::set_bind_mode(true);
-                    buzzer.play_tone(2400, 150);
-                    bind_was_held = true;
-                }
-            } else {
-                if !bind_was_held && bind_hold_ms >= 40 {
-                    dashboard.next_page(&mut buzzer);
-                }
-                bind_hold_ms = 0;
-                bind_was_held = false;
-            }
-        }
-
-        // Persist newly bound RX ID safely to Flash outside ISR.
-        // UAV Safety Guarantee: Never perform blocking Flash sector erases while armed!
-        if let Some(new_rx_id) = rf::take_pending_rx_save() {
-            if new_rx_id != 0 && new_rx_id != 0xFFFF_FFFF && storage.active_model().rx_id != new_rx_id {
-                storage.active_model_mut().rx_id = new_rx_id;
-                // Only write to Flash if the aircraft is confirmed disarmed
-                if !prev_armed {
-                    storage::save_storage(&storage);
-                    buzzer.play_tone_pattern(2400, 70, 50, 2);
-                }
-            }
-        }
-
-        // Long-press OK (1.2s) from flight dashboard opens Settings Menu
-        if !menu_controller.is_active() && !calib_wizard.is_active() {
-            if (keys & (1 << 10)) != 0 {
-                ok_hold_ms = ok_hold_ms.saturating_add(dt_ms);
-                if ok_hold_ms >= 1200 {
-                    menu_controller.open(&mut buzzer);
-                    ok_hold_ms = 0;
-                }
-            } else {
-                ok_hold_ms = 0;
-            }
-        }
-
-        // If Settings Menu is active, update menu and loop
-        if menu_controller.is_active() {
-            if run_display {
-                last_display_ms = now;
-                menu_controller.update(
-                    &mut lcd,
-                    keys,
-                    &mut storage,
-                    &mut trims,
-                    &state.raw,
-                    &rf_chs,
-                    &mut buzzer,
-                );
-
-                if menu_controller.request_calibration {
-                    calib_wizard.start(&mut buzzer);
-                    menu_controller.request_calibration = false;
-                }
-
-                if menu_controller.request_bind {
-                    rf::set_bind_mode(true);
-                    menu_controller.request_bind = false;
-                    buzzer.play_tone(2400, 150);
-                }
-
-                lcd.flush();
-            }
-            continue;
-        }
-
-        // If calibration wizard is active, update wizard, flush display, and loop
-        if calib_wizard.is_active() {
-            if run_display {
-                last_display_ms = now;
-                calib_wizard.update(&mut lcd, &mut storage, &state.raw, keys, dt_ms.max(20), &mut buzzer);
-                lcd.flush();
-            }
-            continue;
-        }
-
-        // Throttle flight display rendering to ~30 Hz.
-        // On non-display passes, loop immediately so stick polling and RF channel
-        // updates run at kHz rates without any LCD latency!
-        if !run_display {
-            continue;
-        }
-        last_display_ms = now;
-
-        // Render live flight screen
-        dashboard.render(
+        // Tier 2: Background Idle & UI Tick (30 Hz rate-governed)
+        idle_manager.tick(
+            now,
+            dt_ms,
+            keys,
+            &flight_snapshot,
+            &mut pipeline,
+            &mut storage,
+            &mut trims,
             &mut lcd,
-            &state,
-            &storage,
-            &trims,
-            &rf_chs,
-            rf_ok,
-            is_binding,
-            &telem,
             &mut buzzer,
+            &mut dashboard,
+            &mut menu_controller,
+            &mut calib_wizard,
+            rf_ok,
         );
-
-        // Flush frame to ST7567 LCD
-        lcd.flush();
     }
 }
