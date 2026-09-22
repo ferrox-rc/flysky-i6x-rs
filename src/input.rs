@@ -115,78 +115,78 @@ impl AxisCalib {
     }
 }
 
-pub const GIMBAL_H_HALF_SPAN: u16 = 1670; // Horizontal axes (Roll / Aileron, Yaw / Rudder)
-pub const GIMBAL_V_HALF_SPAN: u16 = 1580; // Vertical axes (Pitch / Elevator, Throttle)
-const DEFAULT_STICK_CENTER: u16 = 2048;
+use crate::adc::{ADC_CENTER, ADC_MAX, ADC_MIN};
 
-// Initial default gimbal endpoints based on FlySky FS-i6X mechanical potentiometer throw
-// Roll and Pitch pots are inverted on FlySky hardware (matching OpenI6X ana_direction = {1, -1, 1, -1})
-static mut ROLL_CALIB: AxisCalib = AxisCalib::new(
-    DEFAULT_STICK_CENTER - GIMBAL_H_HALF_SPAN,
-    DEFAULT_STICK_CENTER,
-    DEFAULT_STICK_CENTER + GIMBAL_H_HALF_SPAN,
-    true,
-);
-static mut PITCH_CALIB: AxisCalib = AxisCalib::new(
-    DEFAULT_STICK_CENTER - GIMBAL_V_HALF_SPAN,
-    DEFAULT_STICK_CENTER,
-    DEFAULT_STICK_CENTER + GIMBAL_V_HALF_SPAN,
-    true,
-);
-static mut THROTTLE_CALIB: AxisCalib = AxisCalib::new(
-    DEFAULT_STICK_CENTER - GIMBAL_V_HALF_SPAN,
-    DEFAULT_STICK_CENTER,
-    DEFAULT_STICK_CENTER + GIMBAL_V_HALF_SPAN,
-    false,
-);
-static mut YAW_CALIB: AxisCalib = AxisCalib::new(
-    DEFAULT_STICK_CENTER - GIMBAL_H_HALF_SPAN,
-    DEFAULT_STICK_CENTER,
-    DEFAULT_STICK_CENTER + GIMBAL_H_HALF_SPAN,
-    false,
-);
+#[derive(Copy, Clone, Debug)]
+pub struct InputCalibration {
+    pub roll: AxisCalib,
+    pub pitch: AxisCalib,
+    pub throttle: AxisCalib,
+    pub yaw: AxisCalib,
+    pub vra: AxisCalib,
+    pub vrb: AxisCalib,
+    pub filtered_battery_mv: u32,
+}
 
-static mut VRA_CALIB: AxisCalib = AxisCalib::new(2048 - 1950, 2048, 2048 + 1950, false);
-static mut VRB_CALIB: AxisCalib = AxisCalib::new(2048 - 1950, 2048, 2048 + 1950, false);
+impl InputCalibration {
+    pub const fn default_factory() -> Self {
+        Self {
+            roll: AxisCalib::new(ADC_MIN, ADC_CENTER, ADC_MAX, true),
+            pitch: AxisCalib::new(ADC_MIN, ADC_CENTER, ADC_MAX, true),
+            throttle: AxisCalib::new(ADC_MIN, ADC_CENTER, ADC_MAX, false),
+            yaw: AxisCalib::new(ADC_MIN, ADC_CENTER, ADC_MAX, false),
+            vra: AxisCalib::new(ADC_MIN, ADC_CENTER, ADC_MAX, false),
+            vrb: AxisCalib::new(ADC_MIN, ADC_CENTER, ADC_MAX, false),
+            filtered_battery_mv: 0,
+        }
+    }
+}
+
+use core::cell::UnsafeCell;
+
+struct InputManagerCell(UnsafeCell<InputCalibration>);
+unsafe impl Sync for InputManagerCell {}
+
+static INPUT_MANAGER: InputManagerCell = InputManagerCell(UnsafeCell::new(InputCalibration::default_factory()));
 
 /// Apply a full set of stick and pot calibration endpoints.
 pub fn apply_calibration(config: &crate::storage::RadioConfig) {
-    unsafe {
-        // Roll: PA0 (RH) - inverted on FlySky mechanical gimbal
-        (*core::ptr::addr_of_mut!(ROLL_CALIB)).invert = true;
-        (*core::ptr::addr_of_mut!(ROLL_CALIB)).min = config.sticks[0].min;
-        (*core::ptr::addr_of_mut!(ROLL_CALIB)).center = config.sticks[0].center;
-        (*core::ptr::addr_of_mut!(ROLL_CALIB)).max = config.sticks[0].max;
+    let calib = unsafe { &mut *INPUT_MANAGER.0.get() };
 
-        // Pitch: PA1 (RV) - inverted on FlySky mechanical gimbal
-        (*core::ptr::addr_of_mut!(PITCH_CALIB)).invert = true;
-        (*core::ptr::addr_of_mut!(PITCH_CALIB)).min = config.sticks[1].min;
-        (*core::ptr::addr_of_mut!(PITCH_CALIB)).center = config.sticks[1].center;
-        (*core::ptr::addr_of_mut!(PITCH_CALIB)).max = config.sticks[1].max;
+    // Roll: PA0 (RH) - inverted on FlySky mechanical gimbal
+    calib.roll.invert = true;
+    calib.roll.min = config.sticks[0].min;
+    calib.roll.center = config.sticks[0].center;
+    calib.roll.max = config.sticks[0].max;
 
-        // Throttle: PA2 (LV) - strictly normal/uninverted on Mode 2 hardware
-        (*core::ptr::addr_of_mut!(THROTTLE_CALIB)).invert = false;
-        (*core::ptr::addr_of_mut!(THROTTLE_CALIB)).min = config.sticks[2].min;
-        (*core::ptr::addr_of_mut!(THROTTLE_CALIB)).center = config.sticks[2].center;
-        (*core::ptr::addr_of_mut!(THROTTLE_CALIB)).max = config.sticks[2].max;
+    // Pitch: PA1 (RV) - inverted on FlySky mechanical gimbal
+    calib.pitch.invert = true;
+    calib.pitch.min = config.sticks[1].min;
+    calib.pitch.center = config.sticks[1].center;
+    calib.pitch.max = config.sticks[1].max;
 
-        // Yaw: PA3 (LH) - normal/uninverted
-        (*core::ptr::addr_of_mut!(YAW_CALIB)).invert = false;
-        (*core::ptr::addr_of_mut!(YAW_CALIB)).min = config.sticks[3].min;
-        (*core::ptr::addr_of_mut!(YAW_CALIB)).center = config.sticks[3].center;
-        (*core::ptr::addr_of_mut!(YAW_CALIB)).max = config.sticks[3].max;
+    // Throttle: PA2 (LV) - strictly normal/uninverted on Mode 2 hardware
+    calib.throttle.invert = false;
+    calib.throttle.min = config.sticks[2].min;
+    calib.throttle.center = config.sticks[2].center;
+    calib.throttle.max = config.sticks[2].max;
 
-        // Pots: VRA (PA6), VRB (PA7)
-        (*core::ptr::addr_of_mut!(VRA_CALIB)).invert = false;
-        (*core::ptr::addr_of_mut!(VRA_CALIB)).min = config.pots[0].min;
-        (*core::ptr::addr_of_mut!(VRA_CALIB)).center = config.pots[0].center;
-        (*core::ptr::addr_of_mut!(VRA_CALIB)).max = config.pots[0].max;
+    // Yaw: PA3 (LH) - normal/uninverted
+    calib.yaw.invert = false;
+    calib.yaw.min = config.sticks[3].min;
+    calib.yaw.center = config.sticks[3].center;
+    calib.yaw.max = config.sticks[3].max;
 
-        (*core::ptr::addr_of_mut!(VRB_CALIB)).invert = false;
-        (*core::ptr::addr_of_mut!(VRB_CALIB)).min = config.pots[1].min;
-        (*core::ptr::addr_of_mut!(VRB_CALIB)).center = config.pots[1].center;
-        (*core::ptr::addr_of_mut!(VRB_CALIB)).max = config.pots[1].max;
-    }
+    // Pots: VRA (PA6), VRB (PA7)
+    calib.vra.invert = false;
+    calib.vra.min = config.pots[0].min;
+    calib.vra.center = config.pots[0].center;
+    calib.vra.max = config.pots[0].max;
+
+    calib.vrb.invert = false;
+    calib.vrb.min = config.pots[1].min;
+    calib.vrb.center = config.pots[1].center;
+    calib.vrb.max = config.pots[1].max;
 }
 
 /// Initialize input subsystem, load Flash calibration, and measure resting center for spring-loaded gimbals.
@@ -218,17 +218,16 @@ pub fn init() {
     let avg_pitch = (sum_pitch / SAMPLES) as u16;
     let avg_yaw = (sum_yaw / SAMPLES) as u16;
 
-    unsafe {
-        // Slightly refine spring-loaded resting center if within reasonable range (1500..2500)
-        if (1500..=2500).contains(&avg_roll) {
-            (*core::ptr::addr_of_mut!(ROLL_CALIB)).center = avg_roll;
-        }
-        if (1500..=2500).contains(&avg_pitch) {
-            (*core::ptr::addr_of_mut!(PITCH_CALIB)).center = avg_pitch;
-        }
-        if (1500..=2500).contains(&avg_yaw) {
-            (*core::ptr::addr_of_mut!(YAW_CALIB)).center = avg_yaw;
-        }
+    let calib = unsafe { &mut *INPUT_MANAGER.0.get() };
+    // Slightly refine spring-loaded resting center if within reasonable range (1500..2500)
+    if (1500..=2500).contains(&avg_roll) {
+        calib.roll.center = avg_roll;
+    }
+    if (1500..=2500).contains(&avg_pitch) {
+        calib.pitch.center = avg_pitch;
+    }
+    if (1500..=2500).contains(&avg_yaw) {
+        calib.yaw.center = avg_yaw;
     }
 }
 
@@ -259,27 +258,24 @@ fn calculate_battery_mv(raw: u16) -> u16 {
 /// Poll the ADC and return complete, processed flight controls.
 pub fn poll() -> InputState {
     let raw = adc::read_raw();
+    let calib = unsafe { &mut *INPUT_MANAGER.0.get() };
 
     // Mode 2 Pinout matching FlySky FS-i6X hardware:
     // raw[0] = PA0: RH (Right Horizontal - Roll / Aileron)
     // raw[1] = PA1: RV (Right Vertical - Pitch / Elevator)
     // raw[2] = PA2: LV (Left Vertical - Throttle, friction ratchet / no spring return)
     // raw[3] = PA3: LH (Left Horizontal - Yaw / Rudder)
-    let sticks = unsafe {
-        Sticks {
-            roll: (*core::ptr::addr_of_mut!(ROLL_CALIB)).normalize(raw[0]),
-            pitch: (*core::ptr::addr_of_mut!(PITCH_CALIB)).normalize(raw[1]),
-            throttle: (*core::ptr::addr_of_mut!(THROTTLE_CALIB)).normalize(raw[2]),
-            yaw: (*core::ptr::addr_of_mut!(YAW_CALIB)).normalize(raw[3]),
-        }
+    let sticks = Sticks {
+        roll: calib.roll.normalize(raw[0]),
+        pitch: calib.pitch.normalize(raw[1]),
+        throttle: calib.throttle.normalize(raw[2]),
+        yaw: calib.yaw.normalize(raw[3]),
     };
 
     // Pots: VRA on PA6, VRB on PA7
-    let pots = unsafe {
-        Pots {
-            vr1: (*core::ptr::addr_of_mut!(VRA_CALIB)).normalize(raw[6]), // PA6 (VRA)
-            vr2: (*core::ptr::addr_of_mut!(VRB_CALIB)).normalize(raw[7]), // PA7 (VRB)
-        }
+    let pots = Pots {
+        vr1: calib.vra.normalize(raw[6]), // PA6 (VRA)
+        vr2: calib.vrb.normalize(raw[7]), // PA7 (VRB)
     };
 
     // Switches:
@@ -294,17 +290,14 @@ pub fn poll() -> InputState {
         sd: decode_switch(raw[9]), // PB1
     };
 
-    static mut FILTERED_BATTERY_MV: u32 = 0;
     let instant_mv = calculate_battery_mv(raw[10]); // PC0
-    let battery_mv = unsafe {
-        if FILTERED_BATTERY_MV == 0 {
-            FILTERED_BATTERY_MV = (instant_mv as u32) << 8;
-            instant_mv
-        } else {
-            // Exponential moving average filter (alpha = 1/32) to stabilize hundredths digit
-            FILTERED_BATTERY_MV = FILTERED_BATTERY_MV - (FILTERED_BATTERY_MV >> 5) + ((instant_mv as u32) << 3);
-            (FILTERED_BATTERY_MV >> 8) as u16
-        }
+    let battery_mv = if calib.filtered_battery_mv == 0 {
+        calib.filtered_battery_mv = (instant_mv as u32) << 8;
+        instant_mv
+    } else {
+        // Exponential moving average filter (alpha = 1/32) to stabilize hundredths digit
+        calib.filtered_battery_mv = calib.filtered_battery_mv - (calib.filtered_battery_mv >> 5) + ((instant_mv as u32) << 3);
+        (calib.filtered_battery_mv >> 8) as u16
     };
 
     InputState {
