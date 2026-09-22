@@ -13,13 +13,6 @@ pub fn update(
     storage: &mut RadioStorage,
     buzzer: &mut Buzzer,
 ) {
-    let is_crsf = storage.active_model().rf_protocol == 1;
-    let p9_str = if is_crsf {
-        "9. ELRS Setup (Beta)"
-    } else {
-        "9. Protocol Setup"
-    };
-
     const ITEM_COUNT: usize = 13;
     let items = [
         "1. Model Select",
@@ -30,7 +23,7 @@ pub fn update(
         "6. Aux Channels",
         "7. Ch Reverse",
         "8. Radio Setup",
-        p9_str,
+        "9. Protocol Setup",
         "10. Channel Monitor",
         "11. Calibration",
         "12. Analog Diag",
@@ -97,16 +90,9 @@ pub fn update(
                 ctrl.scroll_offset = 0;
             }
             8 => {
-                if is_crsf {
-                    ctrl.state = MenuState::ElrsSetup;
-                    ctrl.return_state = MenuState::MainMenu;
-                    ctrl.selected_item = 0;
-                    ctrl.scroll_offset = 0;
-                    crate::crsf::start_config();
-                } else {
-                    ctrl.state = MenuState::RxSetup;
-                    ctrl.selected_item = 0;
-                }
+                ctrl.state = MenuState::RxSetup;
+                ctrl.selected_item = 0;
+                ctrl.scroll_offset = 0;
             }
             9 => {
                 ctrl.state = MenuState::ChannelMonitor;
