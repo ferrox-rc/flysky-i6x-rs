@@ -49,6 +49,7 @@ pub struct NavKeys {
 
 pub struct MenuController {
     pub state: MenuState,
+    pub return_state: MenuState,
     pub selected_item: usize,
     pub scroll_offset: usize,
     pub page_idx: usize,
@@ -73,6 +74,7 @@ impl MenuController {
     pub const fn new() -> Self {
         Self {
             state: MenuState::Closed,
+            return_state: MenuState::Closed,
             selected_item: 0,
             scroll_offset: 0,
             page_idx: 0,

@@ -209,106 +209,157 @@ pub fn update_rx_setup(
     storage: &mut RadioStorage,
     buzzer: &mut Buzzer,
 ) {
-    if keys.cancel {
-        ctrl.state = MenuState::MainMenu;
-        ctrl.selected_item = 8;
-        ctrl.scroll_offset = 5;
-        ctrl.waiting_release = true;
-        buzzer.click();
-        return;
-    }
-
     let active_idx = storage.radio.active_model as usize;
     let proto = storage.models[active_idx].rf_protocol;
+    // 0: AFHDS 2A -> 2 selectable items (0: Proto, 1: [Bind Receiver])
+    // 1: CRSF / ELRS -> 3 selectable items (0: Proto, 1: Baud, 2: [Configure Module])
+    let item_count = if proto == 0 { 2 } else { 3 };
 
-    if proto == 0 {
-        // AFHDS 2A view
-        if keys.up || keys.down {
-            storage.models[active_idx].rf_protocol = 1;
-            ctrl.selected_item = 0;
-            storage::save_storage(storage);
-            buzzer.play_tone(2200, 30);
-        }
-
-        if keys.ok {
+    if keys.cancel {
+        if ctrl.editing {
+            ctrl.editing = false;
             buzzer.click();
-            ctrl.request_bind = true;
-            ctrl.state = MenuState::Closed;
+        } else {
+            ctrl.state = MenuState::MainMenu;
+            ctrl.selected_item = 8;
+            ctrl.scroll_offset = 5;
+            ctrl.waiting_release = true;
+            buzzer.click();
             return;
-        }
-    } else {
-        // CRSF / ELRS view: selected_item 0 = Proto, 1 = Baud Rate, 2 = Configure Module
-        if keys.ok {
-            if ctrl.selected_item == 2 {
-                ctrl.state = MenuState::ElrsSetup;
-                ctrl.selected_item = 0;
-                ctrl.scroll_offset = 0;
-                crate::crsf::start_config();
-                buzzer.click();
-                return;
-            } else {
-                ctrl.selected_item = (ctrl.selected_item + 1) % 3;
-                buzzer.click();
-            }
-        }
-
-        if ctrl.selected_item == 0 {
-            if keys.up || keys.down {
-                storage.models[active_idx].rf_protocol = 0;
-                ctrl.selected_item = 0;
-                storage::save_storage(storage);
-                buzzer.play_tone(2200, 30);
-            }
-        } else if ctrl.selected_item == 1 {
-            if keys.up {
-                storage.models[active_idx].crsf_baud = if storage.models[active_idx].crsf_baud > 0 {
-                    storage.models[active_idx].crsf_baud - 1
-                } else {
-                    3
-                };
-                storage::save_storage(storage);
-                buzzer.play_tone(2200, 30);
-            }
-            if keys.down {
-                storage.models[active_idx].crsf_baud = (storage.models[active_idx].crsf_baud + 1) % 4;
-                storage::save_storage(storage);
-                buzzer.play_tone(2200, 30);
-            }
-        } else if ctrl.selected_item == 2 {
-            if keys.up {
-                ctrl.selected_item = 1;
-                buzzer.play_tone(2200, 30);
-            } else if keys.down {
-                ctrl.selected_item = 0;
-                buzzer.play_tone(2200, 30);
-            }
         }
     }
 
-    let proto = storage.models[active_idx].rf_protocol;
+    if !ctrl.editing {
+        // Navigation Phase: UP/DOWN moves selection
+        widgets::navigate_4slot_list(
+            &mut ctrl.selected_item,
+            &mut ctrl.scroll_offset,
+            item_count,
+            keys.up,
+            keys.down,
+            buzzer,
+        );
+
+        if keys.ok {
+            match ctrl.selected_item {
+                0 => {
+                    // Enter edit mode for Protocol
+                    ctrl.editing = true;
+                    buzzer.click();
+                }
+                1 => {
+                    if proto == 0 {
+                        // AFHDS 2A: Trigger Bind
+                        ctrl.request_bind = true;
+                        ctrl.state = MenuState::Closed;
+                        buzzer.click();
+                        return;
+                    } else {
+                        // CRSF: Enter edit mode for Baud Rate
+                        ctrl.editing = true;
+                        buzzer.click();
+                    }
+                }
+                2 => {
+                    // CRSF: Enter ELRS Configurator
+                    ctrl.state = MenuState::ElrsSetup;
+                    ctrl.return_state = MenuState::RxSetup;
+                    ctrl.selected_item = 0;
+                    ctrl.scroll_offset = 0;
+                    crate::crsf::start_config();
+                    buzzer.click();
+                    return;
+                }
+                _ => {}
+            }
+        }
+    } else {
+        // Edit Phase: UP/DOWN modifies the selected parameter
+        match ctrl.selected_item {
+            0 => {
+                // Protocol: 0 = AFHDS 2A, 1 = CRSF/ELRS
+                if keys.up || keys.down {
+                    let new_proto = if proto == 0 { 1 } else { 0 };
+                    storage.models[active_idx].rf_protocol = new_proto;
+                    buzzer.play_tone(2200, 30);
+                }
+            }
+            1 => {
+                // Baud Rate (CRSF only): 0 = 420k, 1 = 416.6k, 2 = 115.2k, 3 = 921.6k
+                if keys.up {
+                    storage.models[active_idx].crsf_baud = if storage.models[active_idx].crsf_baud > 0 {
+                        storage.models[active_idx].crsf_baud - 1
+                    } else {
+                        3
+                    };
+                    buzzer.play_tone(2200, 30);
+                } else if keys.down {
+                    storage.models[active_idx].crsf_baud = (storage.models[active_idx].crsf_baud + 1) % 4;
+                    buzzer.play_tone(2200, 30);
+                }
+            }
+            _ => {}
+        }
+
+        // OK saves selection to Flash and returns to navigation phase
+        if keys.ok {
+            ctrl.editing = false;
+            storage::save_storage(storage);
+            buzzer.click();
+        }
+    }
+
     widgets::draw_header(lcd, "PROTOCOL SETUP");
 
     let text_style = MonoTextStyle::new(&FONT_6X10, BinaryColor::On);
+    let current_proto = storage.models[active_idx].rf_protocol;
 
-    if proto == 0 {
-        Text::new("Proto: AFHDS 2A", Point::new(4, 22), text_style).draw(lcd).ok();
+    if current_proto == 0 {
+        // AFHDS 2A Display
+        let sel_proto = ctrl.selected_item == 0;
+        let sel_bind = ctrl.selected_item == 1;
 
-        let mut name_buf = *b"M00: ";
-        name_buf[1] = b'0' + ((active_idx + 1) / 10) as u8;
-        name_buf[2] = b'0' + ((active_idx + 1) % 10) as u8;
-        let pre_str = core::str::from_utf8(&name_buf).unwrap_or("M??: ");
-        Text::new(pre_str, Point::new(4, 32), text_style).draw(lcd).ok();
+        let p_arrow = if sel_proto { ">" } else { " " };
+        let b_arrow = if sel_bind { ">" } else { " " };
+
+        let proto_val = if ctrl.editing && sel_proto { "[AFHDS 2A]" } else { "AFHDS 2A" };
+        let mut p_buf = [b' '; 22];
+        p_buf[0] = p_arrow.as_bytes()[0];
+        p_buf[1..8].copy_from_slice(b"Proto: ");
+        let pv_bytes = proto_val.as_bytes();
+        p_buf[8..8 + pv_bytes.len()].copy_from_slice(pv_bytes);
+        let p_str = core::str::from_utf8(&p_buf[..8 + pv_bytes.len()]).unwrap_or(" Proto: AFHDS 2A");
+        Text::new(p_str, Point::new(2, 22), text_style).draw(lcd).ok();
+
+        let mut name_buf = *b" M00: ";
+        name_buf[2] = b'0' + ((active_idx + 1) / 10) as u8;
+        name_buf[3] = b'0' + ((active_idx + 1) % 10) as u8;
+        let pre_str = core::str::from_utf8(&name_buf).unwrap_or(" M??: ");
+        Text::new(pre_str, Point::new(2, 32), text_style).draw(lcd).ok();
         let m_str = core::str::from_utf8(&storage.models[active_idx].name).unwrap_or("MODEL");
-        Text::new(m_str, Point::new(34, 32), text_style).draw(lcd).ok();
+        Text::new(m_str, Point::new(38, 32), text_style).draw(lcd).ok();
 
         let mut rx_buf = [b'0'; 8];
         u32_to_hex(storage.models[active_idx].rx_id, &mut rx_buf);
-        Text::new("Rx ID: ", Point::new(4, 42), text_style).draw(lcd).ok();
         let rx_str = core::str::from_utf8(&rx_buf).unwrap_or("00000000");
-        Text::new(rx_str, Point::new(46, 42), text_style).draw(lcd).ok();
+        let mut b_buf = [b' '; 22];
+        b_buf[0] = b_arrow.as_bytes()[0];
+        b_buf[1..8].copy_from_slice(b"[Bind: ");
+        b_buf[8..16].copy_from_slice(rx_str.as_bytes());
+        b_buf[16] = b']';
+        let b_str = core::str::from_utf8(&b_buf[..17]).unwrap_or(" [Bind Receiver]");
+        Text::new(b_str, Point::new(2, 42), text_style).draw(lcd).ok();
 
-        widgets::draw_footer(lcd, "[OK] Bind  [UP/DN] Proto");
+        let footer = if ctrl.editing {
+            "[OK] Save   [UP/DN] Change"
+        } else if sel_bind {
+            "[OK] Start Bind   [ESC] Exit"
+        } else {
+            "[OK] Edit   [ESC] Exit"
+        };
+        widgets::draw_footer(lcd, footer);
     } else {
+        // CRSF / ELRS Display
         let sel_proto = ctrl.selected_item == 0;
         let sel_baud = ctrl.selected_item == 1;
         let sel_cfg = ctrl.selected_item == 2;
@@ -317,24 +368,36 @@ pub fn update_rx_setup(
         let b_arrow = if sel_baud { ">" } else { " " };
         let c_arrow = if sel_cfg { ">" } else { " " };
 
-        let mut p_buf = [b' '; 20];
+        let proto_val = if ctrl.editing && sel_proto { "[CRSF/ELRS]" } else { "CRSF/ELRS" };
+        let mut p_buf = [b' '; 22];
         p_buf[0] = p_arrow.as_bytes()[0];
-        p_buf[1..18].copy_from_slice(b"Proto: CRSF/ELRS ");
-        let p_str = core::str::from_utf8(&p_buf[..18]).unwrap_or(">Proto: CRSF/ELRS");
+        p_buf[1..8].copy_from_slice(b"Proto: ");
+        let pv_bytes = proto_val.as_bytes();
+        p_buf[8..8 + pv_bytes.len()].copy_from_slice(pv_bytes);
+        let p_str = core::str::from_utf8(&p_buf[..8 + pv_bytes.len()]).unwrap_or(" Proto: CRSF/ELRS");
         Text::new(p_str, Point::new(2, 22), text_style).draw(lcd).ok();
 
-        let baud_str = match storage.models[active_idx].crsf_baud {
-            0 => "Baud: 420k (ELRS)",
-            1 => "Baud: 416.6k (TBS)",
-            2 => "Baud: 115.2k (Low)",
-            3 => "Baud: 921.6k (Fast)",
-            _ => "Baud: 420k (ELRS)",
+        let baud_val = match storage.models[active_idx].crsf_baud {
+            0 => "420k (ELRS)",
+            1 => "416.6k (TBS)",
+            2 => "115.2k (Low)",
+            3 => "921.6k (Fast)",
+            _ => "420k (ELRS)",
         };
-        let mut b_buf = [b' '; 22];
+        let mut b_buf = [b' '; 24];
         b_buf[0] = b_arrow.as_bytes()[0];
-        let b_bytes = baud_str.as_bytes();
-        b_buf[1..1 + b_bytes.len()].copy_from_slice(b_bytes);
-        let full_b_str = core::str::from_utf8(&b_buf[..1 + b_bytes.len()]).unwrap_or(" Baud: 420k");
+        b_buf[1..7].copy_from_slice(b"Baud: ");
+        let bv_bytes = baud_val.as_bytes();
+        let b_start = if ctrl.editing && sel_baud {
+            b_buf[7] = b'[';
+            b_buf[8..8 + bv_bytes.len()].copy_from_slice(bv_bytes);
+            b_buf[8 + bv_bytes.len()] = b']';
+            9 + bv_bytes.len()
+        } else {
+            b_buf[7..7 + bv_bytes.len()].copy_from_slice(bv_bytes);
+            7 + bv_bytes.len()
+        };
+        let full_b_str = core::str::from_utf8(&b_buf[..b_start]).unwrap_or(" Baud: 420k");
         Text::new(full_b_str, Point::new(2, 32), text_style).draw(lcd).ok();
 
         let mut c_buf = [b' '; 22];
@@ -343,10 +406,13 @@ pub fn update_rx_setup(
         let full_c_str = core::str::from_utf8(&c_buf[..19]).unwrap_or(" [Configure Module]");
         Text::new(full_c_str, Point::new(2, 42), text_style).draw(lcd).ok();
 
-        if sel_cfg {
-            widgets::draw_footer(lcd, "[OK] Config   [UP/DN] Select");
+        let footer = if ctrl.editing {
+            "[OK] Save   [UP/DN] Change"
+        } else if sel_cfg {
+            "[OK] Open Config  [ESC] Exit"
         } else {
-            widgets::draw_footer(lcd, "[OK] Next   [UP/DN] Change");
-        }
+            "[OK] Edit   [ESC] Exit"
+        };
+        widgets::draw_footer(lcd, footer);
     }
 }
