@@ -11,8 +11,8 @@ Focused on the built-in **A7105** 2.4 GHz RF transceiver (**AFHDS2A** protocol),
 The FS-i6X open-source journey was pioneered by the remarkable work of the [OpenI6X](https://github.com/OpenI6X/opentx) project, which successfully brought OpenTX/EdgeTX to this hardware and reverse-engineered the radio architecture.
 
 `flysky-i6x-rs` explores a complementary design philosophy: an experimental, clean-slate firmware written in bare-metal `no_std` Rust designed with:
-- **Zero-cost abstractions:** Microcontroller-native, static allocation, no heap allocations (`no_std`).
-- **Hard Real-Time Concurrency:** Priority-driven hardware interrupt scheduling (`TIM16` 260 Hz packet sync, `EXTI2` RF ready) paired with a high-rate decoupled flight pipeline and throttled 30 Hz display loop.
+- **Zero-Heap, Deterministic Memory:** Fully static allocation with bare-metal `no_std`, eliminating dynamic allocation overhead, allocator stalls, and heap fragmentation.
+- **Lock-Free Concurrency (RTIC-Inspired):** Deterministic priority-driven interrupt scheduling (`TIM16` 260 Hz packet sync, `EXTI2` RF ready) paired with lock-free atomic double-buffering. Channel publication and telemetry access never disable global interrupts (`CPSID`), keeping RF timing jitter-free.
 - **Strict Scope:** Dedicated support for the built-in hardware (A7105 AFHDS2A + i-BUS), 4-axis gimbals, switches, trims, 20-model storage, 14-channel matrix mixer, and a 128×64 monochrome UI.
 - **Lightweight Footprint:** **67.5 KB Flash** (leaving >58 KB free / 45.5% headroom) and **1.7 KB static RAM** + 1 KB LCD framebuffer (leaving >89% SRAM free).
 
