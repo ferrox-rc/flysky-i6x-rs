@@ -85,7 +85,6 @@ static mut SERIAL_HANDLER: SerialHandler = SerialHandler::new();
 static mut CURRENT_MODE: UsbMode = UsbMode::Off;
 static mut LAST_POLL_MS: u32 = 0;
 static mut LAST_TELEM_STREAM_MS: u32 = 0;
-static mut BANNER_SENT: bool = false;
 
 /// Initialize the hardware USB peripheral according to the configured USB mode.
 /// Supports on-the-fly switching between modes by forcing physical disconnect and core reset.
@@ -128,7 +127,6 @@ pub fn init(mode: u8) {
         USB_SERIAL = None;
         USB_ALLOCATOR = None;
         SERIAL_HANDLER = SerialHandler::new();
-        BANNER_SENT = false;
 
         if usb_mode == UsbMode::Off {
             // Disable USB peripheral clock
@@ -354,10 +352,6 @@ pub fn poll(
         if mode == UsbMode::Serial || mode == UsbMode::Composite {
             cortex_m::interrupt::free(|_| {
                 if let Some(ref mut serial) = USB_SERIAL.as_mut() {
-                    if !BANNER_SENT {
-                        BANNER_SENT = true;
-                        SERIAL_HANDLER.send_banner(serial);
-                    }
                     SERIAL_HANDLER.update(serial, rf_chs, telem, battery_mv);
                     if now_ms.wrapping_sub(LAST_TELEM_STREAM_MS) >= 100 {
                         LAST_TELEM_STREAM_MS = now_ms;

@@ -69,25 +69,6 @@ impl SerialHandler {
         }
     }
 
-    /// Send initial greeting banner upon USB serial connection.
-    pub fn send_banner<B: usb_device::bus::UsbBus, RS: core::borrow::BorrowMut<[u8]>, WS: core::borrow::BorrowMut<[u8]>>(
-        &self,
-        serial: &mut SerialPort<B, RS, WS>,
-    ) {
-        write_all(
-            serial,
-            concat!(
-                "\r\n========================================\r\n",
-                " FlySky FS-i6X CLI v",
-                env!("CARGO_PKG_VERSION"),
-                "\r\n Type 'help' for commands, 'stream' for telemetry\r\n",
-                "========================================\r\n",
-                "i6x> "
-            )
-            .as_bytes(),
-        );
-    }
-
     /// Process queued incoming data from the main loop and write pending telemetry frames.
     pub fn update<B: usb_device::bus::UsbBus, RS: core::borrow::BorrowMut<[u8]>, WS: core::borrow::BorrowMut<[u8]>>(
         &mut self,
