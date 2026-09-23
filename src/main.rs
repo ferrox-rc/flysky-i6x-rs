@@ -404,26 +404,35 @@ impl BackgroundIdleManager {
 
 #[entry]
 fn main() -> ! {
+    // 0. Standalone feed immediately refreshes any watchdog running across soft reboot
+    watchdog::feed();
+
     // 1. MCU Profile & Fast DFU Bootloader Check
     let mcu_profile = chip::get_mcu_profile();
     boot::check_dfu_entry(&mcu_profile);
 
     // 2. Initialize System Clock to 48 MHz using external 8 MHz crystal (HSE) + PLL
+    // and wait for 40 kHz LSI oscillator to stabilize
     chip::init_system_clock();
 
     // Initialize SysTick 1.000 ms hardware monotonic timekeeper
     time::init();
 
-    // 3. Initialize ST7567 128×64 LCD & Backlight immediately
+    // 3. Initialize ST7567 128×64 LCD (clears framebuffer and flushes before turning on backlight)
     let mut lcd = St7567::new();
 
-    // 4. Initialize ADC1 + DMA1 autonomous continuous scanner
+    // 4. Start deterministic 2.0s Hardware Watchdog (IWDG) via PAC
+    watchdog::start();
+
+    // 5. Initialize ADC1 + DMA1 autonomous continuous scanner
     adc::init();
+    watchdog::feed();
 
-    // 5. Initialize input calibration and capture resting stick centers
+    // 6. Initialize input calibration and capture resting stick centers
     input::init();
+    watchdog::feed();
 
-    // 6. Initialize A7105 RF transceiver & AFHDS 2A stack
+    // 7. Initialize A7105 RF transceiver & AFHDS 2A stack
     let uid = chip::read_uid(&mcu_profile);
     let w0 = u32::from_le_bytes([uid[0], uid[1], uid[2], uid[3]]);
     let w1 = u32::from_le_bytes([uid[4], uid[5], uid[6], uid[7]]);
@@ -437,17 +446,20 @@ fn main() -> ! {
     if bind_on_boot {
         rf::set_bind_mode(true);
     }
+    watchdog::feed();
 
-    // 7. Initialize Buzzer & Digital Trims
+    // 8. Initialize Buzzer & Digital Trims
     let mut buzzer = buzzer::Buzzer::new();
     buzzer.init();
+    watchdog::feed();
 
-    // 8. Load persistent radio storage and 20-model configuration
+    // 9. Load persistent radio storage and 20-model configuration
     let mut storage = storage::RadioStorage::empty();
     storage::load_storage_into(&mut storage);
     buzzer.enabled = storage.radio.audio_enabled != 0;
     buzzer.tone_style = buzzer::ToneStyle::from_u8(storage.radio.tone_style);
     buzzer.chime_welcome();
+    watchdog::feed();
 
     // Initialize USB peripheral (Joystick / Serial / Composite / Off)
     usb::init(storage.radio.usb_mode);
@@ -477,23 +489,36 @@ fn main() -> ! {
     if (initial_keys & (1 << 10)) != 0 {
         calib_wizard.start(&mut buzzer);
     }
+    watchdog::feed();
 
     let text_style = MonoTextStyle::new(&FONT_6X10, BinaryColor::On);
     let text_style_small = MonoTextStyle::new(&FONT_4X6, BinaryColor::On);
     let sep_style = PrimitiveStyle::with_stroke(BinaryColor::On, 1);
 
-    // 9. Pre-flight Startup Safety Check: Throttle at idle and switches in safe (UP) positions
+    // 10. Pre-flight Startup Safety Check: Throttle at idle and switches in safe (UP) positions
     if !calib_wizard.is_active() {
         let mut preflight_beep_timer: u32 = 0;
         let mut preflight_last_render: u32 = 0;
         let mut warned = false;
 
         loop {
+            watchdog::feed();
+
             let now = time::millis();
             let state = input::poll();
             let keys = boot::scan_keys();
 
-            let thr_unsafe = state.sticks.throttle > -900;
+            // Adaptive throttle idle check:
+            // When calibrated, state.sticks.throttle is normalized (-1000..+1000). Idle is < -900.
+            // When uncalibrated (default factory endpoints min <= 200), check raw ADC channel 2 (Throttle vertical).
+            // FlySky gimbals rest at idle below ~1400 ADC counts (ADC range 0..4095).
+            let is_calibrated = storage.radio.sticks[2].min > 200;
+            let thr_unsafe = if is_calibrated {
+                state.sticks.throttle > -900
+            } else {
+                state.raw[2] > 1400
+            };
+
             let sa_unsafe = state.switches.sa != input::SwitchPos::Up;
             let sb_unsafe = state.switches.sb != input::SwitchPos::Up;
             let sc_unsafe = state.switches.sc != input::SwitchPos::Up;
@@ -575,6 +600,9 @@ fn main() -> ! {
 
     // Main event loop: decoupled into high-rate flight pipeline and 30 Hz background idle tasks
     loop {
+        // Kick watchdog at loop start to guarantee active execution
+        watchdog::feed();
+
         let now = time::millis();
         let dt_ms = (now.wrapping_sub(last_tick_ms)).min(100) as u16;
 

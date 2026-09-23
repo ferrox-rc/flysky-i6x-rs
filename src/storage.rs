@@ -459,6 +459,7 @@ pub fn save_storage(storage: &RadioStorage) {
 
 /// Save only the active model configuration (fast delta save).
 /// Currently calls save_storage to guarantee rock-solid consistency across the 2-page flash.
+#[allow(dead_code)]
 #[inline(always)]
 pub fn save_active_model(storage: &RadioStorage) {
     save_storage(storage);
@@ -466,6 +467,7 @@ pub fn save_active_model(storage: &RadioStorage) {
 
 /// Save only the system radio configuration (fast delta save).
 /// Currently calls save_storage to guarantee rock-solid consistency across the 2-page flash.
+#[allow(dead_code)]
 #[inline(always)]
 pub fn save_radio_config(storage: &RadioStorage) {
     save_storage(storage);
