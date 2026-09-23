@@ -4,26 +4,7 @@
 //! TIM1 is clocked at 48 MHz from APB2 with PSC=47 (1 MHz tick).
 //! Outputs clean hardware PWM tones with programmable frequency and duration.
 
-use core::ptr;
-
-// RCC registers
-const RCC_AHBENR: *mut u32 = 0x4002_1014 as *mut u32;
-const RCC_APB2ENR: *mut u32 = 0x4002_1018 as *mut u32;
-
-// GPIOA registers (Base 0x4800_0000)
-const GPIOA_MODER: *mut u32 = 0x4800_0000 as *mut u32;
-const GPIOA_AFRH: *mut u32 = 0x4800_0024 as *mut u32;
-
-// TIM1 registers (Base 0x4001_2C00)
-const TIM1_CR1: *mut u32 = 0x4001_2C00 as *mut u32;
-const TIM1_SR: *mut u32 = 0x4001_2C10 as *mut u32;
-const TIM1_CCMR1: *mut u32 = 0x4001_2C18 as *mut u32;
-const TIM1_CCER: *mut u32 = 0x4001_2C20 as *mut u32;
-const TIM1_CNT: *mut u32 = 0x4001_2C24 as *mut u32;
-const TIM1_PSC: *mut u32 = 0x4001_2C28 as *mut u32;
-const TIM1_ARR: *mut u32 = 0x4001_2C2C as *mut u32;
-const TIM1_CCR1: *mut u32 = 0x4001_2C34 as *mut u32;
-const TIM1_BDTR: *mut u32 = 0x4001_2C44 as *mut u32;
+use stm32f0xx_hal::pac;
 
 pub const BEEP_DEFAULT_FREQ: u16 = 2250;
 pub const BEEP_CENTER_FREQ: u16 = 2800;
@@ -101,36 +82,47 @@ impl Buzzer {
 
     /// Initialize GPIOA PA8 as AF2 (TIM1_CH1) and configure TIM1 PWM output.
     pub fn init(&mut self) {
+        let rcc = unsafe { &*pac::RCC::ptr() };
+        let gpioa = unsafe { &*pac::GPIOA::ptr() };
+        let tim1 = unsafe { &*pac::TIM1::ptr() };
+
         unsafe {
             // 1. Enable GPIOA (bit 17) and TIM1 (bit 11) clocks
-            let ahb = ptr::read_volatile(RCC_AHBENR);
-            ptr::write_volatile(RCC_AHBENR, ahb | (1 << 17));
-
-            let apb2 = ptr::read_volatile(RCC_APB2ENR);
-            ptr::write_volatile(RCC_APB2ENR, apb2 | (1 << 11));
+            rcc.ahbenr.modify(|r, w| w.bits(r.bits() | (1 << 17)));
+            rcc.apb2enr.modify(|r, w| w.bits(r.bits() | (1 << 11)));
 
             // 2. Configure PA8 as AF mode (MODER[17:16] = 10)
-            let moder = ptr::read_volatile(GPIOA_MODER);
-            ptr::write_volatile(GPIOA_MODER, (moder & !(3 << 16)) | (2 << 16));
+            gpioa.moder.modify(|r, w| {
+                let val = r.bits();
+                w.bits((val & !(3 << 16)) | (2 << 16))
+            });
 
             // 3. Set PA8 Alternate Function to AF2 (TIM1_CH1)
             // AFRH[3:0] corresponding to pin 8 = bits 3:0
-            let afrh = ptr::read_volatile(GPIOA_AFRH);
-            ptr::write_volatile(GPIOA_AFRH, (afrh & !0x0F) | 0x02);
+            gpioa.afrh.modify(|r, w| {
+                let val = r.bits();
+                w.bits((val & !0x0F) | 0x02)
+            });
 
             // 4. Configure TIM1 for PWM generation:
             // PSC = 47 -> 48 MHz / 48 = 1 MHz (1 µs resolution)
-            ptr::write_volatile(TIM1_PSC, 47);
+            tim1.psc.write(|w| w.bits(47));
 
             // Output Compare 1 Mode: PWM mode 1 (active while CNT < CCR1)
             // Bits 6:4 of CCMR1 (OC1M) = 0b110 (PWM Mode 1), Bit 3 (OC1PE) = 1 (Preload)
-            ptr::write_volatile(TIM1_CCMR1, (6 << 4) | (1 << 3));
+            tim1.ccmr1_output().modify(|r, w| {
+                let val = r.bits();
+                w.bits((val & !(0x7F << 0)) | (6 << 4) | (1 << 3))
+            });
 
             // Enable Channel 1 output with active low polarity in CCER (CC1E | CC1P)
-            ptr::write_volatile(TIM1_CCER, (1 << 1) | (1 << 0));
+            tim1.ccer.modify(|r, w| {
+                let val = r.bits();
+                w.bits(val | (1 << 1) | (1 << 0))
+            });
 
             // Main Output Enable (MOE) in BDTR (bit 15: MOE) - required for advanced timers like TIM1
-            ptr::write_volatile(TIM1_BDTR, 1 << 15);
+            tim1.bdtr.modify(|r, w| w.bits(r.bits() | (1 << 15)));
         }
     }
 
@@ -140,29 +132,33 @@ impl Buzzer {
             return;
         }
 
+        let tim1 = unsafe { &*pac::TIM1::ptr() };
+
         unsafe {
             // Period in 1 µs ticks = 1_000_000 / freq_hz
             let period = (1_000_000u32 / (freq_hz as u32)).clamp(10, 65535);
             let arr = period.saturating_sub(1);
             let ccr = period / 2; // 50% duty cycle
 
-            ptr::write_volatile(TIM1_ARR, arr);
-            ptr::write_volatile(TIM1_CCR1, ccr);
-            if ptr::read_volatile(TIM1_CNT) > arr {
-                ptr::write_volatile(TIM1_CNT, 0);
+            tim1.arr.write(|w| w.bits(arr));
+            tim1.ccr1.write(|w| w.bits(ccr));
+            if tim1.cnt.read().bits() > arr {
+                tim1.cnt.write(|w| w.bits(0));
             }
 
             // Start counter: CEN (bit 0) | ARPE (bit 7)
-            ptr::write_volatile(TIM1_CR1, (1 << 7) | (1 << 0));
+            tim1.cr1.modify(|r, w| w.bits(r.bits() | (1 << 7) | (1 << 0)));
         }
     }
 
     /// Turn off the hardware PWM generator.
     fn hardware_off(&self) {
+        let tim1 = unsafe { &*pac::TIM1::ptr() };
+
         unsafe {
-            ptr::write_volatile(TIM1_CR1, 0);
-            ptr::write_volatile(TIM1_CNT, 0);
-            ptr::write_volatile(TIM1_SR, 0);
+            tim1.cr1.write(|w| w.bits(0));
+            tim1.cnt.write(|w| w.bits(0));
+            tim1.sr.write(|w| w.bits(0));
         }
     }
 
