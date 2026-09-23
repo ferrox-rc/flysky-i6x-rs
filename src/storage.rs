@@ -403,39 +403,48 @@ pub fn save_storage(storage: &RadioStorage) {
     cortex_m::interrupt::free(|_| unsafe {
         crate::watchdog::feed();
 
-        // Unlock flash
-        flash.keyr.write(|w| w.bits(FLASH_KEY1));
-        flash.keyr.write(|w| w.bits(FLASH_KEY2));
+        // 1. Unlock Flash CR if locked
+        if flash.cr.read().lock().bit_is_set() {
+            flash.keyr.write(|w| w.bits(FLASH_KEY1));
+            flash.keyr.write(|w| w.bits(FLASH_KEY2));
+        }
 
         let mut timeout = 1_000_000u32;
         while flash.sr.read().bsy().bit_is_set() && timeout > 0 {
             timeout -= 1;
         }
 
-        // Erase Page 62 (0x0801_F000)
-        flash.cr.write(|w| w.per().set_bit());
-        flash.ar.write(|w| w.bits(FLASH_STORAGE_ADDR as u32));
-        flash.cr.write(|w| w.per().set_bit().strt().set_bit());
+        // 2. Clear any lingering error or EOP flags in SR (write 1 to clear)
+        flash.sr.write(|w| w.eop().event().wrprt().error().pgerr().error());
+
+        // 3. Erase Page 62 (0x0801_F000)
+        flash.cr.write(|w| w.per().page_erase());
+        flash.ar.write(|w| w.far().bits(FLASH_STORAGE_ADDR as u32));
+        flash.cr.write(|w| w.per().page_erase().strt().start());
         timeout = 1_000_000;
         while flash.sr.read().bsy().bit_is_set() && timeout > 0 {
             timeout -= 1;
         }
+        flash.sr.write(|w| w.eop().event().wrprt().error().pgerr().error());
 
         crate::watchdog::feed();
 
-        // Erase Page 63 (0x0801_F800)
-        flash.ar.write(|w| w.bits((FLASH_STORAGE_ADDR + 2048) as u32));
-        flash.cr.write(|w| w.per().set_bit().strt().set_bit());
+        // 4. Erase Page 63 (0x0801_F800)
+        flash.cr.write(|w| w.per().page_erase());
+        flash.ar.write(|w| w.far().bits((FLASH_STORAGE_ADDR + 2048) as u32));
+        flash.cr.write(|w| w.per().page_erase().strt().start());
         timeout = 1_000_000;
         while flash.sr.read().bsy().bit_is_set() && timeout > 0 {
             timeout -= 1;
         }
+        flash.sr.write(|w| w.eop().event().wrprt().error().pgerr().error());
+        // Clear PER
         flash.cr.write(|w| w.bits(0));
 
         crate::watchdog::feed();
 
-        // Program halfwords
-        flash.cr.write(|w| w.pg().set_bit());
+        // 5. Program halfwords (16-bit)
+        flash.cr.write(|w| w.pg().program());
 
         let halfword_count = core::mem::size_of::<RadioStorage>() / 2;
         let src = storage as *const RadioStorage as *const u16;
@@ -448,10 +457,14 @@ pub fn save_storage(storage: &RadioStorage) {
             while flash.sr.read().bsy().bit_is_set() && timeout > 0 {
                 timeout -= 1;
             }
+            if flash.sr.read().pgerr().is_error() || flash.sr.read().wrprt().is_error() {
+                flash.sr.write(|w| w.wrprt().error().pgerr().error());
+            }
         }
 
-        // Lock flash
-        flash.cr.write(|w| w.lock().set_bit());
+        // 6. Disable PG and lock Flash
+        flash.cr.write(|w| w.bits(0));
+        flash.cr.write(|w| w.lock().locked());
 
         crate::watchdog::feed();
     });
