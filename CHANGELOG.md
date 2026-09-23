@@ -9,25 +9,64 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.16.0-rc.3] - 2026-09-23
 
+### Summary
+Comprehensive architectural upgrade migrating the peripheral driver layer to direct register access via the Peripheral Access Crate (`pac`), implementing a 2.0-second hardware watchdog with debug halt freezing, introducing an 8 KB 4-page append-only log storage engine powered by `sequential-storage` (yielding sub-3ms non-blocking saves with zero page erases on edits), refining USB composite mode with silent CLI connection, and synchronizing all project documentation.
+
 ### Added
-- **Hardware Watchdog Subsystem (`pac::IWDG`)**:
-  - Pure PAC 2.0-second hardware watchdog clocked by the 40 kHz internal low-speed oscillator (LSI) with prescaler `/128` and reload `625`.
-  - LSI clock stabilization verification via `pac::RCC.csr.lsirdy` before key registration.
-  - Debug halt freeze configured via `DBGMCU_APB1_FZ.DBG_IWDG_STOP`, allowing non-intrusive SWD debugging without unexpected watchdog resets.
-  - Refreshed at ~500 Hz at the bottom of the main execution loop (`watchdog::feed()`).
-- **Log-Structured Append-Only Storage Engine (`sequential-storage`)**:
-  - 4-page (8 KB, Pages 60–63 at `0x0801_E000 .. 0x0802_0000`) log-structured storage engine powered by `sequential-storage`.
-  - Key-value mapping: Key 0 = `RadioConfig` (128B), Keys 1..20 = `ModelConfig` (128B each).
-  - Sub-3ms (~2.8 ms) non-blocking saves with **zero page erases** on routine model and setting updates, eliminating the previous ~50 ms UI stutter.
-  - Automatic wear-levelled background compaction when all 4 pages fill up, with watchdog feeding between sector erases.
-  - Multi-tier automatic migration from legacy v3 snapshot (`0x0801_F000`) and legacy v1/v2 (`0x0801_F800`).
-  - Memory partition updated: application code partition set to 120 KB (`0x0800_0000 .. 0x0801_DFFF`, Pages 0–59) in `memory.x`.
+- **Pure PAC Hardware Peripheral Architecture (`7c45a2c`)**:
+  - **System Clock & LSI Stabilization ([`src/chip/mod.rs`](src/chip/mod.rs))**: Migrated clock configuration and flash latency setup to pure PAC (`pac::RCC` and `pac::FLASH`). Added explicit LSI enable (`RCC_CSR.lsion`) with bounded wait loop on `RCC_CSR.lsirdy` to guarantee the 40 kHz internal low-speed oscillator is stable prior to peripheral and watchdog activation.
+  - **Key Matrix Scanning ([`src/boot.rs`](src/boot.rs))**: Migrated `init_keys()` and `scan_keys()` to `pac::GPIOC`, `pac::GPIOD`, `pac::GPIOF`, and `pac::RCC`.
+  - **Piezo PWM Buzzer ([`src/buzzer.rs`](src/buzzer.rs))**: Migrated PA8 alternate function routing and TIM1 PWM setup to `pac::GPIOA`, `pac::TIM1`, and `pac::RCC`.
+  - **ST7567 LCD Driver ([`src/display/st7567.rs`](src/display/st7567.rs))**: Migrated 8-bit parallel bus control (`GPIOE->ODR`) and control strobe sequencing to direct PAC registers. Framebuffer is explicitly cleared (`clear_buffer()`) and pushed to the display (`flush()`) *before* backlight PWM is turned on, preventing power-on visual noise.
+- **Deterministic 2.0s Hardware Watchdog (`b4deb69`)**:
+  - Independent hardware watchdog implemented via `pac::IWDG` clocked by the 40 kHz LSI oscillator with prescaler `/128` (PR=5, 312.5 Hz tick rate) and reload count `625` (exact 2.000s timeout).
+  - **Debug Halt Freezing**: Sets `DBGMCU_APB1_FZ.DBG_IWDG_STOP` with `RCC_APB2ENR.DBGMCUEN` pre-enabled, allowing SWD debuggers (ST-Link, probe-rs, GDB) to pause CPU execution on breakpoints without triggering watchdog resets.
+  - **Standalone Zero-Cost Feed**: Inlined `watchdog::feed()` writing key `0xAAAA` to `IWDG_KR`, called at ~500 Hz at the bottom of the main execution loop and during storage operations.
+- **Log-Structured Append-Only Flash Storage Engine (`832a72b`)**:
+  - **4-Page Memory Allocation**: Pages 60, 61, 62, and 63 (`0x0801_E000 .. 0x0802_0000`, 8,192 bytes total) reserved exclusively for non-volatile storage.
+  - **Log-Structured Engine**: Powered by `sequential-storage` (`sequential_storage::map`), mapping Key 0 to `RadioConfig` (128 bytes) and Keys 1..20 to `ModelConfig` profiles (128 bytes each).
+  - **Sub-3ms Non-Blocking Saves**: Incremental updates append only ~132 bytes to the open log page in **~2.8 ms with zero page erases**, eliminating the ~50 ms UI stall and loop jitter of whole-page erasing.
+  - **Automatic Wear-Levelled Compaction**: When all 4 sectors become full of historical revisions, `sequential-storage` automatically compacts active records into a newly erased page, rotating evenly across Pages 60–63.
+  - **Multi-Tier Legacy Migration**: Probes sequential storage first; if empty, automatically imports legacy v3 snapshot data from Page 62 (`0x0801_F000`) or legacy v1/v2 data from Page 63 (`0x0801_F800`) before committing factory defaults.
 - **Pure PAC Flash Driver (`FlashStorage`)**:
-  - Direct PAC register implementation of `embedded_storage::nor_flash::NorFlash` and `MultiwriteNorFlash` using `stm32f0::stm32f0x2::pac::FLASH`.
-  - Safe register hygiene with `write_with_zero` on `FLASH_CR` preventing inadvertent `LOCK` re-assertion, and thorough `FLASH_SR` flag clearing.
-- **USB Composite Mode & Silent CLI Experience**:
-  - Official EdgeTX Composite VID/PID (`0x1209:0x4968`) with Interface Association Descriptors (IAD) for simultaneous HID Gamepad and CDC-ACM Virtual COM port.
-  - Silent terminal connection: eliminated unsolicited banner broadcast on USB enumeration to prevent FIFO drops and partial greeting banners; interactive `i6x> ` prompt returned on newline.
+  - Direct PAC register implementation of `embedded_storage::nor_flash::NorFlash` and `MultiwriteNorFlash` using `pac::FLASH`.
+  - Flash unlock sequence via `FLASH_KEYR` (`0x4567_0123`, `0xCDEF_89AB`) and status flag hygiene (`EOP`, `WRPRTERR`, `PGERR`).
+- **Main Event Loop & Safety Lifecycle Integration (`1fd6a85`)**:
+  - Deterministic boot order: early watchdog feed -> DFU check -> clock init & LSI stabilization -> SysTick -> clean LCD wipe -> watchdog start -> peripheral init -> pre-flight check -> main loop.
+  - 100% stick throw preservation with adaptive pre-flight checks: uncalibrated checks raw ADC counts (`state.raw[2] > 1400`), calibrated checks normalized pulses (`state.sticks.throttle > -900`).
+- **USB Composite Mode & Silent CLI Experience (`fc8c88f`)**:
+  - EdgeTX composite device identity (`0x1209:0x4968`) with Interface Association Descriptors (IAD) enabling simultaneous 100 Hz HID Gamepad and CDC-ACM Virtual COM port.
+  - Silent terminal connection: eliminated unsolicited banner transmission on USB enumeration, preventing buffer stalls, FIFO packet drops, and truncated greetings in terminal emulators (`picocom`, `minicom`, PuTTY).
+  - Interactive prompt `i6x> ` rendered upon `[Enter]`, with built-in commands: `help`, `status`, `channels`, `telem`, `stream` (continuous 10 Hz JSON telemetry streaming, any key to pause), and `reboot`.
+
+### Changed
+- **Memory Map Partitioning (`memory.x`)**:
+  - Clamped application flash partition `FLASH (rx)` to `120K` (`0x0800_0000 .. 0x0801_DFFF`, Pages 0–59), physically preventing linker code overflow from invading the storage sector at `0x0801_E000`.
+- **Comprehensive Documentation Synchronization (`14874cf`)**:
+  - Fully updated [`README.md`](README.md), [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md), [`docs/CALIBRATION_AND_STORAGE.md`](docs/CALIBRATION_AND_STORAGE.md), [`docs/HARDWARE_REFERENCE.md`](docs/HARDWARE_REFERENCE.md), [`docs/USB_SUBSYSTEM.md`](docs/USB_SUBSYSTEM.md), [`docs/MIXER.md`](docs/MIXER.md), and [`docs/USER_GUIDE.md`](docs/USER_GUIDE.md) to reflect PAC drivers, watchdog timing, 4-page sequential storage, and USB composite CLI.
+
+### Fixed
+- **Flash Control Register LOCK Bit Re-Assertion (`d6bea38`)**:
+  - **Issue**: Standard `modify()` writes on `FLASH_CR` in `stm32f0xx-hal` re-wrote the read state of bit 7 (`LOCK`), inadvertently re-locking the flash peripheral before page erase or halfword programming could execute.
+  - **Resolution**: Implemented PAC register writes using `write_with_zero` on `FLASH_CR` with `LOCK = 0`, ensuring flash remains unlocked throughout erase and write sequences.
+- **Flash Status Register Error Flag Clearing & Page Erase Sequence (`4d3e244`)**:
+  - **Issue**: Lingering `PGERR` or `WRPRTERR` flags from prior power cycles blocked subsequent erase operations.
+  - **Resolution**: Cleared all status flags prior to operation and followed ST programming manual sequence (`PER` set, `AR` address write, `STRT` assert, `BSY` poll, `PER` clear).
+- **Watchdog APB1 Freeze HardFault (`b4deb69`)**:
+  - **Issue**: Writing to `DBGMCU_APB1_FZ` during startup caused an immediate bus fault and continuous buzzer lockup because the DBGMCU clock was not enabled.
+  - **Resolution**: Asserted `RCC_APB2ENR.DBGMCUEN` before setting `DBGMCU_APB1_FZ.DBG_IWDG_STOP`.
+- **USB Terminal Corrupted Greeting Banner (`fc8c88f`)**:
+  - **Issue**: Sending an unsolicited 160-byte greeting banner immediately upon USB bus configuration caused terminal emulators connected later (via `picocom /dev/ttyACM0`) to display partial leftover fragments (`================================`).
+  - **Resolution**: Removed automatic enumeration banner; terminal connects silently and provides clean interactive CLI on demand.
+
+### Firmware Footprint Verification
+```text
+   text    data     bss     dec     hex filename
+  89432    1876    1128   92436   16914 flysky-i6x-rs
+```
+- **Application Flash (.text + .data)**: **91,308 bytes (~89.2 KB)** used out of **120 KB (122,880 bytes)** code partition (**>30.8 KB / 25.7% free headroom**).
+- **Static RAM (.data + .bss)**: **3,004 bytes (~2.9 KB)** out of **16 KB (16,384 bytes)** total SRAM (**>81% free**, >6.3 KB stack margin).
+- **Non-Volatile Storage**: **8,192 bytes** (Pages 60–63, `0x0801_E000 .. 0x0802_0000`).
 
 ---
 
