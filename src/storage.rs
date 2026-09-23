@@ -397,7 +397,7 @@ pub fn load_storage() -> RadioStorage {
 
 /// Save complete storage to Flash (Pages 62 and 63).
 /// Wrapped in a critical section to prevent CPU bus stalls and ISR preemption during Flash programming.
-pub fn save_storage(storage: &RadioStorage) {
+pub fn save_storage(storage: &RadioStorage) -> bool {
     let flash = unsafe { &*pac::FLASH::ptr() };
 
     cortex_m::interrupt::free(|_| unsafe {
@@ -409,18 +409,27 @@ pub fn save_storage(storage: &RadioStorage) {
             flash.keyr.write(|w| w.bits(FLASH_KEY2));
         }
 
+        // Verify Flash CR unlocked successfully
+        if flash.cr.read().lock().bit_is_set() {
+            return false;
+        }
+
         let mut timeout = 1_000_000u32;
         while flash.sr.read().bsy().bit_is_set() && timeout > 0 {
             timeout -= 1;
+        }
+        if timeout == 0 {
+            return false;
         }
 
         // 2. Clear any lingering error or EOP flags in SR (write 1 to clear)
         flash.sr.write(|w| w.eop().event().wrprt().error().pgerr().error());
 
         // 3. Erase Page 62 (0x0801_F000)
-        flash.cr.write(|w| w.per().page_erase());
-        flash.ar.write(|w| w.far().bits(FLASH_STORAGE_ADDR as u32));
-        flash.cr.write(|w| w.per().page_erase().strt().start());
+        // CR reset value has LOCK bit set (0x80); write_with_zero must be used so LOCK is not set!
+        flash.cr.write_with_zero(|w| w.per().page_erase());
+        flash.ar.write_with_zero(|w| w.far().bits(FLASH_STORAGE_ADDR as u32));
+        flash.cr.write_with_zero(|w| w.per().page_erase().strt().start());
         timeout = 1_000_000;
         while flash.sr.read().bsy().bit_is_set() && timeout > 0 {
             timeout -= 1;
@@ -430,21 +439,21 @@ pub fn save_storage(storage: &RadioStorage) {
         crate::watchdog::feed();
 
         // 4. Erase Page 63 (0x0801_F800)
-        flash.cr.write(|w| w.per().page_erase());
-        flash.ar.write(|w| w.far().bits((FLASH_STORAGE_ADDR + 2048) as u32));
-        flash.cr.write(|w| w.per().page_erase().strt().start());
+        flash.cr.write_with_zero(|w| w.per().page_erase());
+        flash.ar.write_with_zero(|w| w.far().bits((FLASH_STORAGE_ADDR + 2048) as u32));
+        flash.cr.write_with_zero(|w| w.per().page_erase().strt().start());
         timeout = 1_000_000;
         while flash.sr.read().bsy().bit_is_set() && timeout > 0 {
             timeout -= 1;
         }
         flash.sr.write(|w| w.eop().event().wrprt().error().pgerr().error());
         // Clear PER
-        flash.cr.write(|w| w.bits(0));
+        flash.cr.write_with_zero(|w| w.bits(0));
 
         crate::watchdog::feed();
 
         // 5. Program halfwords (16-bit)
-        flash.cr.write(|w| w.pg().program());
+        flash.cr.write_with_zero(|w| w.pg().program());
 
         let halfword_count = core::mem::size_of::<RadioStorage>() / 2;
         let src = storage as *const RadioStorage as *const u16;
@@ -460,30 +469,38 @@ pub fn save_storage(storage: &RadioStorage) {
             if flash.sr.read().pgerr().is_error() || flash.sr.read().wrprt().is_error() {
                 flash.sr.write(|w| w.wrprt().error().pgerr().error());
             }
+            if (i & 0xFF) == 0 {
+                crate::watchdog::feed();
+            }
         }
 
         // 6. Disable PG and lock Flash
-        flash.cr.write(|w| w.bits(0));
+        flash.cr.write_with_zero(|w| w.bits(0));
         flash.cr.write(|w| w.lock().locked());
 
         crate::watchdog::feed();
-    });
+
+        // 7. Verify written data in Flash
+        let written_magic = core::ptr::read_volatile(FLASH_STORAGE_ADDR as *const u32);
+        let written_ver = core::ptr::read_volatile((FLASH_STORAGE_ADDR + 4) as *const u32);
+        written_magic == FLASH_MAGIC && written_ver == CONFIG_VERSION
+    })
 }
 
 /// Save only the active model configuration (fast delta save).
 /// Currently calls save_storage to guarantee rock-solid consistency across the 2-page flash.
 #[allow(dead_code)]
 #[inline(always)]
-pub fn save_active_model(storage: &RadioStorage) {
-    save_storage(storage);
+pub fn save_active_model(storage: &RadioStorage) -> bool {
+    save_storage(storage)
 }
 
 /// Save only the system radio configuration (fast delta save).
 /// Currently calls save_storage to guarantee rock-solid consistency across the 2-page flash.
 #[allow(dead_code)]
 #[inline(always)]
-pub fn save_radio_config(storage: &RadioStorage) {
-    save_storage(storage);
+pub fn save_radio_config(storage: &RadioStorage) -> bool {
+    save_storage(storage)
 }
 
 /// Convenience helper to load current RadioConfig directly from Flash (only 128 bytes, 0 stack bloat).
