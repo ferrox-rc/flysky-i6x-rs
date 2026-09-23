@@ -239,7 +239,7 @@ Here are proven mixer setups used by RC pilots:
 
 ## 7. Storage & Flash Memory Budget
 
-All Phase 10 flight mixer parameters are stored directly inside each 128-byte [`ModelConfig`](../src/storage.rs#L88) structure in Flash Pages 62 & 63 (`0x0801_F000`):
+All Phase 10 flight mixer parameters are stored directly inside each 128-byte [`ModelConfig`](../src/storage.rs) structure in the append-only sequential storage log (Keys 1..20 across Flash Pages 60–63 at `0x0801_E000`):
 
 | Parameter | Type | Bytes | Offset in Model Profile |
 | :--- | :--- | :--- | :--- |

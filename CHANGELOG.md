@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.16.0-rc.3] - 2026-09-23
+
+### Added
+- **Hardware Watchdog Subsystem (`pac::IWDG`)**:
+  - Pure PAC 2.0-second hardware watchdog clocked by the 40 kHz internal low-speed oscillator (LSI) with prescaler `/128` and reload `625`.
+  - LSI clock stabilization verification via `pac::RCC.csr.lsirdy` before key registration.
+  - Debug halt freeze configured via `DBGMCU_APB1_FZ.DBG_IWDG_STOP`, allowing non-intrusive SWD debugging without unexpected watchdog resets.
+  - Refreshed at ~500 Hz at the bottom of the main execution loop (`watchdog::feed()`).
+- **Log-Structured Append-Only Storage Engine (`sequential-storage`)**:
+  - 4-page (8 KB, Pages 60–63 at `0x0801_E000 .. 0x0802_0000`) log-structured storage engine powered by `sequential-storage`.
+  - Key-value mapping: Key 0 = `RadioConfig` (128B), Keys 1..20 = `ModelConfig` (128B each).
+  - Sub-3ms (~2.8 ms) non-blocking saves with **zero page erases** on routine model and setting updates, eliminating the previous ~50 ms UI stutter.
+  - Automatic wear-levelled background compaction when all 4 pages fill up, with watchdog feeding between sector erases.
+  - Multi-tier automatic migration from legacy v3 snapshot (`0x0801_F000`) and legacy v1/v2 (`0x0801_F800`).
+  - Memory partition updated: application code partition set to 120 KB (`0x0800_0000 .. 0x0801_DFFF`, Pages 0–59) in `memory.x`.
+- **Pure PAC Flash Driver (`FlashStorage`)**:
+  - Direct PAC register implementation of `embedded_storage::nor_flash::NorFlash` and `MultiwriteNorFlash` using `stm32f0::stm32f0x2::pac::FLASH`.
+  - Safe register hygiene with `write_with_zero` on `FLASH_CR` preventing inadvertent `LOCK` re-assertion, and thorough `FLASH_SR` flag clearing.
+- **USB Composite Mode & Silent CLI Experience**:
+  - Official EdgeTX Composite VID/PID (`0x1209:0x4968`) with Interface Association Descriptors (IAD) for simultaneous HID Gamepad and CDC-ACM Virtual COM port.
+  - Silent terminal connection: eliminated unsolicited banner broadcast on USB enumeration to prevent FIFO drops and partial greeting banners; interactive `i6x> ` prompt returned on newline.
+
+---
+
 ## [0.16.0-rc.1] - 2026-09-21
 
 ### Added

@@ -452,14 +452,15 @@ When connected via USB in `JOYSTICK` mode:
 - Unplugging the USB cable or switching to `SERIAL` mode immediately restores normal RF transmission to your aircraft.
 
 ### 3. Virtual COM Port & Telemetry Streaming
-In **`SERIAL`** or **`COMPOSITE`** mode, the radio exposes a virtual serial port (`/dev/ttyACM0` on Linux, `COMx` on Windows):
-- **Live Telemetry (20 Hz)**: Streams structured JSON Lines (`ndjson`) universally parseable by Python, Node.js, or WebSerial:
+In **`SERIAL`** or **`COMPOSITE`** mode, the radio exposes a standard virtual serial port (`/dev/ttyACM0` on Linux, `COMx` on Windows):
+- **Clean Interactive CLI**: Connecting with a serial terminal (`sudo picocom /dev/ttyACM0 --imap lfcrlf`) connects silently without buffer spew. Pressing `[Enter]` displays the `i6x> ` prompt:
+  - `help`: List available commands.
+  - `status`: Show firmware version, RF protocol, and battery/telemetry overview.
+  - `channels`: Print real-time pulse widths in JSON format `{"ch":[...]}`.
+  - `telem`: Print a single JSON telemetry line on demand.
+  - `stream`: Start continuous 10 Hz JSON telemetry streaming (press any key to stop).
+  - `reboot`: Trigger a software system reset.
+- **Universal Telemetry Streaming (10 Hz)**: Streams structured JSON Lines (`ndjson`) universally parseable by Python, Node.js, or WebSerial:
   ```json
   {"vbat":5.18,"rssi":98,"rx_v":5.02,"tx":15820,"rx":15798,"err":22,"ch":[1500,1500,1150,1500,1000,1000,1500,1500,1000,1000,1500,1500,1500,1500]}
   ```
-- **Interactive CLI**: Open a terminal at 115200 baud to query system state:
-  - `help`: List available commands (`help, status, channels, telem, reboot`).
-  - `status`: Show firmware version and current JSON status line.
-  - `channels`: Print real-time pulse widths in JSON format `{"ch":[...]}`.
-  - `telem`: Print a single JSON telemetry line on demand.
-  - `reboot`: Trigger a software system reset.

@@ -14,11 +14,11 @@
 | **System Busses** | **AHB = 48 MHz, APB = 48 MHz** | Prescalers set to 1 for maximum peripheral throughput |
 | **USB Physical Clock** | **USBSW = 1 (PLLCLK)** | Routes 48.000 MHz PLL directly to USB peripheral (`RCC_CFGR3` bit 7) |
 
-Implemented in [`src/chip/mod.rs`](../src/chip/mod.rs).
+Implemented in [`src/chip/mod.rs`](../src/chip/mod.rs) using pure PAC direct register access (`pac::RCC`).
 
 ---
 
-## 2. Real-Time Concurrency Model
+## 2. Real-Time Concurrency & Safety Model
 
 ```mermaid
 flowchart TD
@@ -29,6 +29,7 @@ flowchart TD
         USB_IRQ["USB Full-Speed Interrupt<br>Low priority (0xC0), handles host bus events"]
         PWM_Audio["TIM1 Channel 1 (Hardware PWM @ PA8)<br>Drives Piezo Buzzer Audio Frequencies"]
         PWM_BL["TIM3 Channel 4 (Hardware PWM @ PC9)<br>1 kHz Backlight Dimming Mod"]
+        IWDG["Hardware Watchdog (pac::IWDG @ 40 kHz LSI)<br>2.0s Hard Timeout, APB1 Freeze in Debug"]
     end
 
     subgraph Main_Thread ["Main Execution Loop (~500 Hz)"]
@@ -37,18 +38,21 @@ flowchart TD
         Trims["3. Apply Digital Trims<br>Roll, Pitch, Throttle (Option 1/2), Yaw"]
         Curves["4. Curve Engine (curve::evaluate_curve)<br>5/9-Point Catmull-Rom Spline Interpolation"]
         Rev["5. Channel Reversing<br>14-bit mask: pulse = 3000 - pulse"]
-        USB_Poll["6. USB Subsystem Poll (usb::poll)<br>100 Hz HID Gamepad & 20 Hz Telemetry CLI"]
+        USB_Poll["6. USB Subsystem Poll (usb::poll)<br>100 Hz HID Gamepad & CDC Serial CLI"]
         RF_Update["7. Update rf::set_channels(&rf_chs)<br>Pushes latest channels to atomic buffer (RF standby if Sim)"]
         Menu_Router["8. Menu State Machine & Wizards<br>Model Select, Setup, Curves, Calib"]
         LCD_Draw["9. Draw Framebuffer & Strobe LCD<br>ST7567 8-bit parallel bus (~1.2 ms)"]
+        WDT_Feed["10. Pet Hardware Watchdog (watchdog::feed)<br>Prevents 2.0s hardware reset"]
     end
 
     DMA -.-> ADC_Poll
-    ADC_Poll --> Keys --> Trims --> Curves --> Rev --> USB_Poll --> RF_Update
+    ADC_Poll --> Keys --> Trims --> Curves --> Rev --> USB_Poll --> RF_Update --> Menu_Router --> LCD_Draw --> WDT_Feed
     RF_Update -. Atomic Buffer .-> TIM16
+    WDT_Feed -. Reload .-> IWDG
 ```
 
-### Interrupt Priorities
+### Interrupt Priorities & Safety Systems
+- **Hardware Watchdog (`pac::IWDG`)**: Independent 2.0-second hardware watchdog running off the 40 kHz internal low-speed oscillator (LSI) with prescaler `/128` (312.5 Hz tick rate) and reload count `625`. Prior to watchdog key registration, LSI clock stabilization is confirmed via `pac::RCC.csr.lsirdy`. To support non-intrusive SWD debugging via ST-Link or probe-rs, `DBGMCU_APB1_FZ.DBG_IWDG_STOP` is set so the watchdog timer freezes when the core is halted. The watchdog is refreshed (`watchdog::feed()`) strictly at the bottom of the main execution loop (~500 Hz).
 - **High Priority (RF Transmission)**: `TIM16` fires strictly every **3.850 ms** (259.74 Hz). It pulls the latest pre-computed channel microsecond pulses from `PENDING_CHANNELS` and initiates A7105 SPI transmission. Priority = `0x80`.
 - **Medium Priority (Radio Event)**: `EXTI2_3` fires on A7105 GIO2 line transitions (packet transmission complete or downlink telemetry packet received). Priority = `0x80`.
 - **Autonomous DMA**: `DMA1_CH1` transfers all 11 ADC channels directly into circular SRAM buffers with zero CPU intervention.
@@ -69,11 +73,12 @@ flowchart TD
 ## 4. Memory Footprint
  
 Measured on release builds (`thumbv6m-none-eabi`, opt-level = "z", LTO = "fat"):
-- **Firmware Binary**: **74.9 KB** (84,064 bytes binary) out of **128 KB** available.
-- **Free Program Space**: **~53 KB** (~41.5% Flash free headroom) remaining for future expansions.
-- **Non-Volatile Storage (Flash Pages 62–63)**: **2,688 bytes** allocated for global radio configuration and 20 full model profiles (1,408 bytes free headroom).
-- **SRAM (16 KB total)**: **2.8 KB** static allocation (`.data` 1,776 bytes + `.bss` 1,120 bytes) + 1024-byte LCD framebuffer + 1024-byte USB Packet Memory Area (PMA). **Over 82% of SRAM remains free**, with **> 6.3 KB** guaranteed stack margin preventing any stack-on-static collision.
-- **Zero Heap & In-Place Loading**: Entirely static allocation; no dynamic heap allocations, no `alloc` crate, and zero pass-by-value stack instantiation for 2.7 KB model storage structures.
+- **Application Flash Partition (`memory.x`)**: **120 KB** (`0x0800_0000 .. 0x0801_DFFF`, Pages 0–59) allocated for firmware code.
+- **Firmware Binary**: **~89.4 KB** (.text 89,432 bytes + .data 1,876 bytes = 91.3 KB flash total).
+- **Free Program Space**: **~30.8 KB** (~25.7% free headroom) remaining within the 120 KB partition for future expansions.
+- **Non-Volatile Storage (Flash Pages 60–63)**: **8 KB** (`0x0801_E000 .. 0x0802_0000`, 4 × 2048-byte pages) managed as a log-structured append-only storage engine via `sequential-storage`. Writes complete in **~2.8 ms** with zero page erases on routine updates, wear-levelled across all 4 pages.
+- **SRAM (16 KB total)**: **~3.0 KB** static allocation (`.data` 1,876 bytes + `.bss` 1,128 bytes) + 1024-byte LCD framebuffer + 1024-byte USB Packet Memory Area (PMA). **Over 81% of SRAM remains free**, with **> 6.3 KB** guaranteed stack margin preventing any stack-on-static collision.
+- **Zero Heap & In-Place Loading**: Entirely static allocation; no dynamic heap allocations, no `alloc` crate, and zero pass-by-value stack instantiation for model storage structures.
 
 ---
 
