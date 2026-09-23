@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [0.16.0-rc.3] - 2026-09-23
+## [0.16.0-rc.4] - 2026-09-23
 
 ### Summary
 Comprehensive architectural upgrade migrating the peripheral driver layer to direct register access via the Peripheral Access Crate (`pac`), implementing a 2.0-second hardware watchdog with debug halt freezing, introducing an 8 KB 4-page append-only log storage engine powered by `sequential-storage` (yielding sub-3ms non-blocking saves with zero page erases on edits), refining USB composite mode with silent CLI connection, and synchronizing all project documentation.
