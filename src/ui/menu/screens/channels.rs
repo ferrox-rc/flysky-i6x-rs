@@ -29,7 +29,7 @@ pub fn update_aux_channels(
         if ctrl.editing {
             ctrl.editing = false;
         } else {
-            storage::save_storage(storage);
+            storage::save_active_model(storage);
             ctrl.state = MenuState::MainMenu;
             ctrl.selected_item = 5;
             ctrl.scroll_offset = 0;
@@ -105,7 +105,7 @@ pub fn update_channel_reverse(
     let active_idx = storage.radio.active_model as usize;
 
     if keys.cancel {
-        storage::save_storage(storage);
+        storage::save_active_model(storage);
         ctrl.state = MenuState::MainMenu;
         ctrl.selected_item = 6;
         ctrl.scroll_offset = 0;

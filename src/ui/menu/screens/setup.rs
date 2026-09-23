@@ -48,7 +48,7 @@ pub fn update_radio_setup(
                 buzzer.click();
                 storage.radio.throttle_trim = (storage.radio.throttle_trim + 1) % 3;
                 trims.throttle_enabled = storage.radio.throttle_trim != 0;
-                storage::save_storage(storage);
+                storage::save_radio_config(storage);
             }
             1 => {
                 storage.radio.audio_enabled = if storage.radio.audio_enabled == 0 { 1 } else { 0 };
@@ -56,13 +56,13 @@ pub fn update_radio_setup(
                 if buzzer.enabled {
                     buzzer.click();
                 }
-                storage::save_storage(storage);
+                storage::save_radio_config(storage);
             }
             2 => {
                 // Toggle Tone Style: 0=Simple, 1=Rich
                 storage.radio.tone_style = if storage.radio.tone_style == 0 { 1 } else { 0 };
                 buzzer.tone_style = crate::buzzer::ToneStyle::from_u8(storage.radio.tone_style);
-                storage::save_storage(storage);
+                storage::save_radio_config(storage);
                 if buzzer.tone_style == crate::buzzer::ToneStyle::Rich {
                     buzzer.chime_armed();
                 } else {
@@ -72,7 +72,7 @@ pub fn update_radio_setup(
             3 => {
                 buzzer.click();
                 storage.radio.backlight_timeout = (storage.radio.backlight_timeout + 1) % 4;
-                storage::save_storage(storage);
+                storage::save_radio_config(storage);
             }
             4 => {
                 buzzer.click();
@@ -82,7 +82,7 @@ pub fn update_radio_setup(
                     storage.radio.backlight_brightness + 1
                 };
                 lcd.set_backlight_level(storage.radio.backlight_brightness * 10);
-                storage::save_storage(storage);
+                storage::save_radio_config(storage);
             }
             5 => {
                 buzzer.click();
@@ -92,7 +92,7 @@ pub fn update_radio_setup(
                     (storage.radio.lcd_contrast + 3).min(50)
                 };
                 lcd.set_contrast(storage.radio.lcd_contrast);
-                storage::save_storage(storage);
+                storage::save_radio_config(storage);
             }
             6 => {
                 buzzer.click();
@@ -101,19 +101,19 @@ pub fn update_radio_setup(
                 } else {
                     storage.radio.vbat_warn_deci + 1
                 };
-                storage::save_storage(storage);
+                storage::save_radio_config(storage);
             }
             7 => {
                 buzzer.click();
                 storage.radio.usb_mode = (storage.radio.usb_mode + 1) % 4;
-                storage::save_storage(storage);
+                storage::save_radio_config(storage);
                 crate::usb::init(storage.radio.usb_mode);
             }
             8 => {
                 buzzer.click();
                 storage.radio.ext_module_pwr = if storage.radio.ext_module_pwr == 0 { 1 } else { 0 };
                 crate::crsf::set_power_polarity(storage.radio.ext_module_pwr == 0);
-                storage::save_storage(storage);
+                storage::save_radio_config(storage);
             }
             _ => {}
         }

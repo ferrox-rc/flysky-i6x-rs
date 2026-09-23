@@ -333,7 +333,7 @@ impl BackgroundIdleManager {
             if new_rx_id != 0 && new_rx_id != 0xFFFF_FFFF && storage.active_model().rx_id != new_rx_id {
                 storage.active_model_mut().rx_id = new_rx_id;
                 if !pipeline.prev_armed {
-                    storage::save_storage(storage);
+                    storage::save_active_model(storage);
                     buzzer.play_tone_pattern(2400, 70, 50, 2);
                 }
             }

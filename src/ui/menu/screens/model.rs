@@ -114,7 +114,7 @@ pub fn update_setup(
 
     if !ctrl.editing {
         if keys.cancel {
-            storage::save_storage(storage);
+            storage::save_active_model(storage);
             ctrl.state = MenuState::MainMenu;
             ctrl.selected_item = 1;
             ctrl.waiting_release = true;
@@ -140,12 +140,12 @@ pub fn update_setup(
                 }
                 1 => {
                     storage.models[active_idx].model_type = (storage.models[active_idx].model_type + 1) % 4;
-                    storage::save_storage(storage);
+                    storage::save_active_model(storage);
                     buzzer.click();
                 }
                 2 => {
                     storage.models[active_idx].arm_switch = (storage.models[active_idx].arm_switch + 1) % 11;
-                    storage::save_storage(storage);
+                    storage::save_active_model(storage);
                     if storage.models[active_idx].arm_switch != 0 {
                         buzzer.chime_armed();
                     } else {
@@ -160,7 +160,7 @@ pub fn update_setup(
                 }
                 4 => {
                     storage.models[active_idx] = ModelConfig::default_for_index(active_idx);
-                    storage::save_storage(storage);
+                    storage::save_active_model(storage);
                     buzzer.play_tone_pattern(2200, 80, 50, 2);
                     ctrl.waiting_release = true;
                 }
@@ -171,7 +171,7 @@ pub fn update_setup(
         // Name editing mode
         if keys.cancel {
             ctrl.editing = false;
-            storage::save_storage(storage);
+            storage::save_active_model(storage);
             buzzer.click();
         } else if keys.bind {
             ctrl.sub_idx = (ctrl.sub_idx + 1) % 10;
@@ -183,7 +183,7 @@ pub fn update_setup(
             } else {
                 ctrl.editing = false;
                 ctrl.selected_item = 1;
-                storage::save_storage(storage);
+                storage::save_active_model(storage);
                 buzzer.play_tone(2600, 40);
             }
         } else if keys.up {

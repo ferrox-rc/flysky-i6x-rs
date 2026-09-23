@@ -21,6 +21,7 @@ usbd-hid = "0.10.2"
 usbd-serial = "0.2.2"
 sequential-storage = "8.0.1"
 embedded-storage = "0.3.2"
+embedded-storage-async = "0.4.1"
 
 [features]
 default = ["stm32"]

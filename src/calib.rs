@@ -215,7 +215,7 @@ impl CalibWizard {
                         }
 
                         input::apply_calibration(&storage.radio);
-                        storage::save_storage(storage);
+                        storage::save_radio_config(storage);
 
                         buzzer.chime_calib_success();
                         self.step = CalibStep::Complete;

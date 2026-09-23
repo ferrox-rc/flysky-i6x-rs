@@ -1,14 +1,13 @@
 //! Flash storage for non-volatile configuration and 20-model memory system.
 //!
-//! - Page 62: 0x0801_F000 (2048 bytes)
-//! - Page 63: 0x0801_F800 (2048 bytes)
+//! Log-structured append-only storage (`sequential-storage`):
+//! - Pages 60..63: 0x0801_E000 .. 0x0802_0000 (8,192 bytes across 4 pages)
 //!
-//! Total available: 4096 bytes. Total used: 2688 bytes.
+//! Total capacity: 8,192 bytes. Active dataset: 2,688 bytes. Log append headroom: 3,456+ bytes.
 
+use embedded_storage_async::nor_flash::NorFlash;
 use stm32f0xx_hal::pac;
 
-pub const FLASH_STORAGE_ADDR: usize = 0x0801_F000;
-pub const FLASH_LEGACY_ADDR: usize = 0x0801_F800;
 pub const FLASH_MAGIC: u32 = 0x4653_4B59; // "FSKY"
 pub const CONFIG_VERSION: u32 = 4;
 pub const NUM_MODELS: usize = 20;
@@ -331,27 +330,365 @@ const _: () = assert!(core::mem::size_of::<RadioConfig>() == 128);
 const _: () = assert!(core::mem::size_of::<ModelConfig>() == 128);
 const _: () = assert!(core::mem::size_of::<RadioStorage>() == 2688);
 
+pub const FLASH_STORAGE_ADDR: usize = 0x0801_E000; // Page 60 start (8 KB storage across Pages 60..63)
+pub const FLASH_STORAGE_END: usize = 0x0802_0000;  // Page 63 end
+#[allow(dead_code)]
+pub const FLASH_STORAGE_PAGES: usize = 4;
+pub const FLASH_LEGACY_SNAPSHOT_ADDR: usize = 0x0801_F000; // Previous snapshot base
+pub const FLASH_LEGACY_ADDR: usize = 0x0801_F800; // Legacy v1/v2 base
+
+pub const KEY_RADIO: u8 = 0;
+pub const KEY_MODEL_BASE: u8 = 1;
+
+#[allow(dead_code)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum FlashError {
+    AddressMisaligned,
+    LengthMisaligned,
+    OutOfBounds,
+    ProgrammingError,
+    WriteProtectionError,
+    Timeout,
+    UnlockFailed,
+}
+
+impl core::fmt::Display for FlashError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
+
+impl embedded_storage_async::nor_flash::NorFlashError for FlashError {
+    fn kind(&self) -> embedded_storage_async::nor_flash::NorFlashErrorKind {
+        match self {
+            FlashError::AddressMisaligned | FlashError::LengthMisaligned => {
+                embedded_storage_async::nor_flash::NorFlashErrorKind::NotAligned
+            }
+            FlashError::OutOfBounds => {
+                embedded_storage_async::nor_flash::NorFlashErrorKind::OutOfBounds
+            }
+            _ => embedded_storage_async::nor_flash::NorFlashErrorKind::Other,
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+pub struct Stm32Flash;
+
+impl embedded_storage_async::nor_flash::ErrorType for Stm32Flash {
+    type Error = FlashError;
+}
+
+impl embedded_storage_async::nor_flash::ReadNorFlash for Stm32Flash {
+    const READ_SIZE: usize = 1;
+
+    async fn read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Self::Error> {
+        let capacity = self.capacity() as u32;
+        if offset as usize + bytes.len() > capacity as usize {
+            return Err(FlashError::OutOfBounds);
+        }
+        let src = offset as *const u8;
+        unsafe {
+            for (i, b) in bytes.iter_mut().enumerate() {
+                *b = core::ptr::read_volatile(src.add(i));
+            }
+        }
+        Ok(())
+    }
+
+    fn capacity(&self) -> usize {
+        0x0802_0000
+    }
+}
+
+impl embedded_storage_async::nor_flash::NorFlash for Stm32Flash {
+    const WRITE_SIZE: usize = 2; // 16-bit halfword programming on STM32F0
+    const ERASE_SIZE: usize = 2048; // 2 KB page erase
+
+    async fn erase(&mut self, from: u32, to: u32) -> Result<(), Self::Error> {
+        if from % 2048 != 0 || to % 2048 != 0 || from >= to {
+            return Err(FlashError::AddressMisaligned);
+        }
+
+        cortex_m::interrupt::free(|_| unsafe {
+            let flash = &*pac::FLASH::ptr();
+
+            if flash.cr.read().lock().bit_is_set() {
+                flash.keyr.write(|w| w.bits(FLASH_KEY1));
+                flash.keyr.write(|w| w.bits(FLASH_KEY2));
+            }
+            if flash.cr.read().lock().bit_is_set() {
+                return Err(FlashError::UnlockFailed);
+            }
+
+            let mut page_addr = from;
+            while page_addr < to {
+                crate::watchdog::feed();
+
+                let mut timeout = 1_000_000u32;
+                while flash.sr.read().bsy().bit_is_set() && timeout > 0 {
+                    timeout -= 1;
+                }
+                if timeout == 0 {
+                    return Err(FlashError::Timeout);
+                }
+
+                flash.sr.write(|w| w.eop().event().wrprt().error().pgerr().error());
+
+                flash.cr.write_with_zero(|w| w.per().page_erase());
+                flash.ar.write_with_zero(|w| w.far().bits(page_addr));
+                flash.cr.write_with_zero(|w| w.per().page_erase().strt().start());
+
+                timeout = 1_000_000;
+                while flash.sr.read().bsy().bit_is_set() && timeout > 0 {
+                    timeout -= 1;
+                }
+                if timeout == 0 {
+                    return Err(FlashError::Timeout);
+                }
+
+                if flash.sr.read().wrprt().is_error() {
+                    flash.sr.write(|w| w.wrprt().error());
+                    return Err(FlashError::WriteProtectionError);
+                }
+                flash.sr.write(|w| w.eop().event());
+
+                page_addr += 2048;
+            }
+
+            flash.cr.write_with_zero(|w| w.bits(0));
+            flash.cr.write(|w| w.lock().locked());
+            crate::watchdog::feed();
+
+            Ok(())
+        })
+    }
+
+    async fn write(&mut self, offset: u32, bytes: &[u8]) -> Result<(), Self::Error> {
+        if offset % 2 != 0 || bytes.len() % 2 != 0 {
+            return Err(FlashError::AddressMisaligned);
+        }
+        if bytes.is_empty() {
+            return Ok(());
+        }
+
+        cortex_m::interrupt::free(|_| unsafe {
+            let flash = &*pac::FLASH::ptr();
+
+            if flash.cr.read().lock().bit_is_set() {
+                flash.keyr.write(|w| w.bits(FLASH_KEY1));
+                flash.keyr.write(|w| w.bits(FLASH_KEY2));
+            }
+            if flash.cr.read().lock().bit_is_set() {
+                return Err(FlashError::UnlockFailed);
+            }
+
+            let mut timeout = 1_000_000u32;
+            while flash.sr.read().bsy().bit_is_set() && timeout > 0 {
+                timeout -= 1;
+            }
+            if timeout == 0 {
+                return Err(FlashError::Timeout);
+            }
+
+            flash.sr.write(|w| w.eop().event().wrprt().error().pgerr().error());
+            flash.cr.write_with_zero(|w| w.pg().program());
+
+            let halfwords = bytes.len() / 2;
+            let src = bytes.as_ptr() as *const u16;
+            let dst = offset as *mut u16;
+
+            for i in 0..halfwords {
+                let hw = core::ptr::read_unaligned(src.add(i));
+                core::ptr::write_volatile(dst.add(i), hw);
+
+                timeout = 100_000;
+                while flash.sr.read().bsy().bit_is_set() && timeout > 0 {
+                    timeout -= 1;
+                }
+                if timeout == 0 {
+                    flash.cr.write_with_zero(|w| w.bits(0));
+                    flash.cr.write(|w| w.lock().locked());
+                    return Err(FlashError::Timeout);
+                }
+
+                let sr = flash.sr.read();
+                if sr.pgerr().is_error() {
+                    flash.sr.write(|w| w.pgerr().error());
+                    flash.cr.write_with_zero(|w| w.bits(0));
+                    flash.cr.write(|w| w.lock().locked());
+                    return Err(FlashError::ProgrammingError);
+                }
+                if sr.wrprt().is_error() {
+                    flash.sr.write(|w| w.wrprt().error());
+                    flash.cr.write_with_zero(|w| w.bits(0));
+                    flash.cr.write(|w| w.lock().locked());
+                    return Err(FlashError::WriteProtectionError);
+                }
+                flash.sr.write(|w| w.eop().event());
+
+                if (i & 0x7F) == 0 {
+                    crate::watchdog::feed();
+                }
+            }
+
+            flash.cr.write_with_zero(|w| w.bits(0));
+            flash.cr.write(|w| w.lock().locked());
+            crate::watchdog::feed();
+
+            Ok(())
+        })
+    }
+}
+
+impl embedded_storage_async::nor_flash::MultiwriteNorFlash for Stm32Flash {}
+
+/// Zero-cost synchronous executor for non-blocking embedded leaf futures.
+fn block_on<F: core::future::Future>(mut future: F) -> F::Output {
+    use core::task::{Context, Poll, RawWaker, RawWakerVTable, Waker};
+
+    fn noop_clone(_: *const ()) -> RawWaker {
+        RawWaker::new(core::ptr::null(), &NOOP_VTABLE)
+    }
+    fn noop(_: *const ()) {}
+
+    static NOOP_VTABLE: RawWakerVTable = RawWakerVTable::new(noop_clone, noop, noop, noop);
+    let raw_waker = RawWaker::new(core::ptr::null(), &NOOP_VTABLE);
+    let waker = unsafe { Waker::from_raw(raw_waker) };
+    let mut cx = Context::from_waker(&waker);
+
+    let mut pinned = unsafe { core::pin::Pin::new_unchecked(&mut future) };
+    loop {
+        match pinned.as_mut().poll(&mut cx) {
+            Poll::Ready(output) => return output,
+            Poll::Pending => {
+                crate::watchdog::feed();
+            }
+        }
+    }
+}
+
+#[inline(always)]
+fn storage_config() -> sequential_storage::map::MapConfig<Stm32Flash> {
+    sequential_storage::map::MapConfig::new(FLASH_STORAGE_ADDR as u32..FLASH_STORAGE_END as u32)
+}
+
+impl<'a> sequential_storage::map::Value<'a> for RadioConfig {
+    fn serialize_into(&self, buffer: &mut [u8]) -> Result<usize, sequential_storage::map::SerializationError> {
+        let size = core::mem::size_of::<Self>();
+        if buffer.len() < size {
+            return Err(sequential_storage::map::SerializationError::BufferTooSmall);
+        }
+        let src = self as *const Self as *const u8;
+        unsafe {
+            core::ptr::copy_nonoverlapping(src, buffer.as_mut_ptr(), size);
+        }
+        Ok(size)
+    }
+
+    fn deserialize_from(buffer: &'a [u8]) -> Result<(Self, usize), sequential_storage::map::SerializationError> {
+        let size = core::mem::size_of::<Self>();
+        if buffer.len() < size {
+            return Err(sequential_storage::map::SerializationError::BufferTooSmall);
+        }
+        let mut val = Self::default_factory();
+        let dst = &mut val as *mut Self as *mut u8;
+        unsafe {
+            core::ptr::copy_nonoverlapping(buffer.as_ptr(), dst, size);
+        }
+        Ok((val, size))
+    }
+}
+
+impl<'a> sequential_storage::map::Value<'a> for ModelConfig {
+    fn serialize_into(&self, buffer: &mut [u8]) -> Result<usize, sequential_storage::map::SerializationError> {
+        let size = core::mem::size_of::<Self>();
+        if buffer.len() < size {
+            return Err(sequential_storage::map::SerializationError::BufferTooSmall);
+        }
+        let src = self as *const Self as *const u8;
+        unsafe {
+            core::ptr::copy_nonoverlapping(src, buffer.as_mut_ptr(), size);
+        }
+        Ok(size)
+    }
+
+    fn deserialize_from(buffer: &'a [u8]) -> Result<(Self, usize), sequential_storage::map::SerializationError> {
+        let size = core::mem::size_of::<Self>();
+        if buffer.len() < size {
+            return Err(sequential_storage::map::SerializationError::BufferTooSmall);
+        }
+        let mut val = Self::default_for_index(0);
+        let dst = &mut val as *mut Self as *mut u8;
+        unsafe {
+            core::ptr::copy_nonoverlapping(buffer.as_ptr(), dst, size);
+        }
+        Ok((val, size))
+    }
+}
+
+/// Helper to format 4 storage pages to fresh 0xFF state and write full initial dataset into MapStorage.
+fn format_and_save_all(storage: &RadioStorage) {
+    let mut flash = Stm32Flash;
+    let _ = block_on(flash.erase(FLASH_STORAGE_ADDR as u32, FLASH_STORAGE_END as u32));
+
+    let mut map = sequential_storage::map::MapStorage::new(
+        flash,
+        storage_config(),
+        sequential_storage::cache::Cache::new_uncached(),
+    );
+    let mut buf = [0u8; 256];
+    let _ = block_on(map.store_item(&mut buf, &KEY_RADIO, &storage.radio));
+    for idx in 0..NUM_MODELS {
+        let key = KEY_MODEL_BASE + idx as u8;
+        let _ = block_on(map.store_item(&mut buf, &key, &storage.models[idx]));
+    }
+}
+
 /// Load complete storage from Flash into caller-supplied memory (0 stack allocation for storage).
 pub fn load_storage_into(storage: &mut RadioStorage) {
-    unsafe {
-        let magic = core::ptr::read_volatile(FLASH_STORAGE_ADDR as *const u32);
-        let version = core::ptr::read_volatile((FLASH_STORAGE_ADDR + 4) as *const u32);
+    let mut map = sequential_storage::map::MapStorage::new(
+        Stm32Flash,
+        storage_config(),
+        sequential_storage::cache::Cache::new_uncached(),
+    );
+    let mut buf = [0u8; 256];
 
-        if magic == FLASH_MAGIC && (version == CONFIG_VERSION || version == 3) {
-            let src = FLASH_STORAGE_ADDR as *const u32;
+    // 1. Try reading RadioConfig from sequential-storage log
+    let radio_res: Result<Option<RadioConfig>, _> = block_on(map.fetch_item(&mut buf, &KEY_RADIO));
+    if let Ok(Some(cfg)) = radio_res {
+        if cfg.magic == FLASH_MAGIC && (cfg.version == CONFIG_VERSION || cfg.version == 3) {
+            storage.radio = cfg;
+            for idx in 0..NUM_MODELS {
+                let key = KEY_MODEL_BASE + idx as u8;
+                if let Ok(Some(m)) = block_on(map.fetch_item(&mut buf, &key)) {
+                    storage.models[idx] = m;
+                } else {
+                    storage.models[idx] = ModelConfig::default_for_index(idx);
+                }
+            }
+            storage.sanitize();
+            return;
+        }
+    }
+
+    // 2. Migration: Check previous snapshot base at 0x0801_F000
+    unsafe {
+        let snap_magic = core::ptr::read_volatile(FLASH_LEGACY_SNAPSHOT_ADDR as *const u32);
+        let snap_ver = core::ptr::read_volatile((FLASH_LEGACY_SNAPSHOT_ADDR + 4) as *const u32);
+        if snap_magic == FLASH_MAGIC && (snap_ver == CONFIG_VERSION || snap_ver == 3) {
+            let src = FLASH_LEGACY_SNAPSHOT_ADDR as *const u32;
             let dst = storage as *mut RadioStorage as *mut u32;
             let word_count = core::mem::size_of::<RadioStorage>() / 4;
             for i in 0..word_count {
                 *dst.add(i) = core::ptr::read_volatile(src.add(i));
             }
             storage.sanitize();
-            if version == 3 {
-                save_storage(storage);
-            }
+            format_and_save_all(storage);
             return;
         }
 
-        // Check for legacy v1/v2 at FLASH_LEGACY_ADDR (0x0801_F800)
+        // 3. Migration: Check legacy v1/v2 at 0x0801_F800
         let legacy_magic = core::ptr::read_volatile(FLASH_LEGACY_ADDR as *const u32);
         let legacy_ver = core::ptr::read_volatile((FLASH_LEGACY_ADDR + 4) as *const u32);
         if legacy_magic == FLASH_MAGIC && (legacy_ver == 1 || legacy_ver == 2) {
@@ -360,13 +697,10 @@ pub fn load_storage_into(storage: &mut RadioStorage) {
             if rx_id != 0 && rx_id != 0xFFFF_FFFF {
                 storage.models[0].rx_id = rx_id;
             }
-
-            // Copy sticks (32 bytes)
             let src_sticks = (FLASH_LEGACY_ADDR + 12) as *const ChannelCalib;
             for i in 0..4 {
                 storage.radio.sticks[i] = core::ptr::read_volatile(src_sticks.add(i));
             }
-            // Copy pots (16 bytes)
             let src_pots = (FLASH_LEGACY_ADDR + 44) as *const ChannelCalib;
             for i in 0..2 {
                 storage.radio.pots[i] = core::ptr::read_volatile(src_pots.add(i));
@@ -377,13 +711,14 @@ pub fn load_storage_into(storage: &mut RadioStorage) {
                 storage.radio.backlight_timeout = core::ptr::read_volatile((FLASH_LEGACY_ADDR + 62) as *const u8);
                 storage.radio.backlight_brightness = core::ptr::read_volatile((FLASH_LEGACY_ADDR + 63) as *const u8);
             }
-
-            // Immediately persist upgraded v3 storage to 0x0801_F000
-            save_storage(storage);
+            storage.sanitize();
+            format_and_save_all(storage);
             return;
         }
 
+        // 4. Clean factory default initialization
         storage.init_default();
+        format_and_save_all(storage);
     }
 }
 
@@ -395,181 +730,63 @@ pub fn load_storage() -> RadioStorage {
     storage
 }
 
-/// Save complete storage to Flash (Pages 62 and 63).
-/// Wrapped in a critical section to prevent CPU bus stalls and ISR preemption during Flash programming.
-pub fn save_storage(storage: &RadioStorage) -> bool {
-    let flash = unsafe { &*pac::FLASH::ptr() };
-
-    cortex_m::interrupt::free(|_| unsafe {
-        crate::watchdog::feed();
-
-        // 1. Unlock Flash CR if locked
-        if flash.cr.read().lock().bit_is_set() {
-            flash.keyr.write(|w| w.bits(FLASH_KEY1));
-            flash.keyr.write(|w| w.bits(FLASH_KEY2));
-        }
-
-        // Verify Flash CR unlocked successfully
-        if flash.cr.read().lock().bit_is_set() {
-            return false;
-        }
-
-        let mut timeout = 1_000_000u32;
-        while flash.sr.read().bsy().bit_is_set() && timeout > 0 {
-            timeout -= 1;
-        }
-        if timeout == 0 {
-            return false;
-        }
-
-        // 2. Clear any lingering error or EOP flags in SR (write 1 to clear)
-        flash.sr.write(|w| w.eop().event().wrprt().error().pgerr().error());
-
-        // 3. Erase Page 62 (0x0801_F000)
-        // CR reset value has LOCK bit set (0x80); write_with_zero must be used so LOCK is not set!
-        flash.cr.write_with_zero(|w| w.per().page_erase());
-        flash.ar.write_with_zero(|w| w.far().bits(FLASH_STORAGE_ADDR as u32));
-        flash.cr.write_with_zero(|w| w.per().page_erase().strt().start());
-        timeout = 1_000_000;
-        while flash.sr.read().bsy().bit_is_set() && timeout > 0 {
-            timeout -= 1;
-        }
-        flash.sr.write(|w| w.eop().event().wrprt().error().pgerr().error());
-
-        crate::watchdog::feed();
-
-        // 4. Erase Page 63 (0x0801_F800)
-        flash.cr.write_with_zero(|w| w.per().page_erase());
-        flash.ar.write_with_zero(|w| w.far().bits((FLASH_STORAGE_ADDR + 2048) as u32));
-        flash.cr.write_with_zero(|w| w.per().page_erase().strt().start());
-        timeout = 1_000_000;
-        while flash.sr.read().bsy().bit_is_set() && timeout > 0 {
-            timeout -= 1;
-        }
-        flash.sr.write(|w| w.eop().event().wrprt().error().pgerr().error());
-        // Clear PER
-        flash.cr.write_with_zero(|w| w.bits(0));
-
-        crate::watchdog::feed();
-
-        // 5. Program halfwords (16-bit)
-        flash.cr.write_with_zero(|w| w.pg().program());
-
-        let halfword_count = core::mem::size_of::<RadioStorage>() / 2;
-        let src = storage as *const RadioStorage as *const u16;
-        let dst = FLASH_STORAGE_ADDR as *mut u16;
-
-        for i in 0..halfword_count {
-            let hw = *src.add(i);
-            core::ptr::write_volatile(dst.add(i), hw);
-            timeout = 100_000;
-            while flash.sr.read().bsy().bit_is_set() && timeout > 0 {
-                timeout -= 1;
-            }
-            if flash.sr.read().pgerr().is_error() || flash.sr.read().wrprt().is_error() {
-                flash.sr.write(|w| w.wrprt().error().pgerr().error());
-            }
-            if (i & 0xFF) == 0 {
-                crate::watchdog::feed();
-            }
-        }
-
-        // 6. Disable PG and lock Flash
-        flash.cr.write_with_zero(|w| w.bits(0));
-        flash.cr.write(|w| w.lock().locked());
-
-        crate::watchdog::feed();
-
-        // 7. Verify written data in Flash
-        let written_magic = core::ptr::read_volatile(FLASH_STORAGE_ADDR as *const u32);
-        let written_ver = core::ptr::read_volatile((FLASH_STORAGE_ADDR + 4) as *const u32);
-        written_magic == FLASH_MAGIC && written_ver == CONFIG_VERSION
-    })
-}
-
-/// Save only the active model configuration (fast delta save).
-/// Currently calls save_storage to guarantee rock-solid consistency across the 2-page flash.
-#[allow(dead_code)]
+/// Save only the active model configuration via append-only log (~2.8 ms, 0 page erase).
 #[inline(always)]
 pub fn save_active_model(storage: &RadioStorage) -> bool {
-    save_storage(storage)
+    let mut map = sequential_storage::map::MapStorage::new(
+        Stm32Flash,
+        storage_config(),
+        sequential_storage::cache::Cache::new_uncached(),
+    );
+    let mut buf = [0u8; 256];
+    let idx = (storage.radio.active_model as usize).min(NUM_MODELS - 1);
+    let key = KEY_MODEL_BASE + idx as u8;
+    block_on(map.store_item(&mut buf, &key, &storage.models[idx])).is_ok()
 }
 
-/// Save only the system radio configuration (fast delta save).
-/// Currently calls save_storage to guarantee rock-solid consistency across the 2-page flash.
-#[allow(dead_code)]
+/// Save only the system radio configuration via append-only log (~2.8 ms, 0 page erase).
 #[inline(always)]
 pub fn save_radio_config(storage: &RadioStorage) -> bool {
-    save_storage(storage)
+    let mut map = sequential_storage::map::MapStorage::new(
+        Stm32Flash,
+        storage_config(),
+        sequential_storage::cache::Cache::new_uncached(),
+    );
+    let mut buf = [0u8; 256];
+    block_on(map.store_item(&mut buf, &KEY_RADIO, &storage.radio)).is_ok()
+}
+
+/// Save complete storage to Flash.
+/// In sequential-storage append-only architecture, writes radio config and active model delta.
+pub fn save_storage(storage: &RadioStorage) -> bool {
+    let mut ok = save_radio_config(storage);
+    ok = ok && save_active_model(storage);
+    ok
 }
 
 /// Convenience helper to load current RadioConfig directly from Flash (only 128 bytes, 0 stack bloat).
 pub fn load_config() -> RadioConfig {
-    unsafe {
-        let magic = core::ptr::read_volatile(FLASH_STORAGE_ADDR as *const u32);
-        let version = core::ptr::read_volatile((FLASH_STORAGE_ADDR + 4) as *const u32);
-
-        if magic == FLASH_MAGIC && (version == CONFIG_VERSION || version == 3) {
-            let mut cfg = RadioConfig::default_factory();
-            let src = FLASH_STORAGE_ADDR as *const u32;
-            let dst = &mut cfg as *mut RadioConfig as *mut u32;
-            let word_count = core::mem::size_of::<RadioConfig>() / 4;
-            for i in 0..word_count {
-                *dst.add(i) = core::ptr::read_volatile(src.add(i));
-            }
-            return cfg;
-        }
-
-        // Check legacy v1/v2
-        let legacy_magic = core::ptr::read_volatile(FLASH_LEGACY_ADDR as *const u32);
-        let legacy_ver = core::ptr::read_volatile((FLASH_LEGACY_ADDR + 4) as *const u32);
-        if legacy_magic == FLASH_MAGIC && (legacy_ver == 1 || legacy_ver == 2) {
-            let mut cfg = RadioConfig::default_factory();
-            let src_sticks = (FLASH_LEGACY_ADDR + 12) as *const ChannelCalib;
-            for i in 0..4 {
-                cfg.sticks[i] = core::ptr::read_volatile(src_sticks.add(i));
-            }
-            let src_pots = (FLASH_LEGACY_ADDR + 44) as *const ChannelCalib;
-            for i in 0..2 {
-                cfg.pots[i] = core::ptr::read_volatile(src_pots.add(i));
-            }
-            if legacy_ver == 2 {
-                cfg.throttle_trim = core::ptr::read_volatile((FLASH_LEGACY_ADDR + 60) as *const u8);
-                cfg.audio_enabled = core::ptr::read_volatile((FLASH_LEGACY_ADDR + 61) as *const u8);
-                cfg.backlight_timeout = core::ptr::read_volatile((FLASH_LEGACY_ADDR + 62) as *const u8);
-                cfg.backlight_brightness = core::ptr::read_volatile((FLASH_LEGACY_ADDR + 63) as *const u8);
-            }
-            return cfg;
-        }
-
-        RadioConfig::default_factory()
-    }
+    let mut storage = RadioStorage::empty();
+    load_storage_into(&mut storage);
+    storage.radio
 }
 
 /// Read persisted receiver ID from Flash if previously bound.
 pub fn load_saved_rx_id() -> Option<u32> {
-    unsafe {
-        let magic = core::ptr::read_volatile(FLASH_STORAGE_ADDR as *const u32);
-        let version = core::ptr::read_volatile((FLASH_STORAGE_ADDR + 4) as *const u32);
-        if magic == FLASH_MAGIC && (version == CONFIG_VERSION || version == 3) {
-            let active_idx = core::ptr::read_volatile((FLASH_STORAGE_ADDR + 8) as *const u8) as usize;
-            let model_idx = active_idx.min(NUM_MODELS - 1);
-            let model_addr = FLASH_STORAGE_ADDR + 128 + (model_idx * 128);
-            let rx_id = core::ptr::read_volatile(model_addr as *const u32);
-            if rx_id != 0 && rx_id != 0xFFFF_FFFF {
-                return Some(rx_id);
+    let mut map = sequential_storage::map::MapStorage::new(
+        Stm32Flash,
+        storage_config(),
+        sequential_storage::cache::Cache::new_uncached(),
+    );
+    let mut buf = [0u8; 256];
+    if let Ok(Some(radio)) = block_on(map.fetch_item::<RadioConfig>(&mut buf, &KEY_RADIO)) {
+        let active_idx = (radio.active_model as usize).min(NUM_MODELS - 1);
+        let key = KEY_MODEL_BASE + active_idx as u8;
+        if let Ok(Some(model)) = block_on(map.fetch_item::<ModelConfig>(&mut buf, &key)) {
+            if model.rx_id != 0 && model.rx_id != 0xFFFF_FFFF {
+                return Some(model.rx_id);
             }
         }
-
-        let legacy_magic = core::ptr::read_volatile(FLASH_LEGACY_ADDR as *const u32);
-        let legacy_ver = core::ptr::read_volatile((FLASH_LEGACY_ADDR + 4) as *const u32);
-        if legacy_magic == FLASH_MAGIC && (legacy_ver == 1 || legacy_ver == 2) {
-            let rx_id = core::ptr::read_volatile((FLASH_LEGACY_ADDR + 8) as *const u32);
-            if rx_id != 0 && rx_id != 0xFFFF_FFFF {
-                return Some(rx_id);
-            }
-        }
-
-        None
     }
+    None
 }

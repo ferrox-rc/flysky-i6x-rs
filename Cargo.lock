@@ -216,6 +216,7 @@ dependencies = [
  "cortex-m-rt",
  "embedded-graphics",
  "embedded-storage",
+ "embedded-storage-async",
  "panic-halt",
  "sequential-storage",
  "stm32-usbd",

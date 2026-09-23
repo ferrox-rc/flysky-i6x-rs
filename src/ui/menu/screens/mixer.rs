@@ -33,7 +33,7 @@ pub fn update_dual_rate(
         if ctrl.editing {
             ctrl.editing = false;
         } else {
-            storage::save_storage(storage);
+            storage::save_active_model(storage);
             ctrl.state = MenuState::MainMenu;
             ctrl.selected_item = 2;
             ctrl.scroll_offset = 0;
@@ -190,7 +190,7 @@ pub fn update_throttle_curve(
 
         if keys.cancel {
             ctrl.editing = false;
-            storage::save_storage(storage);
+            storage::save_active_model(storage);
             buzzer.click();
             return;
         }
@@ -215,7 +215,7 @@ pub fn update_throttle_curve(
             } else {
                 ctrl.editing = false;
             }
-            storage::save_storage(storage);
+            storage::save_active_model(storage);
             buzzer.click();
         } else if keys.bind {
             if ctrl.selected_item + 1 < max_items {
@@ -223,12 +223,12 @@ pub fn update_throttle_curve(
             } else {
                 ctrl.selected_item = 2; // Wrap back to P1
             }
-            storage::save_storage(storage);
+            storage::save_active_model(storage);
             buzzer.click();
         }
     } else {
         if keys.cancel {
-            storage::save_storage(storage);
+            storage::save_active_model(storage);
             ctrl.state = MenuState::MainMenu;
             ctrl.selected_item = 3;
             ctrl.waiting_release = true;
@@ -285,7 +285,7 @@ pub fn update_throttle_curve(
                     ];
                     storage.models[active_idx].thr_curve_pts = 5;
                 }
-                storage::save_storage(storage);
+                storage::save_active_model(storage);
                 buzzer.click();
             } else if ctrl.selected_item == 1 {
                 storage.models[active_idx].thr_curve_smooth = if storage.models[active_idx].thr_curve_smooth == 0 {
@@ -293,7 +293,7 @@ pub fn update_throttle_curve(
                 } else {
                     0
                 };
-                storage::save_storage(storage);
+                storage::save_active_model(storage);
                 buzzer.click();
             } else {
                 ctrl.editing = true;
@@ -412,7 +412,7 @@ pub fn update_wing_mixer(
     const MIX_ITEMS: usize = 9; // 0: Template, 1..8: Mix 1..8
 
     if keys.cancel {
-        storage::save_storage(storage);
+        storage::save_active_model(storage);
         ctrl.state = MenuState::MainMenu;
         ctrl.selected_item = 4;
         ctrl.scroll_offset = 0;
