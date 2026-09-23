@@ -30,6 +30,7 @@ mod storage;
 mod time;
 mod trim;
 mod usb;
+mod watchdog;
 
 use display::St7567;
 
