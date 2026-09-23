@@ -5,16 +5,16 @@
 //!
 //! Total available: 4096 bytes. Total used: 2688 bytes.
 
+use stm32f0xx_hal::pac;
+
 pub const FLASH_STORAGE_ADDR: usize = 0x0801_F000;
 pub const FLASH_LEGACY_ADDR: usize = 0x0801_F800;
 pub const FLASH_MAGIC: u32 = 0x4653_4B59; // "FSKY"
 pub const CONFIG_VERSION: u32 = 4;
 pub const NUM_MODELS: usize = 20;
 
-const FLASH_KEYR: *mut u32 = 0x4002_2004 as *mut u32;
-const FLASH_SR: *mut u32 = 0x4002_200C as *mut u32;
-const FLASH_CR: *mut u32 = 0x4002_2010 as *mut u32;
-const FLASH_AR: *mut u32 = 0x4002_2014 as *mut u32;
+const FLASH_KEY1: u32 = 0x4567_0123;
+const FLASH_KEY2: u32 = 0xCDEF_89AB;
 
 /// Calibration parameters for a single analog channel (8 bytes).
 #[repr(C)]
@@ -398,36 +398,44 @@ pub fn load_storage() -> RadioStorage {
 /// Save complete storage to Flash (Pages 62 and 63).
 /// Wrapped in a critical section to prevent CPU bus stalls and ISR preemption during Flash programming.
 pub fn save_storage(storage: &RadioStorage) {
+    let flash = unsafe { &*pac::FLASH::ptr() };
+
     cortex_m::interrupt::free(|_| unsafe {
+        crate::watchdog::feed();
+
         // Unlock flash
-        core::ptr::write_volatile(FLASH_KEYR, 0x4567_0123);
-        core::ptr::write_volatile(FLASH_KEYR, 0xCDEF_89AB);
+        flash.keyr.write(|w| w.bits(FLASH_KEY1));
+        flash.keyr.write(|w| w.bits(FLASH_KEY2));
 
         let mut timeout = 1_000_000u32;
-        while (core::ptr::read_volatile(FLASH_SR) & 1) != 0 && timeout > 0 {
+        while flash.sr.read().bsy().bit_is_set() && timeout > 0 {
             timeout -= 1;
         }
 
         // Erase Page 62 (0x0801_F000)
-        core::ptr::write_volatile(FLASH_CR, 1 << 1); // PER
-        core::ptr::write_volatile(FLASH_AR, FLASH_STORAGE_ADDR as u32);
-        core::ptr::write_volatile(FLASH_CR, (1 << 1) | (1 << 6)); // PER | STRT
+        flash.cr.write(|w| w.per().set_bit());
+        flash.ar.write(|w| w.bits(FLASH_STORAGE_ADDR as u32));
+        flash.cr.write(|w| w.per().set_bit().strt().set_bit());
         timeout = 1_000_000;
-        while (core::ptr::read_volatile(FLASH_SR) & 1) != 0 && timeout > 0 {
+        while flash.sr.read().bsy().bit_is_set() && timeout > 0 {
             timeout -= 1;
         }
+
+        crate::watchdog::feed();
 
         // Erase Page 63 (0x0801_F800)
-        core::ptr::write_volatile(FLASH_AR, (FLASH_STORAGE_ADDR + 2048) as u32);
-        core::ptr::write_volatile(FLASH_CR, (1 << 1) | (1 << 6)); // PER | STRT
+        flash.ar.write(|w| w.bits((FLASH_STORAGE_ADDR + 2048) as u32));
+        flash.cr.write(|w| w.per().set_bit().strt().set_bit());
         timeout = 1_000_000;
-        while (core::ptr::read_volatile(FLASH_SR) & 1) != 0 && timeout > 0 {
+        while flash.sr.read().bsy().bit_is_set() && timeout > 0 {
             timeout -= 1;
         }
-        core::ptr::write_volatile(FLASH_CR, 0);
+        flash.cr.write(|w| w.bits(0));
+
+        crate::watchdog::feed();
 
         // Program halfwords
-        core::ptr::write_volatile(FLASH_CR, 1 << 0); // PG
+        flash.cr.write(|w| w.pg().set_bit());
 
         let halfword_count = core::mem::size_of::<RadioStorage>() / 2;
         let src = storage as *const RadioStorage as *const u16;
@@ -437,14 +445,30 @@ pub fn save_storage(storage: &RadioStorage) {
             let hw = *src.add(i);
             core::ptr::write_volatile(dst.add(i), hw);
             timeout = 100_000;
-            while (core::ptr::read_volatile(FLASH_SR) & 1) != 0 && timeout > 0 {
+            while flash.sr.read().bsy().bit_is_set() && timeout > 0 {
                 timeout -= 1;
             }
         }
 
         // Lock flash
-        core::ptr::write_volatile(FLASH_CR, 1 << 7);
+        flash.cr.write(|w| w.lock().set_bit());
+
+        crate::watchdog::feed();
     });
+}
+
+/// Save only the active model configuration (fast delta save).
+/// Currently calls save_storage to guarantee rock-solid consistency across the 2-page flash.
+#[inline(always)]
+pub fn save_active_model(storage: &RadioStorage) {
+    save_storage(storage);
+}
+
+/// Save only the system radio configuration (fast delta save).
+/// Currently calls save_storage to guarantee rock-solid consistency across the 2-page flash.
+#[inline(always)]
+pub fn save_radio_config(storage: &RadioStorage) {
+    save_storage(storage);
 }
 
 /// Convenience helper to load current RadioConfig directly from Flash (only 128 bytes, 0 stack bloat).
@@ -487,5 +511,33 @@ pub fn load_config() -> RadioConfig {
         }
 
         RadioConfig::default_factory()
+    }
+}
+
+/// Read persisted receiver ID from Flash if previously bound.
+pub fn load_saved_rx_id() -> Option<u32> {
+    unsafe {
+        let magic = core::ptr::read_volatile(FLASH_STORAGE_ADDR as *const u32);
+        let version = core::ptr::read_volatile((FLASH_STORAGE_ADDR + 4) as *const u32);
+        if magic == FLASH_MAGIC && (version == CONFIG_VERSION || version == 3) {
+            let active_idx = core::ptr::read_volatile((FLASH_STORAGE_ADDR + 8) as *const u8) as usize;
+            let model_idx = active_idx.min(NUM_MODELS - 1);
+            let model_addr = FLASH_STORAGE_ADDR + 128 + (model_idx * 128);
+            let rx_id = core::ptr::read_volatile(model_addr as *const u32);
+            if rx_id != 0 && rx_id != 0xFFFF_FFFF {
+                return Some(rx_id);
+            }
+        }
+
+        let legacy_magic = core::ptr::read_volatile(FLASH_LEGACY_ADDR as *const u32);
+        let legacy_ver = core::ptr::read_volatile((FLASH_LEGACY_ADDR + 4) as *const u32);
+        if legacy_magic == FLASH_MAGIC && (legacy_ver == 1 || legacy_ver == 2) {
+            let rx_id = core::ptr::read_volatile((FLASH_LEGACY_ADDR + 8) as *const u32);
+            if rx_id != 0 && rx_id != 0xFFFF_FFFF {
+                return Some(rx_id);
+            }
+        }
+
+        None
     }
 }
