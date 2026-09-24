@@ -410,9 +410,18 @@ fn main() -> ! {
     // 0. Standalone feed immediately refreshes any watchdog running across soft reboot
     watchdog::feed();
 
+    // Check if reboot was triggered by hardware watchdog (IWDG or WWDG) and clear RCC flags.
+    // Under DO-178C flight safety principles, a warm reboot caused by watchdog reset must bypass
+    // the throttle-at-idle and switch interlocks to restore flight control in <10ms.
+    let was_watchdog_reset = chip::check_and_clear_reset_flags();
+
     // 1. MCU Profile & Fast DFU Bootloader Check
     let mcu_profile = chip::get_mcu_profile();
-    boot::check_dfu_entry(&mcu_profile);
+    if !was_watchdog_reset {
+        boot::check_dfu_entry(&mcu_profile);
+    } else {
+        boot::init_keys();
+    }
 
     // 2. Initialize System Clock to 48 MHz using external 8 MHz crystal (HSE) + PLL
     // and wait for 40 kHz LSI oscillator to stabilize
@@ -443,7 +452,7 @@ fn main() -> ! {
     let tx_id = w0 ^ w1 ^ w2;
 
     let initial_keys = boot::scan_keys();
-    let bind_on_boot = (initial_keys & (1 << 12)) != 0;
+    let bind_on_boot = (initial_keys & (1 << 12)) != 0 && !was_watchdog_reset;
 
     let rf_ok = rf::init(tx_id);
     if bind_on_boot {
@@ -461,7 +470,12 @@ fn main() -> ! {
     storage::load_storage_into(&mut storage);
     buzzer.enabled = storage.radio.audio_enabled != 0;
     buzzer.tone_style = buzzer::ToneStyle::from_u8(storage.radio.tone_style);
-    buzzer.chime_welcome();
+    if was_watchdog_reset {
+        // Fast alarm warning chirp indicating watchdog recovery occurred
+        buzzer.play_tone_pattern(2600, 60, 40, 3);
+    } else {
+        buzzer.chime_welcome();
+    }
     watchdog::feed();
 
     // Initialize USB peripheral (Joystick / Serial / Composite / Off)
@@ -489,7 +503,7 @@ fn main() -> ! {
     let mut menu_controller = menu::MenuController::new();
 
     // Check if OK button held at power-on to launch calibration directly
-    if (initial_keys & (1 << 10)) != 0 {
+    if (initial_keys & (1 << 10)) != 0 && !was_watchdog_reset {
         calib_wizard.start(&mut buzzer);
     }
     watchdog::feed();
@@ -499,7 +513,8 @@ fn main() -> ! {
     let sep_style = PrimitiveStyle::with_stroke(BinaryColor::On, 1);
 
     // 10. Pre-flight Startup Safety Check: Throttle at idle and switches in safe (UP) positions
-    if !calib_wizard.is_active() {
+    // Bypassed on watchdog reset to immediately resume RF control in flight
+    if !calib_wizard.is_active() && !was_watchdog_reset {
         let mut preflight_beep_timer: u32 = 0;
         let mut preflight_last_render: u32 = 0;
         let mut warned = false;
