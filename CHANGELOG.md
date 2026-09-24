@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.16.0-rc.5] - 2026-09-24
+
+### Summary
+Safety-critical release resolving the watchdog in-flight trap hazard by introducing hardware reset cause inspection via `RCC_CSR` (`IWDGRSTF` / `WWDGRSTF`), bypassing startup throttle/switch interlocks and DFU settling delays on warm reboot to guarantee deterministic flight recovery in under 2 ms, and adding comprehensive safety architecture documentation.
+
+### Fixed
+- **Watchdog In-Flight Trap Resolution (`862dd55`)**:
+  - **Hardware Reset Cause Latching ([`src/chip/mod.rs`](src/chip/mod.rs))**: Implemented `chip::check_and_clear_reset_flags()` to inspect STM32 `RCC_CSR` for `IWDGRSTF` (Independent Watchdog) and `WWDGRSTF` (Window Watchdog) status bits before atomically clearing all reset flags via `RMVF`.
+  - **$< 2\text{ ms}$ Flight Recovery Pipeline ([`src/main.rs`](src/main.rs))**:
+    - **DFU Settling Delay Bypass**: Skips `boot::check_dfu_entry` (eliminating ~6.25 ms contact debounce delay and preventing unintentional System ROM bootloader entry mid-flight) and calls `boot::init_keys()` directly.
+    - **Interlock Invalidation**: Inhibits bind-on-boot and direct calibration wizard modal entry when rebooting from a watchdog event.
+    - **Pre-Flight Safety Check Bypass**: Bypasses the throttle-at-idle and switch-position warning loop (`SAFETY WARNING!`), which previously trapped the transmitter in an infinite warning state with over-the-air channels locked to 1000 µs failsafe during mid-flight reboots.
+    - **Immediate Acoustic Warning**: Replaces the blocking melodic startup chime with a non-blocking 3-beep alarm pattern (`buzzer.play_tone_pattern(2600, 60, 40, 3)`), providing clear acoustic feedback to the pilot while immediately resuming the 100 Hz flight control loop.
+
+### Documentation
+- **Safety Architecture & Recovery Flowchart (`27a2e6e`)**:
+  - **Watchdog Recovery Architecture ([`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md))**: Added Section 2.1 detailing hardware IWDG configuration (40 kHz LSI oscillator isolation, prescaler `/64`, reload `1250`, 2.0s timeout), bounded `IWDG_SR` synchronization (`10_000` iteration cap), debug halt freeze (`DBGMCU_APB1_FZ.DBG_IWDG_STOP`), and a complete recovery flowchart.
+  - **Pilot Safety Alarms ([`docs/USER_GUIDE.md`](docs/USER_GUIDE.md))**: Added Level 5 to Section 8 detailing in-flight watchdog reset detection, interlock bypass, and acoustic alarms.
+  - **Hardware Map & Roadmap ([`README.md`](README.md))**: Updated peripheral specifications and completed milestones in Phase 15.
+
+---
+
 ## [0.16.0-rc.4] - 2026-09-23
 
 ### Summary
