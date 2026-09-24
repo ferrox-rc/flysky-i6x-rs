@@ -11,6 +11,21 @@ use crate::input::{SwitchPos, Switches};
 use crate::storage::ModelConfig;
 use crate::trim::TrimController;
 
+pub const NUM_CHANNELS: usize = 14;
+
+// Standard normalized mixer range (-1000..+1000)
+pub const MIXER_MIN: i16 = -1000;
+pub const MIXER_CENTER: i16 = 0;
+pub const MIXER_MAX: i16 = 1000;
+
+// FlySky / AFHDS standard microsecond pulse range (988..2012 µs)
+pub const CHANNEL_MIN_US: u16 = 988;
+pub const CHANNEL_CENTER_US: u16 = 1500;
+pub const CHANNEL_MAX_US: u16 = 2012;
+pub const CHANNEL_SPAN_US: u32 = (CHANNEL_MAX_US - CHANNEL_MIN_US) as u32; // 1024
+pub const CHANNEL_HALF_SPAN_US: i32 = (CHANNEL_SPAN_US / 2) as i32; // 512
+pub const CHANNEL_REVERSE_SUM: u16 = CHANNEL_MIN_US + CHANNEL_MAX_US; // 3000
+
 /// Physical source identifiers for auxiliary channels and mix lines.
 #[allow(dead_code)]
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -59,11 +74,11 @@ pub fn apply_dr_expo(input: i16, rate: u8, expo: i8) -> i16 {
     let x = ((input as i32) * rate_clamped) / 100;
 
     if expo == 0 {
-        return x.clamp(-1000, 1000) as i16;
+        return x.clamp(MIXER_MIN as i32, MIXER_MAX as i32) as i16;
     }
 
     let expo_val = expo.clamp(-100, 100) as i32;
-    // Normalized cubic term in -1000..+1000 fits entirely within i32 (1000^3 = 10^9 < 2.14*10^9)
+    // Normalized cubic term in MIXER_MIN..MIXER_MAX fits entirely within i32 (1000^3 = 10^9 < 2.14*10^9)
     let x_cubic = (x * x * x) / 1_000_000;
 
     let result = if expo_val > 0 {
@@ -75,7 +90,7 @@ pub fn apply_dr_expo(input: i16, rate: u8, expo: i8) -> i16 {
         x + ((x - x_cubic) * abs_expo) / 100
     };
 
-    result.clamp(-1000, 1000) as i16
+    result.clamp(MIXER_MIN as i32, MIXER_MAX as i32) as i16
 }
 
 /// Check if a physical switch satisfies a mixer line activation condition.
@@ -117,35 +132,35 @@ pub fn evaluate_source(
     channels: &[i32; 14],
 ) -> i32 {
     match src {
-        0 => 0,
+        0 => MIXER_CENTER as i32,
         1 => cond_sticks[0] as i32, // Roll
         2 => cond_sticks[1] as i32, // Pitch
         3 => cond_sticks[2] as i32, // Throttle
         4 => cond_sticks[3] as i32, // Yaw
         5 => pots[0] as i32,        // VRA
         6 => pots[1] as i32,        // VRB
-        7 => if switches.sa == SwitchPos::Up { -1000 } else { 1000 },
+        7 => if switches.sa == SwitchPos::Up { MIXER_MIN as i32 } else { MIXER_MAX as i32 },
         8 => match switches.sb {
-            SwitchPos::Up => -1000,
-            SwitchPos::Mid => 0,
-            SwitchPos::Down => 1000,
+            SwitchPos::Up => MIXER_MIN as i32,
+            SwitchPos::Mid => MIXER_CENTER as i32,
+            SwitchPos::Down => MIXER_MAX as i32,
         },
         9 => match switches.sc {
-            SwitchPos::Up => -1000,
-            SwitchPos::Mid => 0,
-            SwitchPos::Down => 1000,
+            SwitchPos::Up => MIXER_MIN as i32,
+            SwitchPos::Mid => MIXER_CENTER as i32,
+            SwitchPos::Down => MIXER_MAX as i32,
         },
-        10 => if switches.sd == SwitchPos::Up { -1000 } else { 1000 },
-        11 => 1000, // MAX
+        10 => if switches.sd == SwitchPos::Up { MIXER_MIN as i32 } else { MIXER_MAX as i32 },
+        11 => MIXER_MAX as i32, // MAX
         12..=25 => {
             let ch_idx = (src - 12) as usize;
             channels[ch_idx]
         }
-        _ => 0,
+        _ => MIXER_CENTER as i32,
     }
 }
 
-/// Complete 4-stage mixer pipeline producing 14 AFHDS 2A microsecond pulses (1000..2000 µs).
+/// Complete 4-stage mixer pipeline producing 14 AFHDS 2A microsecond pulses (988..2012 µs).
 #[allow(clippy::too_many_arguments)]
 pub fn compute_channels(
     raw_roll: i16,
@@ -166,12 +181,12 @@ pub fn compute_channels(
     let cond_roll = apply_dr_expo(raw_roll, rates[0], expos[0]);
     let cond_pitch = apply_dr_expo(raw_pitch, rates[1], expos[1]);
     let cond_yaw = apply_dr_expo(raw_yaw, rates[2], expos[2]);
-    // Throttle input is normalized to -1000..+1000 from curved_throttle (0..1000)
-    let cond_thr = (curved_throttle as i32 * 2 - 1000).clamp(-1000, 1000) as i16;
+    // Throttle input is normalized to MIXER_MIN..MIXER_MAX from curved_throttle (0..MIXER_MAX)
+    let cond_thr = (curved_throttle as i32 * 2 - MIXER_MAX as i32).clamp(MIXER_MIN as i32, MIXER_MAX as i32) as i16;
 
     let cond_sticks = [cond_roll, cond_pitch, cond_thr, cond_yaw];
 
-    // Stage 3: Initialize channels (-1000..+1000)
+    // Stage 3: Initialize channels (MIXER_MIN..MIXER_MAX)
     let mut ch_vals = [0i32; 14];
 
     // Apply Wing/Tail templates to primary channels
@@ -187,8 +202,8 @@ pub fn compute_channels(
             // Delta wing: Left Elevon (CH1) = (Pitch - Roll)/2, Right Elevon (CH2) = (Pitch + Roll)/2
             let p = cond_pitch as i32;
             let r = cond_roll as i32;
-            ch_vals[0] = (p - r).clamp(-1000, 1000);
-            ch_vals[1] = (p + r).clamp(-1000, 1000);
+            ch_vals[0] = (p - r).clamp(MIXER_MIN as i32, MIXER_MAX as i32);
+            ch_vals[1] = (p + r).clamp(MIXER_MIN as i32, MIXER_MAX as i32);
             ch_vals[2] = cond_thr as i32;
             ch_vals[3] = cond_yaw as i32;
         }
@@ -197,19 +212,19 @@ pub fn compute_channels(
             let p = cond_pitch as i32;
             let y = cond_yaw as i32;
             ch_vals[0] = cond_roll as i32;
-            ch_vals[1] = (p + y).clamp(-1000, 1000);
+            ch_vals[1] = (p + y).clamp(MIXER_MIN as i32, MIXER_MAX as i32);
             ch_vals[2] = cond_thr as i32;
-            ch_vals[3] = (p - y).clamp(-1000, 1000);
+            ch_vals[3] = (p - y).clamp(MIXER_MIN as i32, MIXER_MAX as i32);
         }
         WingTailTemplate::Flaperon => {
             // Dual ailerons: CH1 Left Aileron, CH6 Right Aileron. Flaps driven from aux channel 6
             let r = cond_roll as i32;
             let flap = evaluate_source(model.aux_channels[1], &cond_sticks, pots, switches, &ch_vals);
-            ch_vals[0] = (r + flap / 2).clamp(-1000, 1000);
+            ch_vals[0] = (r + flap / 2).clamp(MIXER_MIN as i32, MIXER_MAX as i32);
             ch_vals[1] = cond_pitch as i32;
             ch_vals[2] = cond_thr as i32;
             ch_vals[3] = cond_yaw as i32;
-            ch_vals[5] = (-r + flap / 2).clamp(-1000, 1000);
+            ch_vals[5] = (-r + flap / 2).clamp(MIXER_MIN as i32, MIXER_MAX as i32);
         }
     }
 
@@ -242,24 +257,25 @@ pub fn compute_channels(
         match mix.mode {
             0 => {
                 // ADD (+)
-                ch_vals[target_idx] = (ch_vals[target_idx] + term).clamp(-1000, 1000);
+                ch_vals[target_idx] = (ch_vals[target_idx] + term).clamp(MIXER_MIN as i32, MIXER_MAX as i32);
             }
             1 => {
                 // MULTIPLY (*)
-                ch_vals[target_idx] = ((ch_vals[target_idx] * term) / 1000).clamp(-1000, 1000);
+                ch_vals[target_idx] = ((ch_vals[target_idx] * term) / MIXER_MAX as i32).clamp(MIXER_MIN as i32, MIXER_MAX as i32);
             }
             2 => {
                 // REPLACE (:=)
-                ch_vals[target_idx] = term.clamp(-1000, 1000);
+                ch_vals[target_idx] = term.clamp(MIXER_MIN as i32, MIXER_MAX as i32);
             }
             _ => {}
         }
     }
 
-    // Stage 4: Outputs (convert -1000..+1000 to 1000..2000 µs pulses)
-    let mut rf_chs = [1500u16; 14];
+    // Stage 4: Outputs (convert MIXER_MIN..MIXER_MAX to standard FlySky CHANNEL_MIN_US..CHANNEL_MAX_US)
+    let mut rf_chs = [CHANNEL_CENTER_US; NUM_CHANNELS];
     for (i, &val) in ch_vals.iter().enumerate() {
-        rf_chs[i] = ((val / 2) + 1500).clamp(1000, 2000) as u16;
+        rf_chs[i] = (((val * CHANNEL_HALF_SPAN_US) / MIXER_MAX as i32) + CHANNEL_CENTER_US as i32)
+            .clamp(CHANNEL_MIN_US as i32, CHANNEL_MAX_US as i32) as u16;
     }
 
     // Apply digital trims to primary flight channels
@@ -272,7 +288,7 @@ pub fn compute_channels(
     let rev_mask = model.channel_reverse;
     for (ch, val) in rf_chs.iter_mut().enumerate() {
         if (rev_mask & (1 << ch)) != 0 {
-            *val = 3000 - *val;
+            *val = CHANNEL_REVERSE_SUM - *val;
         }
     }
 

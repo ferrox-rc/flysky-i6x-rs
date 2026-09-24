@@ -4,6 +4,14 @@
 
 #![allow(dead_code)]
 
+use crate::mixer::{CHANNEL_MAX_US, CHANNEL_MIN_US, CHANNEL_SPAN_US};
+
+pub const CRSF_CHANNEL_MIN: u16 = 172;
+pub const CRSF_CHANNEL_CENTER: u16 = 992;
+pub const CRSF_CHANNEL_MAX: u16 = 1811;
+pub const CRSF_CHANNEL_SPAN: u32 = (CRSF_CHANNEL_MAX - CRSF_CHANNEL_MIN) as u32; // 1639
+pub const CRSF_CHANNEL_VALUE_MAX: u16 = 2047; // 11-bit maximum (0x07FF)
+
 pub const CRSF_SYNC_BYTE: u8 = 0xC8;
 pub const CRSF_ADDRESS_BROADCAST: u8 = 0x00;
 pub const CRSF_ADDRESS_CRSF_TRANSMITTER: u8 = 0xEE;
@@ -116,15 +124,17 @@ pub fn crc8(data: &[u8]) -> u8 {
     crc
 }
 
-/// Convert a microsecond pulse width (1000..2000 µs, center 1500)
-/// into standard 11-bit CRSF channel counts (0..2047, where 1000µs = 172, 1500µs = 992, 2000µs = 1811).
+/// Convert a microsecond pulse width (CHANNEL_MIN_US..CHANNEL_MAX_US, center CHANNEL_CENTER_US)
+/// into standard 11-bit CRSF channel counts (CRSF_CHANNEL_MIN..CRSF_CHANNEL_MAX).
 #[inline(always)]
 pub fn us_to_crsf(us: u16) -> u16 {
-    let clamped = us.clamp(988, 2012) as i32;
-    // CRSF standard formula: ((us - 1000) * 1600 / 1000) + 172
-    // = ((us - 1000) * 8 / 5) + 172
-    let val = (((clamped - 1000) * 8) / 5) + 172;
-    val.clamp(0, 2047) as u16
+    let clamped = us.clamp(CHANNEL_MIN_US, CHANNEL_MAX_US) as i32;
+    // Standard CRSF 11-bit channel scaling:
+    // Scale = (CRSF_CHANNEL_MAX - CRSF_CHANNEL_MIN) / (CHANNEL_MAX_US - CHANNEL_MIN_US) = 1639 / 1024
+    let val = (((clamped - CHANNEL_MIN_US as i32) * CRSF_CHANNEL_SPAN as i32 + (CHANNEL_SPAN_US as i32 / 2))
+        / CHANNEL_SPAN_US as i32)
+        + CRSF_CHANNEL_MIN as i32;
+    val.clamp(0, CRSF_CHANNEL_VALUE_MAX as i32) as u16
 }
 
 /// Build a packed 16-channel CRSF RC packet (Type 0x16) into `out_frame`.
@@ -138,8 +148,8 @@ pub fn build_channels_frame(
     out_frame[1] = 24; // Length: Type (1) + Payload (22) + CRC (1) = 24
     out_frame[2] = CRSF_FRAMETYPE_RC_CHANNELS_PACKED; // 0x16
 
-    // Convert 14 radio channels to 16 CRSF 11-bit values (fill channels 15 & 16 with neutral 992)
-    let mut ch11 = [992u16; 16];
+    // Convert 14 radio channels to 16 CRSF 11-bit values (fill channels 15 & 16 with neutral CRSF_CHANNEL_CENTER)
+    let mut ch11 = [CRSF_CHANNEL_CENTER; 16];
     for i in 0..14 {
         ch11[i] = us_to_crsf(channels[i]);
     }

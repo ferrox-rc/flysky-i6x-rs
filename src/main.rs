@@ -34,10 +34,28 @@ mod watchdog;
 
 use display::St7567;
 
+/// Pre-flight safe idle channel pulses (failsafe throttle and switches up/disarmed)
+const SAFE_IDLE_CHANNELS: [u16; mixer::NUM_CHANNELS] = [
+    mixer::CHANNEL_CENTER_US, // CH1 Roll / Aileron
+    mixer::CHANNEL_CENTER_US, // CH2 Pitch / Elevator
+    mixer::CHANNEL_MIN_US,    // CH3 Throttle
+    mixer::CHANNEL_CENTER_US, // CH4 Yaw / Rudder
+    mixer::CHANNEL_MIN_US,    // CH5 Aux 1 (SA)
+    mixer::CHANNEL_MIN_US,    // CH6 Aux 2 (SB)
+    mixer::CHANNEL_CENTER_US, // CH7 Pot VRA
+    mixer::CHANNEL_CENTER_US, // CH8 Pot VRB
+    mixer::CHANNEL_MIN_US,    // CH9 Aux 3 (SC)
+    mixer::CHANNEL_MIN_US,    // CH10 Aux 4 (SD)
+    mixer::CHANNEL_CENTER_US, // CH11 Extra 1
+    mixer::CHANNEL_CENTER_US, // CH12 Extra 2
+    mixer::CHANNEL_CENTER_US, // CH13 Extra 3
+    mixer::CHANNEL_CENTER_US, // CH14 Extra 4
+];
+
 /// High-rate flight pipeline state and outputs.
 struct FlightSnapshot {
     state: input::InputState,
-    rf_chs: [u16; 14],
+    rf_chs: [u16; mixer::NUM_CHANNELS],
     telem: rf::afhds2a::TelemetryData,
     is_binding: bool,
 }
@@ -103,8 +121,8 @@ impl FlightPipeline {
             }
         }
 
-        // 4. Evaluate active model throttle curve (normalized 0..1000)
-        let thr_input = ((state.sticks.throttle + 1000) / 2).clamp(0, 1000) as u16;
+        // 4. Evaluate active model throttle curve (normalized 0..MIXER_MAX)
+        let thr_input = ((state.sticks.throttle + mixer::MIXER_MAX) / 2).clamp(0, mixer::MIXER_MAX) as u16;
         let thr_curved = curve::evaluate_curve(
             thr_input,
             active_model.thr_curve_pts,
@@ -554,15 +572,10 @@ fn main() -> ! {
             warned = true;
 
             // Lock RF transmission to safe idle/failsafe during warning
-            rf::set_channels(&[
-                1500, 1500, 1000, 1500, 1000, 1000, 1500, 1500, 1000, 1000, 1500, 1500, 1500, 1500,
-            ]);
+            rf::set_channels(&SAFE_IDLE_CHANNELS);
             usb::poll(
                 now,
-                &[
-                    1500, 1500, 1000, 1500, 1000, 1000, 1500, 1500, 1000, 1000, 1500, 1500, 1500,
-                    1500,
-                ],
+                &SAFE_IDLE_CHANNELS,
                 &state.switches,
                 &rf::get_telemetry(),
                 state.battery_mv,

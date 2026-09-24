@@ -9,12 +9,13 @@ use embedded_graphics::{
 };
 
 use crate::display::St7567;
+use crate::mixer::{CHANNEL_MAX_US, CHANNEL_MIN_US, CHANNEL_SPAN_US, NUM_CHANNELS};
 use crate::ui::format::u16_to_dec_4;
 use crate::ui::widgets;
 
 pub fn render(
     lcd: &mut St7567,
-    rf_chs: &[u16; 14],
+    rf_chs: &[u16; NUM_CHANNELS],
     is_binding: bool,
 ) {
     let text_style_small = MonoTextStyle::new(&FONT_4X6, BinaryColor::On);
@@ -42,8 +43,8 @@ pub fn render(
             Text::new(lbl_str, Point::new(col_x, y + 5), text_style_small).draw(lcd).ok();
 
             // Bar gauge (width 22, height 5) using shared widget
-            let us = rf_chs[ch].clamp(1000, 2000);
-            let fill_w = (((us - 1000) as u32 * 20) / 1000).min(20);
+            let us = rf_chs[ch].clamp(CHANNEL_MIN_US, CHANNEL_MAX_US);
+            let fill_w = (((us - CHANNEL_MIN_US) as u32 * 20) / CHANNEL_SPAN_US as u32).min(20);
             widgets::draw_bar_gauge(
                 lcd,
                 Rectangle::new(Point::new(col_x + 13, y + 1), Size::new(22, 5)),
