@@ -157,7 +157,7 @@ Comprehensive technical documentation is maintained in the [`docs/`](docs/) dire
 - [x] Dual MCU support for both `STM32F072VB` and `APM32F072VB` (UID & DFU mapping).
 - [x] Parallel 8-bit ST7567 driver for `GPIOE` (ODR write) + control lines with `embedded-graphics`.
 - [x] Screen orientation correction, column 4 offset, and factory backlight driver (`PF3`).
-- [x] Fast power-on boot (< 30 ms) and reliable DFU bootloader invocation.
+- [x] Fast power-on boot and reliable DFU bootloader invocation.
 
 ### Phase 2: Analog & Digital Inputs (COMPLETED)
 - [x] Continuous 11-channel DMA1 ADC1 scanner (0.23 ms complete scan).
