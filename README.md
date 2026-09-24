@@ -12,7 +12,7 @@ The FS-i6X open-source journey was pioneered by the remarkable work of the [Open
 
 `flysky-i6x-rs` explores a complementary design philosophy: an experimental, clean-slate firmware written in bare-metal `no_std` Rust designed with:
 - **Zero-Heap, Deterministic Memory:** Fully static allocation with bare-metal `no_std`, eliminating dynamic allocation overhead, allocator stalls, and heap fragmentation.
-- **Lock-Free Concurrency & Watchdog Safety:** Deterministic priority-driven interrupt scheduling (`TIM16` 260 Hz packet sync, `EXTI2` RF ready) paired with lock-free atomic double-buffering. 2.0s hardware watchdog (`pac::IWDG`) with LSI stabilization and debug halt freezing.
+- **Lock-Free Concurrency & Watchdog Recovery:** Deterministic priority-driven interrupt scheduling (`TIM16` 260 Hz packet sync, `EXTI2` RF ready) paired with lock-free atomic double-buffering. 2.0s independent hardware watchdog (`pac::IWDG`) with LSI clock isolation, debug halt freezing, bounded sync, and <2 ms in-flight warm reset recovery that bypasses startup interlocks to prevent lockouts.
 - **Strict Scope:** Dedicated support for the built-in hardware (A7105 AFHDS2A + i-BUS), 4-axis gimbals, switches, trims, 20-model storage, 14-channel matrix mixer, and a 128×64 monochrome UI.
 - **Lightweight Footprint:** **~89.4 KB Binary** (91.3 KB flash total out of 120 KB partition, leaving >30.8 KB / 25.7% headroom) and **~3.0 KB static RAM** + 1 KB LCD framebuffer + 1 KB USB PMA (leaving >81% SRAM free with >6.3 KB stack safety margin).
 
@@ -23,7 +23,7 @@ The FS-i6X open-source journey was pioneered by the remarkable work of the [Open
 | Peripheral | Controller / Spec | MCU Pins & Ports | Notes |
 | :--- | :--- | :--- | :--- |
 | **MCU** | STM32F072VB (Cortex-M0 @ 48 MHz) | ARMv6-M (`thumbv6m-none-eabi`) | 128 KB Flash (120 KB code + 8 KB storage), 16 KB SRAM |
-| **Watchdog** | Hardware Independent Watchdog | `pac::IWDG` (40 kHz LSI) | 2.0s hard timeout, `DBGMCU_APB1_FZ` halt freeze |
+| **Watchdog** | Hardware Independent Watchdog | `pac::IWDG` (40 kHz LSI) | 2.0s hard timeout, `DBGMCU_APB1_FZ` halt freeze, sub-2ms in-flight warm recovery (`RCC_CSR`) |
 | **RF Transceiver** | Amiccom **A7105** 2.4 GHz | **SPI1** + GPIOs | SPI1 (SCK, MOSI, MISO) |
 | | Chip Select (CSN) | `PE12` (Active Low) | Fast GPIO output |
 | | Antenna Switch | `PE10` (RF0), `PE11` (RF1) | Diversity / TR switch |
@@ -251,7 +251,8 @@ Comprehensive technical documentation is maintained in the [`docs/`](docs/) dire
 
 ### Phase 15: Hardware Watchdog, Append-Only Storage, & Pure PAC Driver (COMPLETED)
 - [x] Pure PAC register-level driver layer replacing HAL overhead (`stm32f0::stm32f0x2::pac`).
-- [x] Independent Hardware Watchdog (`pac::IWDG`) with 2.0s timeout, LSI clock stabilization, and `DBGMCU_APB1_FZ` debugger halt freezing.
+- [x] Independent Hardware Watchdog (`pac::IWDG`) with 2.0s timeout, LSI clock stabilization, bounded register sync, and `DBGMCU_APB1_FZ` debugger halt freezing.
+- [x] In-Flight Watchdog Reset Recovery: Detects `RCC_CSR` watchdog flags (`IWDGRSTF`/`WWDGRSTF`), bypassing power-on safety traps (throttle/switch interlocks) and DFU settling delays to restore active RF control in < 2 ms with an acoustic pilot alert.
 - [x] 4-page (8 KB, Pages 60–63 at `0x0801_E000`..`0x0802_0000`) log-structured append-only storage engine with `sequential-storage`.
 - [x] Sub-3ms (~2.8 ms) non-blocking saves with zero page erases on model and setting updates.
 - [x] Automatic multi-tier migration from legacy v1/v2/v3 snapshot layouts to sequential storage.

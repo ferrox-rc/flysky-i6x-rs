@@ -402,7 +402,7 @@ dfu-util -a 0 -s 0x08000000:leave -D stock_backup.bin
 
 ## 8. Safety Systems & Audio Alarms
 
-The firmware includes four levels of proactive safety protection inspired by OpenTX/EdgeTX:
+The firmware includes five levels of proactive safety protection inspired by OpenTX/EdgeTX and aerospace fail-safe design:
 
 ### 1. Pre-Flight Startup Checks (Throttle & Switch Safety Interlock)
 - **Detection**: At power-on, the radio inspects the physical throttle position and all 4 toggle switches (`SA`, `SB`, `SC`, `SD`).
@@ -424,6 +424,13 @@ The firmware includes four levels of proactive safety protection inspired by Ope
 ### 4. Telemetry RSSI Range Alarms
 - **Low Signal Warning (RSSI < 40%)**: Sounds a caution beep (`2000 Hz`) every 6 seconds.
 - **Critical Signal Alarm (RSSI < 20%)**: Sounds an urgent double-beep (`2800 Hz`) every 3 seconds to warn the pilot of imminent radio failsafe.
+
+### 5. In-Flight Watchdog Recovery & Fast Return-to-Control
+- **Hardware Protection**: An Independent Hardware Watchdog (`pac::IWDG`) runs autonomously off an isolated 40 kHz LSI oscillator with a 2.0-second timeout.
+- **Warm Reboot Detection**: If an unexpected MCU reset occurs (e.g. from ESD, power rail fluctuation, or timing transient), the radio detects the watchdog reset signature in `RCC_CSR`.
+- **Interlock Bypass**: Unlike traditional firmware that traps the pilot on a startup warning screen because the throttle is up mid-flight, `flysky-i6x-rs` automatically bypasses power-on throttle/switch interlocks and the DFU delay during watchdog recovery.
+- **Instant Flight Recovery (< 2 ms)**: Active over-the-air channel transmission resumes in under **2 milliseconds**, well before receiver failsafe triggers.
+- **Pilot Acoustic Warning**: An urgent 3-beep alarm pattern (`2600 Hz`) sounds immediately on reboot to notify the pilot of the event while maintaining uninterrupted flight control.
 
 ---
 
