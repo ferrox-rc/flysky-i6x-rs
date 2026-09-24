@@ -50,7 +50,7 @@ impl WatchdogManager {
     }
 }
 
-/// Standalone zero-cost watchdog feed ("kick the dog").
+/// Standalone zero-cost watchdog feed ("feed the dog").
 ///
 /// Compiles down to a single store instruction (`str r0, [r1]`).
 /// Safe and lock-free to call from anywhere in the codebase.

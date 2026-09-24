@@ -34,7 +34,6 @@ mod watchdog;
 
 use display::St7567;
 
-
 /// High-rate flight pipeline state and outputs.
 struct FlightSnapshot {
     state: input::InputState,
@@ -243,7 +242,8 @@ impl BackgroundIdleManager {
         self.menu_was_active = menu_active;
 
         // 2. Physical activity & inactivity tracking
-        let stick_moved = (flight.state.raw[0] as i32 - self.prev_stick_samples[0] as i32).abs() > 30
+        let stick_moved = (flight.state.raw[0] as i32 - self.prev_stick_samples[0] as i32).abs()
+            > 30
             || (flight.state.raw[1] as i32 - self.prev_stick_samples[1] as i32).abs() > 30
             || (flight.state.raw[2] as i32 - self.prev_stick_samples[2] as i32).abs() > 30
             || (flight.state.raw[3] as i32 - self.prev_stick_samples[3] as i32).abs() > 30
@@ -330,7 +330,10 @@ impl BackgroundIdleManager {
 
         // 6. Persist newly bound RX ID safely to Flash outside ISR (inhibit while armed)
         if let Some(new_rx_id) = rf::take_pending_rx_save() {
-            if new_rx_id != 0 && new_rx_id != 0xFFFF_FFFF && storage.active_model().rx_id != new_rx_id {
+            if new_rx_id != 0
+                && new_rx_id != 0xFFFF_FFFF
+                && storage.active_model().rx_id != new_rx_id
+            {
                 storage.active_model_mut().rx_id = new_rx_id;
                 if !pipeline.prev_armed {
                     storage::save_active_model(storage);
@@ -536,8 +539,19 @@ fn main() -> ! {
             warned = true;
 
             // Lock RF transmission to safe idle/failsafe during warning
-            rf::set_channels(&[1500, 1500, 1000, 1500, 1000, 1000, 1500, 1500, 1000, 1000, 1500, 1500, 1500, 1500]);
-            usb::poll(now, &[1500, 1500, 1000, 1500, 1000, 1000, 1500, 1500, 1000, 1000, 1500, 1500, 1500, 1500], &state.switches, &rf::get_telemetry(), state.battery_mv);
+            rf::set_channels(&[
+                1500, 1500, 1000, 1500, 1000, 1000, 1500, 1500, 1000, 1000, 1500, 1500, 1500, 1500,
+            ]);
+            usb::poll(
+                now,
+                &[
+                    1500, 1500, 1000, 1500, 1000, 1000, 1500, 1500, 1000, 1000, 1500, 1500, 1500,
+                    1500,
+                ],
+                &state.switches,
+                &rf::get_telemetry(),
+                state.battery_mv,
+            );
 
             if now.wrapping_sub(preflight_beep_timer) >= 800 {
                 preflight_beep_timer = now;
@@ -550,42 +564,72 @@ fn main() -> ! {
                 buzzer.tick(dt);
 
                 lcd.clear(BinaryColor::Off).ok();
-                Text::new("SAFETY WARNING!", Point::new(16, 9), text_style).draw(&mut lcd).ok();
-                Line::new(Point::new(0, 11), Point::new(127, 11)).into_styled(sep_style).draw(&mut lcd).ok();
+                Text::new("SAFETY WARNING!", Point::new(16, 9), text_style)
+                    .draw(&mut lcd)
+                    .ok();
+                Line::new(Point::new(0, 11), Point::new(127, 11))
+                    .into_styled(sep_style)
+                    .draw(&mut lcd)
+                    .ok();
 
                 if thr_unsafe {
-                    Text::new("THROTTLE NOT AT IDLE!", Point::new(2, 23), text_style).draw(&mut lcd).ok();
+                    Text::new("THROTTLE NOT AT IDLE!", Point::new(2, 23), text_style)
+                        .draw(&mut lcd)
+                        .ok();
                 }
 
                 if sw_unsafe {
-                    Text::new("SWITCH WARNING:", Point::new(2, 34), text_style).draw(&mut lcd).ok();
+                    Text::new("SWITCH WARNING:", Point::new(2, 34), text_style)
+                        .draw(&mut lcd)
+                        .ok();
                     let mut sw_warn = *b"                ";
                     let mut col = 0;
                     if sa_unsafe && col + 4 <= 16 {
                         sw_warn[col..col + 4].copy_from_slice(b"[SA]");
                         col += 4;
-                        if col < 16 { sw_warn[col] = b' '; col += 1; }
+                        if col < 16 {
+                            sw_warn[col] = b' ';
+                            col += 1;
+                        }
                     }
                     if sb_unsafe && col + 4 <= 16 {
                         sw_warn[col..col + 4].copy_from_slice(b"[SB]");
                         col += 4;
-                        if col < 16 { sw_warn[col] = b' '; col += 1; }
+                        if col < 16 {
+                            sw_warn[col] = b' ';
+                            col += 1;
+                        }
                     }
                     if sc_unsafe && col + 4 <= 16 {
                         sw_warn[col..col + 4].copy_from_slice(b"[SC]");
                         col += 4;
-                        if col < 16 { sw_warn[col] = b' '; col += 1; }
+                        if col < 16 {
+                            sw_warn[col] = b' ';
+                            col += 1;
+                        }
                     }
                     if sd_unsafe && col + 4 <= 16 {
                         sw_warn[col..col + 4].copy_from_slice(b"[SD]");
                         col += 4;
                     }
-                    let sw_str = core::str::from_utf8(&sw_warn[..col.min(16)]).unwrap_or("CHECK SWITCHES");
-                    Text::new(sw_str, Point::new(2, 44), text_style).draw(&mut lcd).ok();
+                    let sw_str =
+                        core::str::from_utf8(&sw_warn[..col.min(16)]).unwrap_or("CHECK SWITCHES");
+                    Text::new(sw_str, Point::new(2, 44), text_style)
+                        .draw(&mut lcd)
+                        .ok();
                 }
 
-                Line::new(Point::new(0, 55), Point::new(127, 55)).into_styled(sep_style).draw(&mut lcd).ok();
-                Text::new("Lower Thr/Safe SW  [ESC]Skip", Point::new(2, 62), text_style_small).draw(&mut lcd).ok();
+                Line::new(Point::new(0, 55), Point::new(127, 55))
+                    .into_styled(sep_style)
+                    .draw(&mut lcd)
+                    .ok();
+                Text::new(
+                    "Lower Thr/Safe SW  [ESC]Skip",
+                    Point::new(2, 62),
+                    text_style_small,
+                )
+                .draw(&mut lcd)
+                .ok();
                 lcd.flush();
             }
         }
@@ -600,7 +644,7 @@ fn main() -> ! {
 
     // Main event loop: decoupled into high-rate flight pipeline and 30 Hz background idle tasks
     loop {
-        // Kick watchdog at loop start to guarantee active execution
+        // Feed watchdog at loop start to guarantee active execution
         watchdog::feed();
 
         let now = time::millis();
