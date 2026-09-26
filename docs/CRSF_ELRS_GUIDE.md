@@ -95,6 +95,9 @@ Radio (FS-i6X)                               External ELRS TX Module
 7. Press `[OK]` on a command action (e.g., `[Wi-Fi Mode]` or `[Bind]`) to trigger module functions.
 8. Press `[ESC]` at any time to return to the Protocol Setup menu.
 
+> [!TIP]
+> For the complete byte-level framing breakdown, wire timing diagrams, CRC-8 formulas, and manual verification walkthrough, refer to the [CRSF Protocol Specification & Verification Guide](CRSF_PROTOCOL_SPEC.md).
+
 ---
 
 ## 4. USB CDC Telemetry Streaming

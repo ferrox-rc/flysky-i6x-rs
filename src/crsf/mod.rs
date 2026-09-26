@@ -68,7 +68,11 @@ pub fn update_channels(now_ms: u32, channels: &[u16; 14]) {
     }
 }
 
-pub const MAX_PARAMS: usize = 8;
+pub const MAX_PARAMS: usize = 16;
+
+static mut CHUNK_BUF: [u8; 96] = [0; 96];
+static mut CHUNK_LEN: usize = 0;
+static mut CHUNK_PARAM_ID: u8 = 0;
 
 #[inline]
 unsafe fn send_ping() {
@@ -131,7 +135,7 @@ pub struct Parameter {
     pub name_len: u8,
     pub value: u8,
     pub max_value: u8,
-    pub options: [u8; 36],
+    pub options: [u8; 48],
     pub options_len: u8,
     pub status: u8,
 }
@@ -146,7 +150,7 @@ impl Parameter {
             name_len: 0,
             value: 0,
             max_value: 0,
-            options: [0; 36],
+            options: [0; 48],
             options_len: 0,
             status: 0,
         }
@@ -328,6 +332,8 @@ unsafe fn handle_device_info_frame(payload: &[u8], now_ms: u32) {
         CONFIG_ENGINE.state = ElrsConfigState::LoadingParam(1);
         CONFIG_ENGINE.params_len = 0;
         CONFIG_ENGINE.current_chunk = 0;
+        CHUNK_LEN = 0;
+        CHUNK_PARAM_ID = 0;
         CONFIG_ENGINE.last_req_ms = now_ms;
         send_param_read(CONFIG_ENGINE.device_id, 1, 0);
     } else {
@@ -342,16 +348,44 @@ unsafe fn handle_param_entry_frame(payload: &[u8], now_ms: u32) {
     }
     let param_id = payload[2];
     let chunks_remain = payload[3];
-    let chunk = &payload[4..];
+    let chunk_slice = &payload[4..];
 
-    if chunk.len() >= 3 && CONFIG_ENGINE.params_len < MAX_PARAMS {
+    // If starting a new parameter or chunk index 0, reset accumulator
+    if CONFIG_ENGINE.current_chunk == 0 || CHUNK_PARAM_ID != param_id {
+        CHUNK_LEN = 0;
+        CHUNK_PARAM_ID = param_id;
+    }
+
+    // Append chunk payload to accumulator
+    let avail = CHUNK_BUF.len().saturating_sub(CHUNK_LEN);
+    let to_copy = chunk_slice.len().min(avail);
+    CHUNK_BUF[CHUNK_LEN..CHUNK_LEN + to_copy].copy_from_slice(&chunk_slice[..to_copy]);
+    CHUNK_LEN += to_copy;
+
+    // Multi-frame parameter: request next chunk until complete
+    if chunks_remain > 0 {
+        CONFIG_ENGINE.current_chunk += 1;
+        send_param_read(
+            CONFIG_ENGINE.device_id,
+            param_id,
+            CONFIG_ENGINE.current_chunk,
+        );
+        CONFIG_ENGINE.last_req_ms = now_ms;
+        return;
+    }
+
+    // Parameter stream complete! Parse reassembled payload
+    let chunk = &CHUNK_BUF[..CHUNK_LEN];
+    CONFIG_ENGINE.current_chunk = 0;
+
+    if chunk.len() >= 3 {
         let parent = chunk[0];
         let p_type = chunk[1] & 0x7F;
 
         let mut name_buf = [0u8; 16];
         let (rest_start, name_len) = extract_null_string(chunk, 2, &mut name_buf);
 
-        let mut opt_buf = [0u8; 36];
+        let mut opt_buf = [0u8; 48];
         let mut opt_len = 0u8;
         let mut val = 0u8;
         let mut max_val = 0u8;
@@ -367,7 +401,7 @@ unsafe fn handle_param_entry_frame(payload: &[u8], now_ms: u32) {
                     }
                     opt_end += 1;
                 }
-                let copy_len = (opt_end - rest_start).min(36);
+                let copy_len = (opt_end - rest_start).min(48);
                 opt_buf[..copy_len].copy_from_slice(&chunk[rest_start..rest_start + copy_len]);
                 opt_len = copy_len as u8;
                 max_val = opt_count.saturating_sub(1);
@@ -438,22 +472,20 @@ unsafe fn handle_param_entry_frame(payload: &[u8], now_ms: u32) {
         }
     }
 
-    if chunks_remain > 0 {
-        CONFIG_ENGINE.current_chunk += 1;
-        send_param_read(
-            CONFIG_ENGINE.device_id,
-            param_id,
-            CONFIG_ENGINE.current_chunk,
-        );
-        CONFIG_ENGINE.last_req_ms = now_ms;
-    } else if param_id < CONFIG_ENGINE.param_count && CONFIG_ENGINE.params_len < MAX_PARAMS {
-        let next_id = param_id + 1;
-        CONFIG_ENGINE.state = ElrsConfigState::LoadingParam(next_id);
-        CONFIG_ENGINE.current_chunk = 0;
-        send_param_read(CONFIG_ENGINE.device_id, next_id, 0);
-        CONFIG_ENGINE.last_req_ms = now_ms;
-    } else {
-        CONFIG_ENGINE.state = ElrsConfigState::Ready;
+    // Only advance loading sequence if engine was actively in initial loading phase
+    if let ElrsConfigState::LoadingParam(loading_id) = CONFIG_ENGINE.state {
+        if param_id == loading_id {
+            if param_id < CONFIG_ENGINE.param_count && CONFIG_ENGINE.params_len < MAX_PARAMS {
+                let next_id = param_id + 1;
+                CONFIG_ENGINE.state = ElrsConfigState::LoadingParam(next_id);
+                CONFIG_ENGINE.current_chunk = 0;
+                CHUNK_LEN = 0;
+                send_param_read(CONFIG_ENGINE.device_id, next_id, 0);
+                CONFIG_ENGINE.last_req_ms = now_ms;
+            } else {
+                CONFIG_ENGINE.state = ElrsConfigState::Ready;
+            }
+        }
     }
 }
 
@@ -508,6 +540,9 @@ pub fn start_config() {
         CONFIG_ENGINE.state = ElrsConfigState::Discovering;
         CONFIG_ENGINE.params_len = 0;
         CONFIG_ENGINE.last_req_ms = 0;
+        CONFIG_ENGINE.current_chunk = 0;
+        CHUNK_LEN = 0;
+        CHUNK_PARAM_ID = 0;
         CONFIG_ENGINE.active_cmd = ActiveCommandState::Idle;
         send_ping();
     }

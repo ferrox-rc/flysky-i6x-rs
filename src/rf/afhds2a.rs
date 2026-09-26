@@ -2,18 +2,20 @@
 //!
 //! Implements:
 //! - Deterministic 16-channel spread-spectrum frequency hopping from TX ID
-//! - 14-channel 38-byte control frame generation (1000..2000 µs pulse widths)
+//! - 14-channel 38-byte control frame generation (988..2012 µs pulse widths)
 //! - 4-phase bidirectional bind sequence
 //! - 37-byte telemetry frame parsing (RSSI, RX battery voltage)
 
 #![allow(dead_code)]
 
 use super::{a7105, spi};
+use crate::mixer::{CHANNEL_CENTER_US, CHANNEL_MAX_US, CHANNEL_MIN_US};
 
 pub const NUM_CHANNELS: usize = 14;
 pub const NUM_FREQ: usize = 16;
 pub const TX_PACKET_SIZE: usize = 38;
 pub const RX_PACKET_SIZE: usize = 37;
+pub const FAILSAFE_THROTTLE_US: u16 = CHANNEL_MIN_US; // 988 µs motor cutoff
 
 // Packet command bytes
 pub const PACKET_STICKS: u8 = 0x58;
@@ -102,13 +104,13 @@ impl Afhds2a {
             bind_done: is_initially_bound,
             rx_id_needs_save: false,
             next_packet_type: PacketType::Sticks,
-            channels: [1500; NUM_CHANNELS], // All centered 1500 µs
+            channels: [CHANNEL_CENTER_US; NUM_CHANNELS], // All centered CHANNEL_CENTER_US µs
             telemetry: TelemetryData::new(),
             loss_counter: 0,
         }
     }
 
-    /// Update 14 RC channel pulse widths (1000..2000 µs).
+    /// Update 14 RC channel pulse widths (988..2012 µs).
     pub fn set_channels(&mut self, chs: &[u16; NUM_CHANNELS]) {
         self.channels.copy_from_slice(chs);
     }
@@ -275,7 +277,7 @@ impl Afhds2a {
 
         // Pack 14 channels (each 12 bits, little endian)
         for ch in 0..NUM_CHANNELS {
-            let val = self.channels[ch].clamp(1000, 2000);
+            let val = self.channels[ch].clamp(CHANNEL_MIN_US, CHANNEL_MAX_US);
             out[9 + ch * 2] = (val & 0xFF) as u8;
             out[10 + ch * 2] = ((val >> 8) & 0x0F) as u8;
         }
@@ -294,8 +296,9 @@ impl Afhds2a {
         out[13] = 0x00; // PWM output enabled (0x00 = PWM, 0x01 = PPM)
         out[14] = 0x00;
         out[15..37].fill(0xFF);
-        out[18] = 0x05;
-        out[19] = 0xDC; // 1500 µs center pulse
+        let center_bytes = CHANNEL_CENTER_US.to_be_bytes();
+        out[18] = center_bytes[0];
+        out[19] = center_bytes[1]; // 1500 µs center pulse
         out[20] = 0x05;
         out[21] = 0xDE; // i-BUS serial output enabled (0xDE = i-BUS, 0xDD = SBUS)
         out[37] = 0x00;
@@ -308,9 +311,10 @@ impl Afhds2a {
 
         for ch in 0..NUM_CHANNELS {
             if ch == 2 {
-                // CH3 (Throttle): failsafe cutoff to 1000 µs (motor stop)
-                out[9 + ch * 2] = 0xE8;
-                out[10 + ch * 2] = 0x03;
+                // CH3 (Throttle): failsafe cutoff to FAILSAFE_THROTTLE_US (motor stop)
+                let fs_bytes = FAILSAFE_THROTTLE_US.to_le_bytes();
+                out[9 + ch * 2] = fs_bytes[0];
+                out[10 + ch * 2] = fs_bytes[1];
             } else {
                 // All other channels: Hold last position (0xFFFF)
                 out[9 + ch * 2] = 0xFF;

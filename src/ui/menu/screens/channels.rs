@@ -13,6 +13,7 @@ use crate::display::St7567;
 use crate::menu::format::{u16_to_dec_4, SOURCE_NAMES};
 use crate::menu::widgets;
 use crate::menu::{MenuController, MenuState, NavKeys};
+use crate::mixer::{CHANNEL_MAX_US, CHANNEL_MIN_US, CHANNEL_SPAN_US, NUM_CHANNELS};
 use crate::storage::{self, RadioStorage};
 
 pub fn update_aux_channels(
@@ -156,7 +157,7 @@ pub fn update_channel_monitor(
     ctrl: &mut MenuController,
     lcd: &mut St7567,
     keys: &NavKeys,
-    rf_chs: &[u16; 14],
+    rf_chs: &[u16; NUM_CHANNELS],
     buzzer: &mut Buzzer,
 ) {
     if keys.cancel {
@@ -190,8 +191,8 @@ pub fn update_channel_monitor(
         let y = 12 + (i as i32 * 6);
         Text::new(name, Point::new(2, y + 5), text_style_small).draw(lcd).ok();
 
-        let us = rf_chs[ch].clamp(1000, 2000);
-        let fill_w = (((us - 1000) as u32 * 38) / 1000).min(38);
+        let us = rf_chs[ch].clamp(CHANNEL_MIN_US, CHANNEL_MAX_US);
+        let fill_w = (((us - CHANNEL_MIN_US) as u32 * 38) / CHANNEL_SPAN_US as u32).min(38);
         widgets::draw_bar_gauge(lcd, Rectangle::new(Point::new(44, y + 1), Size::new(40, 5)), fill_w);
 
         let mut val_buf = [0u8; 4];

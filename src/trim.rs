@@ -6,10 +6,12 @@
 
 use crate::boot;
 use crate::buzzer::Buzzer;
+use crate::mixer::{CHANNEL_MAX_US, CHANNEL_MIN_US, CHANNEL_SPAN_US};
 
 pub const TRIM_MIN: i8 = -25;
 pub const TRIM_MAX: i8 = 25;
 pub const TRIM_STEP_US: i16 = 4; // 4 µs per step -> ±100 µs authority
+pub const TRIM_MAX_OFFSET_US: i16 = TRIM_MAX as i16 * TRIM_STEP_US; // ±100 µs authority
 
 /// Trim values for all 4 primary flight control channels.
 #[derive(Copy, Clone, Debug, Default)]
@@ -195,30 +197,32 @@ impl TrimController {
         }
     }
 
-    /// Apply trim offset to raw channel pulse width (1000..2000 µs).
+    /// Apply trim offset to raw channel pulse width (CHANNEL_MIN_US..CHANNEL_MAX_US).
     #[inline(always)]
     pub fn apply(base_us: u16, trim: i8) -> u16 {
         let offset = trim as i16 * TRIM_STEP_US;
-        (base_us as i16 + offset).clamp(1000, 2000) as u16
+        (base_us as i16 + offset).clamp(CHANNEL_MIN_US as i16, CHANNEL_MAX_US as i16) as u16
     }
 
     /// Apply throttle trim based on mode:
     /// - 0: OFF (Lock) -> returns base_us unaltered
-    /// - 1: IDLE (T-Trim) -> trim authority maximum at idle (1000 µs), tapering to 0 at full stick (2000 µs)
+    /// - 1: IDLE (T-Trim) -> trim authority maximum at idle (CHANNEL_MIN_US), tapering to 0 at full stick (CHANNEL_MAX_US)
     /// - 2: LINEAR -> uniform trim offset across full range (±100 µs)
     #[inline(always)]
     pub fn apply_throttle(base_us: u16, trim: i8, mode: u8) -> u16 {
         match mode {
             1 => {
                 let max_offset = trim as i32 * TRIM_STEP_US as i32; // -100..+100 µs
-                let stick_travel = (base_us as i32 - 1000).clamp(0, 1000);
-                // At stick_travel = 0 (1000 µs), factor is 1000 / 1000 = 1.0 -> full offset
-                // At stick_travel = 1000 (2000 µs), factor is 0 / 1000 = 0.0 -> zero offset
-                let effective_offset = (max_offset * (1000 - stick_travel)) / 1000;
-                (base_us as i32 + effective_offset).clamp(900, 2100) as u16
+                let stick_travel = (base_us as i32 - CHANNEL_MIN_US as i32).clamp(0, CHANNEL_SPAN_US as i32);
+                // At stick_travel = 0 (CHANNEL_MIN_US), factor is 1024 / 1024 = 1.0 -> full offset
+                // At stick_travel = CHANNEL_SPAN_US (CHANNEL_MAX_US), factor is 0 / 1024 = 0.0 -> zero offset
+                let effective_offset = (max_offset * (CHANNEL_SPAN_US as i32 - stick_travel)) / CHANNEL_SPAN_US as i32;
+                let min_clamp = (CHANNEL_MIN_US as i32) - (TRIM_MAX_OFFSET_US as i32);
+                let max_clamp = (CHANNEL_MAX_US as i32) + (TRIM_MAX_OFFSET_US as i32);
+                (base_us as i32 + effective_offset).clamp(min_clamp, max_clamp) as u16
             }
             2 => Self::apply(base_us, trim),
-            _ => base_us.clamp(1000, 2000),
+            _ => base_us.clamp(CHANNEL_MIN_US, CHANNEL_MAX_US),
         }
     }
 }
