@@ -11,10 +11,10 @@ Focused on the built-in **A7105** 2.4 GHz RF transceiver (**AFHDS2A** protocol),
 The FS-i6X open-source journey was pioneered by the remarkable work of the [OpenI6X](https://github.com/OpenI6X/opentx) project, which successfully brought OpenTX/EdgeTX to this hardware and reverse-engineered the radio architecture.
 
 `flysky-i6x-rs` explores a complementary design philosophy: an experimental, clean-slate firmware written in bare-metal `no_std` Rust designed with:
-- **Zero-cost abstractions:** Microcontroller-native, static allocation, no heap allocations (`no_std`).
-- **Hard Real-Time Concurrency:** Priority-driven hardware interrupt scheduling (`TIM16` 260 Hz packet sync, `EXTI2` RF ready) paired with a high-rate decoupled flight pipeline and throttled 30 Hz display loop.
+- **Zero-Heap, Deterministic Memory:** Fully static allocation with bare-metal `no_std`, eliminating dynamic allocation overhead, allocator stalls, and heap fragmentation.
+- **Lock-Free Concurrency & Watchdog Recovery:** Deterministic priority-driven interrupt scheduling (`TIM16` 260 Hz packet sync, `EXTI2` RF ready) paired with lock-free atomic double-buffering. 2.0s independent hardware watchdog (`pac::IWDG`) with LSI clock isolation, debug halt freezing, bounded sync, and <2 ms in-flight warm reset recovery that bypasses startup interlocks to prevent lockouts.
 - **Strict Scope:** Dedicated support for the built-in hardware (A7105 AFHDS2A + i-BUS), 4-axis gimbals, switches, trims, 20-model storage, 14-channel matrix mixer, and a 128×64 monochrome UI.
-- **Lightweight Footprint:** **67.5 KB Flash** (leaving >58 KB free / 45.5% headroom) and **1.7 KB static RAM** + 1 KB LCD framebuffer (leaving >89% SRAM free).
+- **Lightweight Footprint:** **~89.4 KB Binary** (91.3 KB flash total out of 120 KB partition, leaving >30.8 KB / 25.7% headroom) and **~3.0 KB static RAM** + 1 KB LCD framebuffer + 1 KB USB PMA (leaving >81% SRAM free with >6.3 KB stack safety margin).
 
 ---
 
@@ -22,7 +22,8 @@ The FS-i6X open-source journey was pioneered by the remarkable work of the [Open
 
 | Peripheral | Controller / Spec | MCU Pins & Ports | Notes |
 | :--- | :--- | :--- | :--- |
-| **MCU** | STM32F072VB (Cortex-M0 @ 48 MHz) | ARMv6-M (`thumbv6m-none-eabi`) | 128 KB Flash, 16 KB SRAM |
+| **MCU** | STM32F072VB (Cortex-M0 @ 48 MHz) | ARMv6-M (`thumbv6m-none-eabi`) | 128 KB Flash (120 KB code + 8 KB storage), 16 KB SRAM |
+| **Watchdog** | Hardware Independent Watchdog | `pac::IWDG` (40 kHz LSI) | 2.0s hard timeout, `DBGMCU_APB1_FZ` halt freeze, sub-2ms in-flight warm recovery (`RCC_CSR`) |
 | **RF Transceiver** | Amiccom **A7105** 2.4 GHz | **SPI1** + GPIOs | SPI1 (SCK, MOSI, MISO) |
 | | Chip Select (CSN) | `PE12` (Active Low) | Fast GPIO output |
 | | Antenna Switch | `PE10` (RF0), `PE11` (RF1) | Diversity / TR switch |
@@ -47,8 +48,9 @@ The FS-i6X open-source journey was pioneered by the remarkable work of the [Open
 | | Matrix Rows (L1..L4) | `PD12`, `PD13`, `PD14`, `PD15` | Inputs with internal pull-ups |
 | | Inward Trim Keys | `PC6`+`PD13` & `PC7`+`PD14` | Roll Left (RHL) + Yaw Right (LHR) |
 | | Dedicated Bind Key | `PF2` | Active Low (pull-up enabled) |
-| **Storage** | On-chip Flash (Pages 62 & 63)| `0x0801_F000 .. 0x0801_FFFF` (4 KB) | 20 models + radio settings (2688 bytes) |
-| **Telemetry / Serial**| UART Interfaces | `USART2` (PD5 Tx / PA15 Rx) | External telemetry / i-BUS mirror |
+| **Storage** | On-chip Flash (Pages 60–63)| `0x0801_E000 .. 0x0801_FFFF` (8 KB) | Append-only sequential storage (Keys 0..20, ~2.8 ms save) |
+| **Telemetry / Serial**| UART Interfaces | `USART2` (PD5 Tx / PA15 Rx) | External telemetry / CRSF / ELRS module bay |
+| **USB Controller** | Native USB Full-Speed (12 Mbps)| `PA11` (D-) / `PA12` (D+) | Joystick HID, CDC-ACM Serial, Composite, Off |
 | **Audio** | Piezo Buzzer | `TIM1_CH1` (`PA8`) | Hardware PWM frequency & tone generator |
 
 ---
@@ -58,7 +60,7 @@ The FS-i6X open-source journey was pioneered by the remarkable work of the [Open
 ```mermaid
 flowchart TD
     subgraph Core ["FlySky FS-i6X Reactive Architecture (48 MHz)"]
-        SCHED["Deterministic Hardware Interrupt & Concurrency Model"]
+        SCHED["Deterministic Hardware Interrupt & Safety Concurrency Model"]
     end
 
     subgraph P3 ["Priority 3: Critical RF Sync (TIM16 & EXTI2_3 IRQ)"]
@@ -80,11 +82,12 @@ flowchart TD
         FL5["Double-Buffered PENDING_CHANNELS Update (sub-30 µs)"]
     end
 
-    subgraph P0 ["Priority 0: Throttled UI & Display Loop (30 Hz / ~33 ms)"]
+    subgraph P0 ["Priority 0: Throttled UI & Background Loop (~500 Hz)"]
         UI1["Keypad & Trim Matrix Scan (90ms Repeat)"]
         UI2["Buzzer Tone State Machine (TIM1 PWM)"]
-        UI3["ST7567 Parallel LCD Framebuffer Render"]
-        UI4["Non-Volatile Flash Persistence (Pages 62-63)"]
+        UI3["ST7567 Parallel LCD Framebuffer Render (30 Hz)"]
+        UI4["Append-Only Sequential Storage (Pages 60-63)"]
+        UI5["Hardware Watchdog Pet (pac::IWDG 2.0s)"]
     end
 
     SCHED --> P3
@@ -95,9 +98,10 @@ flowchart TD
 
 ### Key Libraries / Crates
 - `cortex-m`, `cortex-m-rt`: Core ARM runtime and interrupt vector tables.
-- `stm32f0xx-hal`: Embedded HAL implementation for STM32F0 peripherals.
+- `stm32f0`: Direct Peripheral Access Crate (PAC) for zero-overhead hardware control (`stm32f0::stm32f0x2::pac`).
+- `sequential-storage`: Log-structured wear-levelled non-volatile storage engine with automatic compaction.
 - `embedded-graphics`: Monochrome UI primitive rendering, fonts, lines, and bitmaps.
-- `embedded-hal`: Trait abstractions for SPI, I2C, and GPIO.
+- `usb-device`, `usbd-hid`, `usbd-serial`: Embedded USB stack for Joystick and CDC-ACM serial composite device.
 
 ---
 
@@ -140,7 +144,7 @@ Comprehensive technical documentation is maintained in the [`docs/`](docs/) dire
 - **[AFHDS 2A Protocol & A7105 RF Driver](docs/RF_PROTOCOL.md)**: SPI1 hardware driver, 16-channel FHSS hopping table, 38-byte packet structure, Model Match, and one-way/two-way receiver binding.
 - **[Flight Inputs & Digital Trims](docs/INPUT_SUBSYSTEM.md)**: 11-channel continuous ADC DMA scanner, MMA jitter filtering, physical gimbal geometry, 4-axis digital trims, and TIM1 hardware PWM buzzer driver.
 - **[Flight Control & 14-Channel Mixing](docs/MIXER.md)**: 4-stage pipeline, integer cubic expo, Delta/V-Tail/Flaperon templates, auxiliary channel remapping, and EdgeTX freeform matrix mixing.
-- **[Stick Calibration & Flash Persistence](docs/CALIBRATION_AND_STORAGE.md)**: 2-step interactive calibration wizard, tolerance margin calculation, and 20-model Flash storage architecture across Pages 62 & 63.
+- **[Stick Calibration & Flash Persistence](docs/CALIBRATION_AND_STORAGE.md)**: 2-step interactive calibration wizard, tolerance margin calculation, and 4-page append-only sequential storage engine across Pages 60–63.
 - **[USB Subsystem & Simulator Manual](docs/USB_SUBSYSTEM.md)**: Hardware Full-Speed USB driver, 100 Hz HID Gamepad descriptor (8 axes, 16 buttons), CDC-ACM telemetry/CLI, and silent RF standby.
 - **[Ecosystem Context & Background](docs/FIRMWARE_COMPARISON.md)**: Background on open-source FS-i6X firmware development, OpenI6X foundations, and the Rust architectural philosophy.
 - **[Hardware Reference & Pinout](docs/HARDWARE_REFERENCE.md)**: Detailed schematics, pin mappings, ST7567 LCD 6800-bus timings, buzzer PWM, and dual-MCU (STM32 / APM32) profiles.
@@ -153,7 +157,7 @@ Comprehensive technical documentation is maintained in the [`docs/`](docs/) dire
 - [x] Dual MCU support for both `STM32F072VB` and `APM32F072VB` (UID & DFU mapping).
 - [x] Parallel 8-bit ST7567 driver for `GPIOE` (ODR write) + control lines with `embedded-graphics`.
 - [x] Screen orientation correction, column 4 offset, and factory backlight driver (`PF3`).
-- [x] Fast power-on boot (< 30 ms) and reliable DFU bootloader invocation.
+- [x] Fast power-on boot and reliable DFU bootloader invocation.
 
 ### Phase 2: Analog & Digital Inputs (COMPLETED)
 - [x] Continuous 11-channel DMA1 ADC1 scanner (0.23 ms complete scan).
@@ -235,12 +239,69 @@ Comprehensive technical documentation is maintained in the [`docs/`](docs/) dire
 - [x] True on-the-fly USB mode switching in `Radio Setup` (SE0 disconnect pulse + hardware APB1 reset without requiring reboot). Default mode: `OFF`.
 - [x] Silent RF standby running in Joystick mode: A7105 transceiver and PA/LNA frontend are placed in standby (zero RF radiation, cool running) with `U:SIM` status indicator.
 - [x] Non-volatile `USB Mode` setting in `Radio Setup` (`OFF`, `JOYSTICK`, `SERIAL`, `COMPOSITE`).
-- [x] Main Menu Item 9 repurposed as `Protocol Setup` supporting `AFHDS 2A` internal RF and preparatory support for external `CRSF / ELRS` transmitter modules.
+- [x] Main Menu Item 9 repurposed as `Protocol Setup` supporting `AFHDS 2A` internal RF and external `CRSF / ELRS` transmitter modules.
+
+### Phase 14: CRSF / ExpressLRS & Memory Hardening (COMPLETED)
+- [x] Full Crossfire (CRSF) & ExpressLRS driver on `USART2` (`PD5` TX, `PA15` RX) with selectable baud rates (420k, 416.6k, 115.2k, 921.6k).
+- [x] Configurable external module power switch polarity on `PC13` (`Radio Setup` -> `Ext Module Power: HIGH/LOW`).
+- [x] Native on-radio ExpressLRS configurator engine (0 heap allocations, reads/writes parameters and runs module commands).
+- [x] Native CRSF link diagnostics screen on Flight Page 4 (LQ, RSSI dBm, SNR dB, Active Antenna, TX Power mW, RF Rate, Battery Voltage, Capacity).
+- [x] Universal JSON telemetry streaming over USB CDC including full CRSF downlink telemetry metrics.
+- [x] Zero-alloc in-place Flash loading (`load_storage_into`) and lightweight header reads (`load_config`), cutting boot stack depth in half (from 15.4 KB to ~7.2 KB) and ensuring > 6.3 KB safety margin in SRAM.
+
+### Phase 15: Hardware Watchdog, Append-Only Storage, & Pure PAC Driver (COMPLETED)
+- [x] Pure PAC register-level driver layer replacing HAL overhead (`stm32f0::stm32f0x2::pac`).
+- [x] Independent Hardware Watchdog (`pac::IWDG`) with 2.0s timeout, LSI clock stabilization, bounded register sync, and `DBGMCU_APB1_FZ` debugger halt freezing.
+- [x] In-Flight Watchdog Reset Recovery: Detects `RCC_CSR` watchdog flags (`IWDGRSTF`/`WWDGRSTF`), bypassing power-on safety traps (throttle/switch interlocks) and DFU settling delays to restore active RF control in < 2 ms with an acoustic pilot alert.
+- [x] 4-page (8 KB, Pages 60–63 at `0x0801_E000`..`0x0802_0000`) log-structured append-only storage engine with `sequential-storage`.
+- [x] Sub-3ms (~2.8 ms) non-blocking saves with zero page erases on model and setting updates.
+- [x] Automatic multi-tier migration from legacy v1/v2/v3 snapshot layouts to sequential storage.
+- [x] Linker script memory layout update (`FLASH (rx)` length = 120 KB, Pages 0–59).
+- [x] USB Composite mode (Joystick + CDC Serial) and clean silent interactive CLI on connection.
+
+### Phase 16: CRSF Protocol Compliance & Range Normalization (IN PROGRESS / BRANCH: `fix/crsf-elrs-spec-compliance`)
+- [x] TBS Crossfire Rev 08 11-bit channel scaling formula adherence across all 16 channels.
+- [x] Standardize radio pulse width range to FlySky standard 988..2012 µs (center 1500 µs, span 1024 µs).
+- [x] Multi-frame chunk reassembly for ExpressLRS configuration parameters.
+- [x] Expand parameter slots to 16 items and string buffers to 48 bytes.
+- [x] CRSF protocol specification and manual bench verification guide (`docs/CRSF_PROTOCOL_SPEC.md`).
+
+### Phase 17: Modern UI Glyphs & Visual Experience (IN PROGRESS / BRANCH: `feature/modern-ui-glyphs`)
+- [x] MDI 12px vector icon integration (`embedded-icon`) across Settings Menu items.
+- [x] 3-slot graphical list navigation (14px row height) with smooth viewport scrolling.
+- [x] Right-edge proportional scrollbar with position indicators (`1/13`).
+- [x] Flight dashboard status bar battery icon and inverted visual alert badges.
+
+### Phase 18: Voice Audio Subsystem & Hardware Mod (BRANCH: `feat/dfplayer-voice-audio`)
+- [x] DFPlayer Mini hardware serial audio driver on `USART` / dedicated pin.
+- [x] Spoken telemetry announcements (battery voltage, low RSSI, timer elapsed).
+- [x] Audible switch position announcements and flight mode voice prompts.
+
+### Phase 19: Flight Timer, Mixer Polish, & Pilot Ergonomics (PLANNED / BRANCH: `feat/flight-timer-mixer-polish`)
+- [ ] Throttle- and switch-activated Flight Countdown / Stopwatch timer utilizing existing `timer_secs` storage.
+- [ ] Acoustic countdown beeps (1-min warning, 10s..1s countdown, persistent tone at 0) and formatted flight dashboard display.
+- [ ] Elevon & V-Tail saturation resolution (standardizing `(p ± r) / 2` throw limits).
+- [ ] Wing/Tail differential throw activation utilizing existing `template_diff` parameter.
+- [ ] Unipolar / half-range mixer source option (`Thr+`) to eliminate negative pitch-down at idle on compensation mixes.
+- [ ] Physical switch auto-detection in menu editors (toggling any physical switch auto-selects its condition).
+- [ ] Model Duplicate / Copy utility in `MODEL SETUP` for safe mixer experimentation.
+- [ ] Non-visual potentiometer center acoustic detent click when crossing neutral center on `VRA` and `VRB`.
+
+### Phase 20: Trainer Port Subsystem & PPM In/Out (PLANNED / BRANCH: `feat/trainer-ppm`)
+- [ ] Direct PAC driver for `TIM15` (1 µs tick resolution at 48 MHz).
+- [ ] PPM Output on `PF10` (`TIM15_CH2`): Deterministic 22.5 ms 8-channel CPPM stream powering the iRangeX iRX6 multi-protocol module and USB simulator dongles.
+- [ ] PPM Input on `PF9` (`TIM15_CH1`): Input capture decoder for wired buddy-box training and FPV head-trackers.
+- [ ] Safety Handover Mixer: Instant instructor takeover threshold (> 5% stick deflection) and sub-50 ms failsafe timeout fallback.
+
+### Phase 21: Wireless SBUS Trainer & Setup Suite (PLANNED / BRANCH: `feat/trainer-sbus`)
+- [ ] `USART2` hardware-inverted (`RXINV`) SBUS receiver decoder (100k baud 8E2) for wireless buddy-box links.
+- [ ] Dedicated on-radio `Trainer Setup` screen with live student-vs-instructor graphic monitor bars and link state diagnostics.
+- [ ] Auxiliary channel rate-limiter ("Servo Slow") for realistic flap deployment and gear doors without aerodynamic ballooning.
 
 ### Current Firmware Footprint
-- **Flash ROM**: **74.1 KB** (74,108 bytes) used out of **128 KB** available (**>53.8 KB / 42.0% free headroom**).
-- **Static RAM**: **2.3 KB** (`.data` 1,776B + `.bss` 604B) out of **16 KB** available (**>85% SRAM free**).
-- **Non-Volatile Storage**: **2,688 bytes** allocated across Pages 62 & 63 (1,408 bytes free headroom).
+- **Application Flash ROM**: **~89.4 KB** (.text 89,432B + .data 1,876B = 91.3 KB total) used out of **120 KB** partition (**>30.8 KB / 25.7% free headroom**).
+- **Static RAM**: **~3.0 KB** (`.data` 1,876B + `.bss` 1,128B) out of **16 KB** available (**>81% SRAM free** with **>6.3 KB** guaranteed stack safety margin).
+- **Non-Volatile Storage**: **8,192 bytes** (Pages 60–63) managed as an append-only log with automatic wear levelling.
 
 ---
 
