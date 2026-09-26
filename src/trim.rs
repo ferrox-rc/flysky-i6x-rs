@@ -226,3 +226,48 @@ impl TrimController {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_trim_apply_linear() {
+        assert_eq!(TrimController::apply(1500, 0), 1500);
+        assert_eq!(TrimController::apply(1500, 10), 1540);
+        assert_eq!(TrimController::apply(1500, -25), 1400);
+        assert_eq!(TrimController::apply(1500, 25), 1600);
+        // Clamping to channel bounds
+        assert_eq!(TrimController::apply(990, -25), CHANNEL_MIN_US);
+        assert_eq!(TrimController::apply(2010, 25), CHANNEL_MAX_US);
+    }
+
+    #[test]
+    fn test_apply_throttle_modes() {
+        // Mode 0: OFF
+        assert_eq!(TrimController::apply_throttle(988, 25, 0), 988);
+        assert_eq!(TrimController::apply_throttle(1500, 25, 0), 1500);
+
+        // Mode 1: IDLE trim (tapers from full authority at 988 to 0 at 2012)
+        assert_eq!(TrimController::apply_throttle(CHANNEL_MIN_US, 25, 1), CHANNEL_MIN_US + 100);
+        assert_eq!(TrimController::apply_throttle(CHANNEL_MAX_US, 25, 1), CHANNEL_MAX_US);
+
+        // Mid-stick: roughly 50% authority
+        let mid = (CHANNEL_MIN_US + CHANNEL_MAX_US) / 2; // 1500
+        let mid_val = TrimController::apply_throttle(mid, 25, 1);
+        assert!(mid_val >= 1545 && mid_val <= 1555, "Mid-stick idle trim should be ~50 µs offset, got {}", mid_val);
+
+        // Mode 2: LINEAR
+        assert_eq!(TrimController::apply_throttle(1500, 10, 2), 1540);
+    }
+
+    #[test]
+    fn test_trim_controller_defaults() {
+        let trim = TrimController::new();
+        assert_eq!(trim.values.roll, 0);
+        assert_eq!(trim.values.pitch, 0);
+        assert_eq!(trim.values.throttle, 0);
+        assert_eq!(trim.values.yaw, 0);
+        assert_eq!(trim.last_active, ActiveTrim::None);
+    }
+}

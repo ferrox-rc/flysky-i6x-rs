@@ -13,24 +13,11 @@ use embedded_graphics::{
     text::Text,
 };
 
-mod adc;
-mod boot;
-mod buzzer;
-mod calib;
-mod chip;
-mod crsf;
-mod curve;
-mod display;
-mod input;
-mod ui;
+use flysky_i6x_rs::{
+    adc, boot, buzzer, calib, chip, crsf, curve, display, input, mixer, rf, storage, time,
+    trim, ui, usb, watchdog,
+};
 pub use ui::menu;
-mod mixer;
-mod rf;
-mod storage;
-mod time;
-mod trim;
-mod usb;
-mod watchdog;
 
 use display::St7567;
 

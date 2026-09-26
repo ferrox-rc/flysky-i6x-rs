@@ -3,6 +3,10 @@ name = "flysky-i6x-rs"
 version = "0.16.0-rc.5"
 edition = "2021"
 
+[lib]
+name = "flysky_i6x_rs"
+path = "src/lib.rs"
+
 [[bin]]
 name = "flysky-i6x-rs"
 path = "src/main.rs"

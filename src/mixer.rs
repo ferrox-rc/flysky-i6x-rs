@@ -294,3 +294,185 @@ pub fn compute_channels(
 
     rf_chs
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::input::{SwitchPos, Switches};
+    use crate::storage::{MixLine, ModelConfig};
+
+    #[test]
+    fn test_apply_dr_expo_linear() {
+        // 100% rate, 0 expo -> pure identity
+        assert_eq!(apply_dr_expo(0, 100, 0), 0);
+        assert_eq!(apply_dr_expo(500, 100, 0), 500);
+        assert_eq!(apply_dr_expo(1000, 100, 0), 1000);
+        assert_eq!(apply_dr_expo(-500, 100, 0), -500);
+        assert_eq!(apply_dr_expo(-1000, 100, 0), -1000);
+
+        // 50% rate, 0 expo -> half throw
+        assert_eq!(apply_dr_expo(1000, 50, 0), 500);
+        assert_eq!(apply_dr_expo(-1000, 50, 0), -500);
+
+        // Rate below 30 clamps to 30
+        assert_eq!(apply_dr_expo(1000, 10, 0), 300);
+        // Rate above 100 clamps to 100
+        assert_eq!(apply_dr_expo(1000, 120, 0), 1000);
+    }
+
+    #[test]
+    fn test_apply_dr_expo_curves() {
+        // Positive expo softens center (at half stick, output is lower than linear)
+        let linear = apply_dr_expo(500, 100, 0); // 500
+        let soft = apply_dr_expo(500, 100, 50);  // 50% expo
+        assert!(soft < linear, "Positive expo should soften center response: {} < {}", soft, linear);
+        assert_eq!(apply_dr_expo(1000, 100, 50), 1000, "Full stick must still reach 100%");
+
+        // Negative expo sharpens center (at half stick, output is higher than linear)
+        let sharp = apply_dr_expo(500, 100, -50);
+        assert!(sharp > linear, "Negative expo should sharpen center response: {} > {}", sharp, linear);
+        assert_eq!(apply_dr_expo(1000, 100, -50), 1000);
+    }
+
+    #[test]
+    fn test_is_switch_active() {
+        let switches = Switches {
+            sa: SwitchPos::Up,
+            sb: SwitchPos::Mid,
+            sc: SwitchPos::Down,
+            sd: SwitchPos::Up,
+        };
+
+        assert!(is_switch_active(0, &switches), "Switch 0 is always active");
+        assert!(is_switch_active(1, &switches), "SA Up");
+        assert!(!is_switch_active(2, &switches), "SA Down");
+        assert!(!is_switch_active(3, &switches), "SB Up");
+        assert!(is_switch_active(4, &switches), "SB Mid");
+        assert!(!is_switch_active(5, &switches), "SB Down");
+        assert!(!is_switch_active(6, &switches), "SC Up");
+        assert!(!is_switch_active(7, &switches), "SC Mid");
+        assert!(is_switch_active(8, &switches), "SC Down");
+        assert!(is_switch_active(9, &switches), "SD Up");
+        assert!(!is_switch_active(10, &switches), "SD Down");
+    }
+
+    #[test]
+    fn test_compute_channels_normal_centered() {
+        let model = ModelConfig::default_for_index(0);
+        let trims = TrimController::new();
+        let switches = Switches {
+            sa: SwitchPos::Up,
+            sb: SwitchPos::Up,
+            sc: SwitchPos::Up,
+            sd: SwitchPos::Up,
+        };
+        let pots = [0i16, 0i16];
+
+        // Neutral inputs: roll=0, pitch=0, throttle=500 (idle = 0), yaw=0
+        let chs = compute_channels(0, 0, 500, 0, &pots, &switches, &model, &trims, 0);
+
+        assert_eq!(chs[0], CHANNEL_CENTER_US, "CH1 Roll should be center 1500 µs");
+        assert_eq!(chs[1], CHANNEL_CENTER_US, "CH2 Pitch should be center 1500 µs");
+        assert_eq!(chs[2], CHANNEL_CENTER_US, "CH3 Throttle mid should be center 1500 µs");
+        assert_eq!(chs[3], CHANNEL_CENTER_US, "CH4 Yaw should be center 1500 µs");
+    }
+
+    #[test]
+    fn test_compute_channels_full_deflection_and_pulse_bounds() {
+        let model = ModelConfig::default_for_index(0);
+        let trims = TrimController::new();
+        let switches = Switches {
+            sa: SwitchPos::Up,
+            sb: SwitchPos::Up,
+            sc: SwitchPos::Up,
+            sd: SwitchPos::Up,
+        };
+        let pots = [0i16, 0i16];
+
+        // Full roll right (1000)
+        let chs = compute_channels(1000, 0, 0, 0, &pots, &switches, &model, &trims, 0);
+        assert_eq!(chs[0], CHANNEL_MAX_US, "CH1 max pulse should be {}", CHANNEL_MAX_US);
+        assert_eq!(chs[2], CHANNEL_MIN_US, "CH3 zero throttle should be {}", CHANNEL_MIN_US);
+
+        // Full roll left (-1000)
+        let chs_neg = compute_channels(-1000, 0, 1000, 0, &pots, &switches, &model, &trims, 0);
+        assert_eq!(chs_neg[0], CHANNEL_MIN_US, "CH1 min pulse should be {}", CHANNEL_MIN_US);
+        assert_eq!(chs_neg[2], CHANNEL_MAX_US, "CH3 full throttle should be {}", CHANNEL_MAX_US);
+    }
+
+    #[test]
+    fn test_compute_channels_elevon_mixing() {
+        let mut model = ModelConfig::default_for_index(0);
+        model.wing_tail_mix = 1; // Elevon
+        let trims = TrimController::new();
+        let switches = Switches {
+            sa: SwitchPos::Up,
+            sb: SwitchPos::Up,
+            sc: SwitchPos::Up,
+            sd: SwitchPos::Up,
+        };
+        let pots = [0i16, 0i16];
+
+        // Pitch up (1000), Roll zero -> Both elevons deflect together
+        let chs = compute_channels(0, 1000, 0, 0, &pots, &switches, &model, &trims, 0);
+        assert_eq!(chs[0], CHANNEL_MAX_US, "CH1 Left elevon");
+        assert_eq!(chs[1], CHANNEL_MAX_US, "CH2 Right elevon");
+
+        // Roll right (1000), Pitch zero -> Left elevon down, Right elevon up
+        let chs_roll = compute_channels(1000, 0, 0, 0, &pots, &switches, &model, &trims, 0);
+        assert_eq!(chs_roll[0], CHANNEL_MIN_US, "CH1 Left elevon (p - r)");
+        assert_eq!(chs_roll[1], CHANNEL_MAX_US, "CH2 Right elevon (p + r)");
+    }
+
+    #[test]
+    fn test_compute_channels_channel_reversing() {
+        let mut model = ModelConfig::default_for_index(0);
+        model.channel_reverse = 0b0000_0001; // Reverse CH1 (Roll)
+        let trims = TrimController::new();
+        let switches = Switches {
+            sa: SwitchPos::Up,
+            sb: SwitchPos::Up,
+            sc: SwitchPos::Up,
+            sd: SwitchPos::Up,
+        };
+        let pots = [0i16, 0i16];
+
+        // Roll right (+1000) with reversed CH1 should yield CHANNEL_MIN_US instead of CHANNEL_MAX_US
+        let chs = compute_channels(1000, 0, 0, 0, &pots, &switches, &model, &trims, 0);
+        assert_eq!(chs[0], CHANNEL_MIN_US, "Reversed CH1 should invert to {}", CHANNEL_MIN_US);
+    }
+
+    #[test]
+    fn test_matrix_mixer_modes() {
+        let mut model = ModelConfig::default_for_index(0);
+        model.aux_channels[0] = 0; // Set CH5 source to None (center = 0)
+        // Mix line 1: Add Roll to CH5 (Aux 1) with 50% weight
+        model.mixes[0] = MixLine {
+            target_ch: 5,
+            source: 1, // Roll
+            weight: 50,
+            offset: 0,
+            mode: 0, // ADD
+            switch: 0, // Always active
+        };
+
+        let trims = TrimController::new();
+        let switches = Switches {
+            sa: SwitchPos::Up,
+            sb: SwitchPos::Up,
+            sc: SwitchPos::Up,
+            sd: SwitchPos::Up,
+        };
+        let pots = [0i16, 0i16];
+
+        let chs = compute_channels(1000, 0, 0, 0, &pots, &switches, &model, &trims, 0);
+        // Base CH5 is 0. Roll is 1000 -> 50% weight adds +500 -> 1500 + 256 = 1756 µs
+        assert_eq!(chs[4], 1756);
+
+        // Mix line 2: Replace CH5 with Roll 100%
+        model.mixes[0].mode = 2; // REPLACE
+        model.mixes[0].weight = 100;
+        let chs_replace = compute_channels(1000, 0, 0, 0, &pots, &switches, &model, &trims, 0);
+        assert_eq!(chs_replace[4], CHANNEL_MAX_US);
+    }
+}

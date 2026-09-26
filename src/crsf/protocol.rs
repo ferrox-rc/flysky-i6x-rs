@@ -328,3 +328,116 @@ pub fn build_param_write_frame(target: u8, param_id: u8, value: u8, out_frame: &
         out_frame,
     )
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::mixer::CHANNEL_CENTER_US;
+
+    #[test]
+    fn test_crc8_dvb() {
+        assert_eq!(crc8(&[0x00]), 0x00);
+        // Test CRC repeatability
+        let sample = [0x16, 0x01, 0x02, 0x03, 0x04];
+        let c1 = crc8(&sample);
+        let c2 = crc8(&sample);
+        assert_eq!(c1, c2);
+        assert_ne!(c1, 0);
+    }
+
+    #[test]
+    fn test_us_to_crsf_scaling() {
+        assert_eq!(us_to_crsf(CHANNEL_MIN_US), CRSF_CHANNEL_MIN); // 988 -> 172
+        assert_eq!(us_to_crsf(CHANNEL_CENTER_US), CRSF_CHANNEL_CENTER); // 1500 -> 992
+        assert_eq!(us_to_crsf(CHANNEL_MAX_US), CRSF_CHANNEL_MAX); // 2012 -> 1811
+
+        // Clamping bounds
+        assert_eq!(us_to_crsf(800), CRSF_CHANNEL_MIN);
+        assert_eq!(us_to_crsf(2200), CRSF_CHANNEL_MAX);
+    }
+
+    #[test]
+    fn test_build_channels_frame_and_unpack() {
+        let channels: [u16; 14] = [
+            CHANNEL_CENTER_US, // CH1 1500 -> 992
+            CHANNEL_MIN_US,    // CH2 988  -> 172
+            CHANNEL_MAX_US,    // CH3 2012 -> 1811
+            1200,              // CH4
+            1800,              // CH5
+            1400,              // CH6
+            1600,              // CH7
+            1500,              // CH8
+            988,               // CH9
+            2012,              // CH10
+            1500,              // CH11
+            1500,              // CH12
+            1500,              // CH13
+            1500,              // CH14
+        ];
+
+        let mut frame = [0u8; CRSF_RC_FRAME_SIZE];
+        let len = build_channels_frame(&channels, &mut frame);
+        assert_eq!(len, CRSF_RC_FRAME_SIZE);
+
+        // Header check
+        assert_eq!(frame[0], CRSF_ADDRESS_CRSF_TRANSMITTER);
+        assert_eq!(frame[1], 24);
+        assert_eq!(frame[2], CRSF_FRAMETYPE_RC_CHANNELS_PACKED);
+
+        // CRC check
+        assert_eq!(frame[25], crc8(&frame[2..25]));
+
+        // Unpack 16 channels from 22 bytes (bits 0..176)
+        let p = &frame[3..25];
+        let mut unpacked = [0u16; 16];
+        unpacked[0] = ((p[0] as u16) | ((p[1] as u16) << 8)) & 0x07FF;
+        unpacked[1] = (((p[1] as u16) >> 3) | ((p[2] as u16) << 5)) & 0x07FF;
+        unpacked[2] = (((p[2] as u16) >> 6) | ((p[3] as u16) << 2) | ((p[4] as u16) << 10)) & 0x07FF;
+        unpacked[3] = (((p[4] as u16) >> 1) | ((p[5] as u16) << 7)) & 0x07FF;
+        unpacked[4] = (((p[5] as u16) >> 4) | ((p[6] as u16) << 4)) & 0x07FF;
+        unpacked[5] = (((p[6] as u16) >> 7) | ((p[7] as u16) << 1) | ((p[8] as u16) << 9)) & 0x07FF;
+        unpacked[6] = (((p[8] as u16) >> 2) | ((p[9] as u16) << 6)) & 0x07FF;
+        unpacked[7] = ((p[9] as u16) >> 5) | ((p[10] as u16) << 3) & 0x07FF;
+
+        // Verify unpacked values match expected CRSF counts
+        assert_eq!(unpacked[0], us_to_crsf(channels[0]));
+        assert_eq!(unpacked[1], us_to_crsf(channels[1]));
+        assert_eq!(unpacked[2], us_to_crsf(channels[2]));
+        assert_eq!(unpacked[3], us_to_crsf(channels[3]));
+    }
+
+    #[test]
+    fn test_parse_telemetry_link_statistics() {
+        let mut telem = CrsfTelemetry::new();
+        // Construct Link Statistics frame:
+        // [addr=0xEA, len=12, type=0x14, rssi1=80 (-80dBm), rssi2=85 (-85dBm), lq=99, snr=10, ant=0, rf_mode=2, pwr=3 (100mW), ...]
+        let mut frame = [0u8; 14];
+        frame[0] = CRSF_ADDRESS_RADIO_TRANSMITTER;
+        frame[1] = 12; // type + 10 bytes payload + crc
+        frame[2] = CRSF_FRAMETYPE_LINK_STATISTICS;
+        frame[3] = 80; // RSSI1: 80 -> -80 dBm
+        frame[4] = 85; // RSSI2: 85 -> -85 dBm
+        frame[5] = 99; // LQ: 99%
+        frame[6] = 10; // SNR: +10 dB
+        frame[7] = 0;  // Antenna 0
+        frame[8] = 2;  // RF Mode 2
+        frame[9] = 3;  // Power code 3 -> 100 mW
+        frame[10] = 0;
+        frame[11] = 0;
+        frame[12] = 0;
+        frame[13] = crc8(&frame[2..13]);
+
+        let success = parse_telemetry_frame(&frame, &mut telem, 1000);
+        assert!(success);
+        assert_eq!(telem.uplink_rssi_1, -80);
+        assert_eq!(telem.uplink_rssi_2, -85);
+        assert_eq!(telem.uplink_link_quality, 99);
+        assert_eq!(telem.uplink_snr, 10);
+        assert_eq!(telem.tx_power_mw, 100);
+
+        // Corrupt CRC and verify rejection
+        frame[13] ^= 0xFF;
+        let fail = parse_telemetry_frame(&frame, &mut telem, 2000);
+        assert!(!fail);
+    }
+}
