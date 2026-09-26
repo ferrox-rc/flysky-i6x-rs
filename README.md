@@ -259,6 +259,45 @@ Comprehensive technical documentation is maintained in the [`docs/`](docs/) dire
 - [x] Linker script memory layout update (`FLASH (rx)` length = 120 KB, Pages 0–59).
 - [x] USB Composite mode (Joystick + CDC Serial) and clean silent interactive CLI on connection.
 
+### Phase 16: CRSF Protocol Compliance & Range Normalization (IN PROGRESS / BRANCH: `fix/crsf-elrs-spec-compliance`)
+- [x] TBS Crossfire Rev 08 11-bit channel scaling formula adherence across all 16 channels.
+- [x] Standardize radio pulse width range to FlySky standard 988..2012 µs (center 1500 µs, span 1024 µs).
+- [x] Multi-frame chunk reassembly for ExpressLRS configuration parameters.
+- [x] Expand parameter slots to 16 items and string buffers to 48 bytes.
+- [x] CRSF protocol specification and manual bench verification guide (`docs/CRSF_PROTOCOL_SPEC.md`).
+
+### Phase 17: Modern UI Glyphs & Visual Experience (IN PROGRESS / BRANCH: `feature/modern-ui-glyphs`)
+- [x] MDI 12px vector icon integration (`embedded-icon`) across Settings Menu items.
+- [x] 3-slot graphical list navigation (14px row height) with smooth viewport scrolling.
+- [x] Right-edge proportional scrollbar with position indicators (`1/13`).
+- [x] Flight dashboard status bar battery icon and inverted visual alert badges.
+
+### Phase 18: Voice Audio Subsystem & Hardware Mod (BRANCH: `feat/dfplayer-voice-audio`)
+- [x] DFPlayer Mini hardware serial audio driver on `USART` / dedicated pin.
+- [x] Spoken telemetry announcements (battery voltage, low RSSI, timer elapsed).
+- [x] Audible switch position announcements and flight mode voice prompts.
+
+### Phase 19: Flight Timer, Mixer Polish, & Pilot Ergonomics (PLANNED / BRANCH: `feat/flight-timer-mixer-polish`)
+- [ ] Throttle- and switch-activated Flight Countdown / Stopwatch timer utilizing existing `timer_secs` storage.
+- [ ] Acoustic countdown beeps (1-min warning, 10s..1s countdown, persistent tone at 0) and formatted flight dashboard display.
+- [ ] Elevon & V-Tail saturation resolution (standardizing `(p ± r) / 2` throw limits).
+- [ ] Wing/Tail differential throw activation utilizing existing `template_diff` parameter.
+- [ ] Unipolar / half-range mixer source option (`Thr+`) to eliminate negative pitch-down at idle on compensation mixes.
+- [ ] Physical switch auto-detection in menu editors (toggling any physical switch auto-selects its condition).
+- [ ] Model Duplicate / Copy utility in `MODEL SETUP` for safe mixer experimentation.
+- [ ] Non-visual potentiometer center acoustic detent click when crossing neutral center on `VRA` and `VRB`.
+
+### Phase 20: Trainer Port Subsystem & PPM In/Out (PLANNED / BRANCH: `feat/trainer-ppm`)
+- [ ] Direct PAC driver for `TIM15` (1 µs tick resolution at 48 MHz).
+- [ ] PPM Output on `PF10` (`TIM15_CH2`): Deterministic 22.5 ms 8-channel CPPM stream powering the iRangeX iRX6 multi-protocol module and USB simulator dongles.
+- [ ] PPM Input on `PF9` (`TIM15_CH1`): Input capture decoder for wired buddy-box training and FPV head-trackers.
+- [ ] Safety Handover Mixer: Instant instructor takeover threshold (> 5% stick deflection) and sub-50 ms failsafe timeout fallback.
+
+### Phase 21: Wireless SBUS Trainer & Setup Suite (PLANNED / BRANCH: `feat/trainer-sbus`)
+- [ ] `USART2` hardware-inverted (`RXINV`) SBUS receiver decoder (100k baud 8E2) for wireless buddy-box links.
+- [ ] Dedicated on-radio `Trainer Setup` screen with live student-vs-instructor graphic monitor bars and link state diagnostics.
+- [ ] Auxiliary channel rate-limiter ("Servo Slow") for realistic flap deployment and gear doors without aerodynamic ballooning.
+
 ### Current Firmware Footprint
 - **Application Flash ROM**: **~89.4 KB** (.text 89,432B + .data 1,876B = 91.3 KB total) used out of **120 KB** partition (**>30.8 KB / 25.7% free headroom**).
 - **Static RAM**: **~3.0 KB** (`.data` 1,876B + `.bss` 1,128B) out of **16 KB** available (**>81% SRAM free** with **>6.3 KB** guaranteed stack safety margin).
