@@ -5,6 +5,37 @@ All notable changes to the `flysky-i6x-rs` project will be documented in this fi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.17.0-rc.1] - 2026-09-26
+
+### Summary
+Major protocol and architecture release delivering full TBS Crossfire Protocol Rev 08 and ExpressLRS parameter synchronization specification adherence, FlySky standard channel conversion (988–2012 µs), dynamic physical wire routing, hardware interrupt-driven USART2 RX with a 128-byte lock-free ring buffer to eliminate high-speed baud overruns, framing inter-byte resynchronization timeouts, and a dual-target host test harness (`cargo test-host`) with 36 automated unit tests.
+
+### Added
+- **Hardware Interrupt-Driven USART2 RX Subsystem ([`src/crsf/uart.rs`](src/crsf/uart.rs))**:
+  - **Atomic Lock-Free Ring Buffer**: Implemented 128-byte `RX_RING` with volatile pointer synchronization, safely decoupling high-speed 420,000 baud byte ingestion from the main loop and eliminating `USART_ISR_ORE` hardware overruns during long operations (e.g. LCD flushing).
+  - **NVIC Priority Configuration**: Unmasks IRQ 28 in the NVIC with high priority (`0x40`) when CRSF mode is enabled, and masks it when disabled.
+  - **Hardware ORE Auto-Clearing**: ISR detects and clears `USART_ISR_ORE` to prevent receiver lockups.
+- **Dual-Target Host Unit Test Harness ([`.cargo/config.toml`](.cargo/config.toml), [`Cargo.toml`](Cargo.toml))**:
+  - Established `cargo test-host` alias targeting `x86_64-unknown-linux-gnu` with `#![cfg_attr(not(test), no_std)]` in `src/lib.rs`.
+  - Added 36 host unit tests across `crsf`, `mixer`, `trim`, and `curve` modules with zero hardware dependencies.
+- **Comprehensive CRSF Protocol Documentation ([`docs/CRSF_PROTOCOL_SPEC.md`](docs/CRSF_PROTOCOL_SPEC.md))**:
+  - Detailed byte-level framing breakdown, wire timing diagrams, CRC-8 DVB-S2 poly formulas, parameter state machine transitions, command action lifecycle, and manual verification walkthrough.
+
+### Changed
+- **FlySky Standard Microsecond Channel Conversion ([`src/crsf/protocol.rs`](src/crsf/protocol.rs))**:
+  - Replaced magic numbers and aligned CRSF 11-bit scaling to standard FlySky microsecond boundaries: `988 µs` (172 counts), `1500 µs` (992 counts), and `2012 µs` (1811 counts).
+  - Applied global constants across mixer, trim, and protocol modules.
+- **Dynamic Wire Destination Addressing ([`src/crsf/protocol.rs`](src/crsf/protocol.rs))**:
+  - Changed `build_param_ext_frame()` to dynamically assign wire byte 0 (`out_frame[0] = target;`), properly routing frames to transmitter modules (`0xEE`), receivers (`0xEC`), or flight controllers (`0xC8`).
+
+### Fixed
+- **CRSF Receiver Wire Filter Acceptance ([`src/crsf/mod.rs`](src/crsf/mod.rs))**:
+  - Added `CRSF_ADDRESS_CRSF_RECEIVER` (`0xEC`) to the frame start address filter in `poll_telemetry()`.
+- **Parser Inter-Byte Framing Timeout ([`src/crsf/mod.rs`](src/crsf/mod.rs))**:
+  - Added `LAST_RX_BYTE_MS` tracking. If $\ge 3\text{ ms}$ of bus silence elapses with an incomplete frame in `RX_BUF`, `RX_LEN` automatically resets to 0 to prevent parser desynchronization.
+- **RadioMaster RP2 Receiver Device Info Ingestion ([`src/crsf/mod.rs`](src/crsf/mod.rs))**:
+  - Verified and regression-tested real-world 27-byte capture from RadioMaster RP2 ExpressLRS receiver (`0xC8 0x19 0x29 0xEA 0xEE 52 4D 20 52 50 32 ... 15 00 0D`), ensuring proper parsing of `"RM RP2"`, 21 parameters, and generation of the outbound parameter read response `[0xEE, 0x06, 0x2C, 0xEE, 0xEA, 0x01, 0x00, 0x86]`.
+
 ---
 
 ## [0.16.0-rc.5] - 2026-09-24

@@ -15,10 +15,10 @@ The FlySky FS-i6X motherboard provides an internal rear module connector and bac
 | Pin | Function | Peripheral | Description |
 | :--- | :--- | :--- | :--- |
 | `PD5` | **USART2_TX** | AF0 | Bidirectional CRSF serial TX to external ELRS/Crossfire TX module |
-| `PA15` | **USART2_RX** | AF1 | Telemetry serial RX from external TX module |
+| `PA15` | **USART2_RX** | AF1 | Interrupt-driven telemetry RX with 128-byte lock-free ring buffer (IRQ 28, priority `0x40`) |
 | `PC13` | **MOD_PWR** | GPIO Out | External module power rail switch (Configurable polarity: Active HIGH or Active LOW) |
 
-Implemented in [`src/crsf/uart.rs`](../src/crsf/uart.rs).
+Implemented in [`src/crsf/uart.rs`](../src/crsf/uart.rs). Dedicated `USART2` interrupt handler clears hardware overrun (`USART_ISR_ORE`) and buffers incoming high-speed bytes with zero dropped packets during LCD flushes. Inter-byte silence timeout ($\ge 3\text{ ms}$) guarantees deterministic frame resynchronization.
 
 ### Power Switch Polarity (PC13)
 Hardware power circuits vary depending on how external modules are wired to the transmitter:
@@ -130,7 +130,7 @@ In `Serial` or `Composite` USB mode, the transmitter streams JSON telemetry over
 The CLI `status` command reports the active protocol:
 ```text
 i6x> status
-FlySky FS-i6X Rust Firmware v0.16.0
+FlySky FS-i6X Rust Firmware v0.17.0
 Protocol: CRSF / ExpressLRS (PD5 UART active)
 {"vbat":5.18,...}
 ```

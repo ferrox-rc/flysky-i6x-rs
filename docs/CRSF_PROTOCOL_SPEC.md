@@ -53,6 +53,18 @@ CRSF encodes 16 RC channels into 11-bit integers ($0..2047$) packed into 22 payl
 Formula implemented in [`src/crsf/protocol.rs`](../src/crsf/protocol.rs#L122-L128):
 $$\text{CRSF\_Value} = \left\lfloor\frac{(\text{clamped\_µs} - 988) \times 1639 + 512}{1024}\right\rfloor + 172$$
 
+### Hardware UART & Real-Time Ingestion Architecture
+
+At 420,000 baud, 1 byte arrives every **$23.8\,\mu\text{s}$**. The STM32F072 USART2 peripheral features only a 1-byte Receive Data Register (`RDR`) and **no hardware FIFO**. If CPU execution is occupied for $>47.6\,\mu\text{s}$ (such as drawing/flushing the ST7567 LCD at ~330 µs or ADC DMA handling), the hardware triggers an Overrun Error (`USART_ISR_ORE`), which silently drops subsequent bytes and truncates packets.
+
+To eliminate data loss and guarantee high-speed stability:
+1. **Interrupt-Driven Ring Buffer (`RXNEIE`)**: `USART2` is configured with receive interrupt enable (`RXNEIE` in `CR1`).
+2. **128-Byte Atomic Ring Buffer**: Bytes are pushed into `RX_RING` inside the `USART2` interrupt handler in $< 1\,\mu\text{s}$.
+3. **High NVIC Priority (`0x40`)**: IRQ 28 is unmasked with priority `0x40` (higher than TIM16/EXTI at `0x80` and USB at `0xC0`), guaranteeing preemption of any blocking loop tasks.
+4. **Hardware ORE Auto-Recovery**: The ISR inspects and clears `USART_ISR_ORE` on every entry.
+5. **Inter-Byte Silence Resynchronization**: If an electrical glitch or wire disconnect interrupts a packet mid-frame, `poll_telemetry()` tracks `LAST_RX_BYTE_MS`. If $\ge 3\text{ ms}$ elapses with an incomplete frame, `RX_LEN` automatically resets to 0 to resynchronize for the next frame.
+6. **Dynamic Wire Routing**: Extended parameter frames dynamically route byte 0 (`out_frame[0] = target;`) to match the target device (`0xEE` transmitter, `0xEC` receiver, or `0xC8` flight controller), and the handset accepts incoming frames starting with `CRSF_ADDRESS_CRSF_RECEIVER` (`0xEC`).
+
 ---
 
 ## 2. Configuration State Machine Lifecycle
@@ -254,3 +266,26 @@ Handset (FS-i6X)                                   ELRS Module
 - **Engine State Machine & Handshake**: [`src/crsf/mod.rs`](../src/crsf/mod.rs)
 - **Hardware UART2 Driver & Power**: [`src/crsf/uart.rs`](../src/crsf/uart.rs)
 - **LCD Menu & Modal Interface**: [`src/ui/menu/screens/elrs.rs`](../src/ui/menu/screens/elrs.rs)
+
+---
+
+## 6. Automated Testing & Verification Suite
+
+The repository includes a comprehensive dual-target host testing suite executable via:
+```bash
+cargo test-host
+```
+
+### Coverage Highlights:
+1. **RadioMaster RP2 Device Info Capture (`test_real_world_rp2_device_info_packet`)**:
+   - Injects the exact 27-byte capture from an ExpressLRS receiver:
+     `0xC8 0x19 0x29 0xEA 0xEE 0x52 0x4D 0x20 0x52 0x50 0x32 0x00 0x45 0x4C 0x52 0x53 0x00 0x00 0x00 0x00 0x00 0x04 0x00 0x00 0x15 0x00 0x0D`
+   - Validates device name `"RM RP2"`, serial `"ELRS"`, firmware ID `4`, parameter count `21`, and transition to `LoadingParam(1)`.
+   - Validates outbound response matches specification: `[0xEE, 0x06, 0x2C, 0xEE, 0xEA, 0x01, 0x00, 0x86]`.
+2. **Dynamic Target Addressing (`test_dynamic_target_addressing`)**:
+   - Verifies wire destination byte 0 dynamically matches `target` for `0xEE`, `0xEC`, and `0xC8`.
+3. **Receiver Address Filter Acceptance (`test_rx_accepts_receiver_address_0xec`)**:
+   - Verifies incoming frames addressed to `0xEC` (`CRSF_ADDRESS_CRSF_RECEIVER`) are ingested into `RX_BUF` rather than rejected.
+4. **Inter-Byte Timeout Resynchronization (`test_inter_byte_timeout_resync`)**:
+   - Verifies truncated partial frames hold during short pauses (<3 ms) and reset cleanly after $\ge 3\text{ ms}$ of bus silence, allowing the next valid frame to parse with 100% fidelity.
+
