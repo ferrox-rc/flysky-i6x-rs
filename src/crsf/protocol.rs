@@ -286,7 +286,7 @@ pub fn build_ping_frame(out_frame: &mut [u8]) -> usize {
 }
 
 /// Build an Extended Parameter frame (Read 0x2C or Write 0x2D).
-/// Wire frame format: [Device (0xEE)] [Len (6)] [Type] [Dest] [Orig (0xEA)] [Param] [Payload] [CRC]
+/// Wire frame format: [Target] [Len (6)] [Type] [Dest (Target)] [Orig (0xEA)] [Param] [Payload] [CRC]
 pub fn build_param_ext_frame(
     target: u8,
     frame_type: u8,
@@ -294,7 +294,7 @@ pub fn build_param_ext_frame(
     val_or_chunk: u8,
     out_frame: &mut [u8],
 ) -> usize {
-    out_frame[0] = CRSF_ADDRESS_CRSF_TRANSMITTER;
+    out_frame[0] = target;
     out_frame[1] = 6; // Type (1) + Dest (1) + Orig (1) + Param (1) + Value/Chunk (1) + CRC (1) = 6
     out_frame[2] = frame_type;
     out_frame[3] = target;
@@ -522,5 +522,19 @@ mod tests {
         assert_eq!(rf_mode_to_str(9), "500Hz");
         assert_eq!(rf_mode_to_str(13), "F1000");
         assert_eq!(rf_mode_to_str(99), "---");
+    }
+
+    #[test]
+    fn test_dynamic_target_addressing() {
+        let mut buf = [0u8; 8];
+        // Target 1: ELRS Receiver (0xEC)
+        build_param_read_frame(CRSF_ADDRESS_CRSF_RECEIVER, 1, 0, &mut buf);
+        assert_eq!(buf[0], CRSF_ADDRESS_CRSF_RECEIVER, "Wire destination must match dynamic target (0xEC)");
+        assert_eq!(buf[3], CRSF_ADDRESS_CRSF_RECEIVER);
+
+        // Target 2: Flight Controller (0xC8)
+        build_param_write_frame(CRSF_ADDRESS_FLIGHT_CONTROLLER, 2, 99, &mut buf);
+        assert_eq!(buf[0], CRSF_ADDRESS_FLIGHT_CONTROLLER, "Wire destination must match dynamic target (0xC8)");
+        assert_eq!(buf[3], CRSF_ADDRESS_FLIGHT_CONTROLLER);
     }
 }

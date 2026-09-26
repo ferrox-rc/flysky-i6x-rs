@@ -45,6 +45,22 @@ const USART_ISR_TC: u32 = 1 << 6;
 const USART_ISR_RXNE: u32 = 1 << 5;
 const USART_ISR_ORE: u32 = 1 << 3;
 
+// NVIC registers
+#[cfg(not(test))]
+const NVIC_ICPR: *mut u32 = 0xE000_E280 as *mut u32;
+#[cfg(not(test))]
+const NVIC_IPR7: *mut u32 = 0xE000_E41C as *mut u32;
+
+#[cfg(not(test))]
+use stm32f0xx_hal::pac::interrupt;
+
+#[cfg(not(test))]
+static mut RX_RING: [u8; 128] = [0; 128];
+#[cfg(not(test))]
+static mut RX_HEAD: usize = 0;
+#[cfg(not(test))]
+static mut RX_TAIL: usize = 0;
+
 static mut ACTIVE_HIGH: bool = true;
 static mut POWER_ON: bool = false;
 
@@ -193,11 +209,28 @@ pub fn set_uart_enabled(enabled: bool, baud_idx: u8) {
             // Clear any pending error flags
             ptr::write_volatile(USART2_ICR, 0xFFFF_FFFF);
 
-            // 6. Enable UE (bit 0), TE (bit 3), RE (bit 2)
-            ptr::write_volatile(USART2_CR1, (1 << 0) | (1 << 3) | (1 << 2));
+            // Reset RX ring buffer indices
+            ptr::write_volatile(&mut RX_HEAD, 0);
+            ptr::write_volatile(&mut RX_TAIL, 0);
+
+            // Configure NVIC for USART2 (IRQ 28)
+            ptr::write_volatile(NVIC_ICPR, 1 << 28);
+            let ipr7 = ptr::read_volatile(NVIC_IPR7);
+            ptr::write_volatile(NVIC_IPR7, (ipr7 & !0xFF) | 0x40);
+            cortex_m::peripheral::NVIC::unmask(stm32f0xx_hal::pac::Interrupt::USART2);
+
+            // 6. Enable UE (bit 0), TE (bit 3), RE (bit 2), and RXNEIE (bit 5)
+            ptr::write_volatile(USART2_CR1, (1 << 0) | (1 << 3) | (1 << 2) | (1 << 5));
         } else {
-            // Disable UE
+            // Mask USART2 in NVIC
+            cortex_m::peripheral::NVIC::mask(stm32f0xx_hal::pac::Interrupt::USART2);
+
+            // Disable UE & RXNEIE
             ptr::write_volatile(USART2_CR1, 0);
+
+            // Reset RX ring buffer indices
+            ptr::write_volatile(&mut RX_HEAD, 0);
+            ptr::write_volatile(&mut RX_TAIL, 0);
 
             // Disable USART2 clock in RCC_APB1ENR (bit 17)
             let apb1 = ptr::read_volatile(RCC_APB1ENR);
@@ -247,6 +280,22 @@ pub fn read_byte() -> Option<u8> {
     }
     #[cfg(not(test))]
     unsafe {
+        let head = ptr::read_volatile(&RX_HEAD);
+        let tail = ptr::read_volatile(&RX_TAIL);
+        if head != tail {
+            let b = RX_RING[tail];
+            ptr::write_volatile(&mut RX_TAIL, (tail + 1) & (RX_RING.len() - 1));
+            Some(b)
+        } else {
+            None
+        }
+    }
+}
+
+#[cfg(not(test))]
+#[interrupt]
+fn USART2() {
+    unsafe {
         let isr = ptr::read_volatile(USART2_ISR);
         // Clear overrun error if present
         if (isr & USART_ISR_ORE) != 0 {
@@ -254,10 +303,14 @@ pub fn read_byte() -> Option<u8> {
         }
 
         if (isr & USART_ISR_RXNE) != 0 {
-            let data = (ptr::read_volatile(USART2_RDR) & 0xFF) as u8;
-            Some(data)
-        } else {
-            None
+            let b = (ptr::read_volatile(USART2_RDR) & 0xFF) as u8;
+            let head = ptr::read_volatile(&RX_HEAD);
+            let tail = ptr::read_volatile(&RX_TAIL);
+            let next_head = (head + 1) & (RX_RING.len() - 1);
+            if next_head != tail {
+                RX_RING[head] = b;
+                ptr::write_volatile(&mut RX_HEAD, next_head);
+            }
         }
     }
 }

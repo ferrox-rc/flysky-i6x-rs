@@ -17,6 +17,7 @@ static mut CURRENT_BAUD: u8 = 0xFF;
 static mut LAST_TX_MS: u32 = 0;
 static mut RX_BUF: [u8; 64] = [0; 64];
 static mut RX_LEN: usize = 0;
+static mut LAST_RX_BYTE_MS: u32 = 0;
 
 /// Initialize CRSF subsystem hardware pins with configured PC13 power switch polarity.
 pub fn init(active_high: bool) {
@@ -41,6 +42,7 @@ pub fn set_enabled(enabled: bool, baud_idx: u8) {
             if !enabled {
                 TELEMETRY = CrsfTelemetry::new();
                 RX_LEN = 0;
+                LAST_RX_BYTE_MS = 0;
             }
         }
     }
@@ -235,13 +237,20 @@ pub fn poll_telemetry(now_ms: u32) {
             return;
         }
 
+        // Inter-byte silence timeout: if bytes stalled mid-frame for >=3ms, reset parser to recover
+        if RX_LEN > 0 && now_ms.wrapping_sub(LAST_RX_BYTE_MS) >= 3 {
+            RX_LEN = 0;
+        }
+
         // Drain available bytes from USART2 RX
         let mut count = 0;
         while let Some(b) = uart::read_byte() {
+            LAST_RX_BYTE_MS = now_ms;
             if RX_LEN == 0 {
-                // Look for frame start: valid destination addresses (0xEE, 0xEA, 0xC8, etc.)
+                // Look for frame start: valid destination addresses (0xEE, 0xEA, 0xEC, 0xC8, etc.)
                 if b == protocol::CRSF_ADDRESS_RADIO_TRANSMITTER
                     || b == protocol::CRSF_ADDRESS_CRSF_TRANSMITTER
+                    || b == protocol::CRSF_ADDRESS_CRSF_RECEIVER
                     || b == protocol::CRSF_ADDRESS_FLIGHT_CONTROLLER
                 {
                     RX_BUF[0] = b;
@@ -295,7 +304,7 @@ pub fn poll_telemetry(now_ms: u32) {
             }
 
             count += 1;
-            if count > 64 {
+            if count >= 128 {
                 break;
             }
         }
@@ -629,6 +638,7 @@ mod tests {
             LAST_TX_MS = 0;
             RX_BUF = [0; 64];
             RX_LEN = 0;
+            LAST_RX_BYTE_MS = 0;
             CHUNK_BUF = [0; 96];
             CHUNK_LEN = 0;
             CHUNK_PARAM_ID = 0;
@@ -1014,5 +1024,88 @@ mod tests {
         // Poll at t = 2050 (>1000 ms timeout): disconnected!
         poll_telemetry(2050);
         assert!(!get_telemetry().connected, "Must mark disconnected after 1000 ms silence");
+    }
+
+    #[test]
+    fn test_rx_accepts_receiver_address_0xec() {
+        reset_state();
+        // Feed partial frame starting with CRSF_ADDRESS_CRSF_RECEIVER (0xEC)
+        uart::mock::push_rx_bytes(&[protocol::CRSF_ADDRESS_CRSF_RECEIVER, 12, CRSF_FRAMETYPE_LINK_STATISTICS]);
+        poll_telemetry(100);
+        unsafe {
+            assert_eq!(RX_LEN, 3, "Start byte 0xEC must be accepted into RX_BUF");
+            assert_eq!(RX_BUF[0], protocol::CRSF_ADDRESS_CRSF_RECEIVER);
+        }
+    }
+
+    #[test]
+    fn test_inter_byte_timeout_resync() {
+        reset_state();
+
+        // 1. Feed partial truncated frame (5 bytes of an expected 26-byte frame) at t = 1000
+        uart::mock::push_rx_bytes(&[CRSF_ADDRESS_RADIO_TRANSMITTER, 24, 0x16, 0x01, 0x02]);
+        poll_telemetry(1000);
+        unsafe {
+            assert_eq!(RX_LEN, 5, "Parser should have 5 bytes buffered");
+        }
+
+        // At t = 1002 (2ms silence), parser should still hold bytes
+        poll_telemetry(1002);
+        unsafe {
+            assert_eq!(RX_LEN, 5, "Parser should keep bytes during <3ms pause");
+        }
+
+        // 2. Advance time to t = 1003 (>= 3 ms silence timeout) with no new bytes
+        poll_telemetry(1003);
+        unsafe {
+            assert_eq!(RX_LEN, 0, "Parser must reset RX_LEN after >=3ms bus silence");
+        }
+
+        // 3. Immediately feed a valid complete frame at t = 1003
+        let mut good_frame = [
+            CRSF_ADDRESS_RADIO_TRANSMITTER,
+            12,
+            CRSF_FRAMETYPE_LINK_STATISTICS,
+            80, 85, 99, 10, 0, 2, 3, 0, 0, 0,
+            0x00,
+        ];
+        good_frame[13] = crc8(&good_frame[2..13]);
+        uart::mock::push_rx_bytes(&good_frame);
+        poll_telemetry(1003);
+
+        let telem = get_telemetry();
+        assert!(telem.connected, "Parser must recover and parse the subsequent valid frame");
+        assert_eq!(telem.uplink_link_quality, 99);
+    }
+
+    #[test]
+    fn test_real_world_rp2_device_info_packet() {
+        reset_state();
+        start_config();
+        uart::mock::clear();
+
+        // The exact 27-byte capture from RadioMaster RP2 ExpressLRS receiver:
+        // Sync: 0xC8, Len: 0x19 (25), Type: 0x29 (Device Info), Dest: 0xEA, Orig: 0xEE,
+        // Name: "RM RP2\0", Serial: "ELRS", HW: 0, FW: 4, Params: 21 (0x15), Ver: 0, CRC: 0x0D
+        let rp2_packet: [u8; 27] = [
+            0xC8, 0x19, 0x29, 0xEA, 0xEE, 0x52, 0x4D, 0x20, 0x52, 0x50, 0x32, 0x00,
+            0x45, 0x4C, 0x52, 0x53, 0x00, 0x00, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00,
+            0x15, 0x00, 0x0D,
+        ];
+
+        uart::mock::push_rx_bytes(&rp2_packet);
+        poll_telemetry(1000);
+
+        let engine = get_config_engine();
+        assert_eq!(engine.device_id, 0xEE);
+        assert_eq!(&engine.device_name[..6], b"RM RP2");
+        assert_eq!(engine.param_count, 21);
+        assert_eq!(engine.state, ElrsConfigState::LoadingParam(1));
+
+        // Handset must reply with Parameter Read for Param 1 Chunk 0 addressed to 0xEE:
+        // [0xEE, 0x06, 0x2C, 0xEE, 0xEA, 0x01, 0x00, 0x86]
+        let tx = uart::mock::take_tx();
+        assert_eq!(tx.len(), 1, "Must emit outbound parameter read for Param 1");
+        assert_eq!(tx[0], &[0xEE, 0x06, 0x2C, 0xEE, 0xEA, 0x01, 0x00, 0x86]);
     }
 }
