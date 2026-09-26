@@ -58,8 +58,52 @@ unsafe fn apply_power_pin() {
     }
 }
 
+#[cfg(test)]
+pub mod mock {
+    extern crate std;
+    use std::sync::Mutex;
+    use std::vec::Vec;
+
+    static RX_QUEUE: Mutex<Vec<u8>> = Mutex::new(Vec::new());
+    static TX_LOG: Mutex<Vec<Vec<u8>>> = Mutex::new(Vec::new());
+
+    pub fn push_rx_bytes(bytes: &[u8]) {
+        let mut q = RX_QUEUE.lock().unwrap();
+        q.extend_from_slice(bytes);
+    }
+
+    pub fn pop_rx_byte() -> Option<u8> {
+        let mut q = RX_QUEUE.lock().unwrap();
+        if q.is_empty() {
+            None
+        } else {
+            Some(q.remove(0))
+        }
+    }
+
+    pub fn record_tx(data: &[u8]) {
+        let mut log = TX_LOG.lock().unwrap();
+        log.push(data.to_vec());
+    }
+
+    pub fn take_tx() -> Vec<Vec<u8>> {
+        let mut log = TX_LOG.lock().unwrap();
+        std::mem::take(&mut *log)
+    }
+
+    pub fn tx_count() -> usize {
+        TX_LOG.lock().unwrap().len()
+    }
+
+    pub fn clear() {
+        RX_QUEUE.lock().unwrap().clear();
+        TX_LOG.lock().unwrap().clear();
+    }
+}
+
 /// Initialize GPIO pins: PC13 as power switch (initially OFF), PD5 and PA15 peripheral clocks.
 pub fn init(active_high: bool) {
+    #[cfg(not(test))]
     unsafe {
         ACTIVE_HIGH = active_high;
         POWER_ON = false;
@@ -75,22 +119,30 @@ pub fn init(active_high: bool) {
         // Apply initial OFF state according to polarity
         apply_power_pin();
     }
+    #[cfg(test)]
+    let _ = active_high;
 }
 
 /// Set active power polarity for PC13: true = Active HIGH (N-type), false = Active LOW (P-type).
 pub fn set_power_polarity(active_high: bool) {
+    #[cfg(not(test))]
     unsafe {
         ACTIVE_HIGH = active_high;
         apply_power_pin();
     }
+    #[cfg(test)]
+    let _ = active_high;
 }
 
 /// Set external module power state via PC13
 pub fn set_module_power(power_on: bool) {
+    #[cfg(not(test))]
     unsafe {
         POWER_ON = power_on;
         apply_power_pin();
     }
+    #[cfg(test)]
+    let _ = power_on;
 }
 
 /// Baud rate divisors for 48.000 MHz clock tree
@@ -106,6 +158,7 @@ pub fn get_brr_for_baud(baud_idx: u8) -> u32 {
 
 /// Configure and enable/disable USART2
 pub fn set_uart_enabled(enabled: bool, baud_idx: u8) {
+    #[cfg(not(test))]
     unsafe {
         if enabled {
             // 1. Enable USART2 clock in RCC_APB1ENR (bit 17)
@@ -157,12 +210,20 @@ pub fn set_uart_enabled(enabled: bool, baud_idx: u8) {
             ptr::write_volatile(GPIOA_MODER, a_moder & !(3 << 30));
         }
     }
+    #[cfg(test)]
+    let _ = (enabled, baud_idx);
 }
 
 /// Transmit a buffer over USART2 (non-blocking if space available, bounded timeout)
 pub fn write_bytes(bytes: &[u8]) -> usize {
-    let mut sent = 0;
+    #[cfg(test)]
+    {
+        mock::record_tx(bytes);
+        bytes.len()
+    }
+    #[cfg(not(test))]
     unsafe {
+        let mut sent = 0;
         for &b in bytes {
             let mut timeout = 2500u32;
             while (ptr::read_volatile(USART2_ISR) & USART_ISR_TXE) == 0 {
@@ -174,12 +235,17 @@ pub fn write_bytes(bytes: &[u8]) -> usize {
             ptr::write_volatile(USART2_TDR, b as u32);
             sent += 1;
         }
+        sent
     }
-    sent
 }
 
 /// Read a byte from USART2 RX if available
 pub fn read_byte() -> Option<u8> {
+    #[cfg(test)]
+    {
+        mock::pop_rx_byte()
+    }
+    #[cfg(not(test))]
     unsafe {
         let isr = ptr::read_volatile(USART2_ISR);
         // Clear overrun error if present

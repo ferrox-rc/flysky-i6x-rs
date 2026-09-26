@@ -40,3 +40,15 @@ fn SysTick() {
     let current = SYSTEM_MILLIS.load(Ordering::Relaxed);
     SYSTEM_MILLIS.store(current.wrapping_add(1), Ordering::Relaxed);
 }
+
+#[cfg(test)]
+pub fn set_millis(ms: u32) {
+    SYSTEM_MILLIS.store(ms, Ordering::Relaxed);
+}
+
+#[cfg(test)]
+pub fn advance_millis(ms: u32) {
+    let cur = SYSTEM_MILLIS.load(Ordering::Relaxed);
+    SYSTEM_MILLIS.store(cur.wrapping_add(ms), Ordering::Relaxed);
+}
+

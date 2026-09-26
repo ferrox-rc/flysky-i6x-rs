@@ -440,4 +440,87 @@ mod tests {
         let fail = parse_telemetry_frame(&frame, &mut telem, 2000);
         assert!(!fail);
     }
+
+    #[test]
+    fn test_parse_telemetry_battery_sensor() {
+        let mut telem = CrsfTelemetry::new();
+        // Battery Sensor frame: [addr=0xEA, len=10, type=0x08, v=126 (12.6V), c=35 (3.5A), cap=1500 (0x0005DC), pct=85, crc]
+        let mut frame = [0u8; 12];
+        frame[0] = CRSF_ADDRESS_RADIO_TRANSMITTER;
+        frame[1] = 10; // type(1) + 8 payload + crc(1)
+        frame[2] = CRSF_FRAMETYPE_BATTERY_SENSOR;
+        frame[3] = 0;   // Voltage high byte (126 = 0x007E)
+        frame[4] = 126; // Voltage low byte -> 126 * 100 = 12,600 mV
+        frame[5] = 0;   // Current high byte (35 = 0x0023)
+        frame[6] = 35;  // Current low byte -> 35 * 100 = 3,500 mA
+        frame[7] = 0x00; // Capacity byte 2 (1500 = 0x0005DC)
+        frame[8] = 0x05; // Capacity byte 1
+        frame[9] = 0xDC; // Capacity byte 0 -> 1500 mAh
+        frame[10] = 85;  // 85% remaining
+        frame[11] = crc8(&frame[2..11]);
+
+        let success = parse_telemetry_frame(&frame, &mut telem, 1500);
+        assert!(success);
+        assert_eq!(telem.rx_battery_mv, 12600);
+        assert_eq!(telem.rx_current_ma, 3500);
+        assert_eq!(telem.rx_capacity_mah, 1500);
+        assert_eq!(telem.rx_battery_pct, 85);
+        assert!(telem.connected);
+        assert_eq!(telem.last_telemetry_ms, 1500);
+
+        // Truncated payload (< 8 bytes)
+        let mut short_frame = [0u8; 8];
+        short_frame[0] = CRSF_ADDRESS_RADIO_TRANSMITTER;
+        short_frame[1] = 6;
+        short_frame[2] = CRSF_FRAMETYPE_BATTERY_SENSOR;
+        short_frame[7] = crc8(&short_frame[2..7]);
+        assert!(!parse_telemetry_frame(&short_frame, &mut telem, 1600));
+    }
+
+    #[test]
+    fn test_build_ping_frame_wire_spec() {
+        let mut buf = [0u8; 8];
+        let len = build_ping_frame(&mut buf);
+        assert_eq!(len, 6);
+        assert_eq!(buf[0], CRSF_ADDRESS_CRSF_TRANSMITTER); // 0xEE
+        assert_eq!(buf[1], 4);
+        assert_eq!(buf[2], CRSF_FRAMETYPE_DEVICE_PING); // 0x28
+        assert_eq!(buf[3], CRSF_ADDRESS_BROADCAST); // 0x00
+        assert_eq!(buf[4], CRSF_ADDRESS_RADIO_TRANSMITTER); // 0xEA
+        assert_eq!(buf[5], 0x54, "Ping CRC8 over [0x28, 0x00, 0xEA] is 0x54");
+    }
+
+    #[test]
+    fn test_build_param_read_and_write_frames() {
+        let mut read_buf = [0u8; 8];
+        let read_len = build_param_read_frame(CRSF_ADDRESS_CRSF_TRANSMITTER, 3, 1, &mut read_buf);
+        assert_eq!(read_len, 8);
+        assert_eq!(read_buf[0], CRSF_ADDRESS_CRSF_TRANSMITTER);
+        assert_eq!(read_buf[1], 6);
+        assert_eq!(read_buf[2], CRSF_FRAMETYPE_PARAMETER_READ);
+        assert_eq!(read_buf[3], CRSF_ADDRESS_CRSF_TRANSMITTER);
+        assert_eq!(read_buf[4], CRSF_ADDRESS_RADIO_TRANSMITTER);
+        assert_eq!(read_buf[5], 3); // param_id
+        assert_eq!(read_buf[6], 1); // chunk
+        assert_eq!(read_buf[7], crc8(&read_buf[2..7]));
+
+        let mut write_buf = [0u8; 8];
+        let write_len = build_param_write_frame(CRSF_ADDRESS_CRSF_TRANSMITTER, 3, 42, &mut write_buf);
+        assert_eq!(write_len, 8);
+        assert_eq!(write_buf[2], CRSF_FRAMETYPE_PARAMETER_WRITE);
+        assert_eq!(write_buf[5], 3);
+        assert_eq!(write_buf[6], 42); // value
+        assert_eq!(write_buf[7], crc8(&write_buf[2..7]));
+    }
+
+    #[test]
+    fn test_rf_mode_strings() {
+        assert_eq!(rf_mode_to_str(0), "4Hz");
+        assert_eq!(rf_mode_to_str(2), "50Hz");
+        assert_eq!(rf_mode_to_str(3), "100Hz");
+        assert_eq!(rf_mode_to_str(7), "250Hz");
+        assert_eq!(rf_mode_to_str(9), "500Hz");
+        assert_eq!(rf_mode_to_str(13), "F1000");
+        assert_eq!(rf_mode_to_str(99), "---");
+    }
 }

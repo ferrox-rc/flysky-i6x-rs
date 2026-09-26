@@ -609,3 +609,410 @@ pub fn get_config_engine() -> &'static ElrsConfigEngine {
 pub fn get_telemetry() -> CrsfTelemetry {
     unsafe { TELEMETRY }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::crsf::protocol::{
+        crc8, CRSF_ADDRESS_CRSF_TRANSMITTER,
+        CRSF_ADDRESS_RADIO_TRANSMITTER, CRSF_FRAMETYPE_DEVICE_INFO,
+        CRSF_FRAMETYPE_LINK_STATISTICS, CRSF_FRAMETYPE_PARAMETER_SETTINGS_ENTRY,
+        CRSF_TYPE_COMMAND, CRSF_TYPE_SELECT, STATUS_CONFIRMATION_NEEDED, STATUS_PROGRESS,
+        STATUS_READY, STATUS_START,
+    };
+    use crate::time::set_millis;
+
+    fn reset_state() {
+        unsafe {
+            CRSF_ENABLED = true;
+            CURRENT_BAUD = 0;
+            LAST_TX_MS = 0;
+            RX_BUF = [0; 64];
+            RX_LEN = 0;
+            CHUNK_BUF = [0; 96];
+            CHUNK_LEN = 0;
+            CHUNK_PARAM_ID = 0;
+            CONFIG_ENGINE = ElrsConfigEngine::new();
+            TELEMETRY = CrsfTelemetry::new();
+            uart::mock::clear();
+        }
+    }
+
+    #[test]
+    fn test_framing_garbage_rejection_and_invalid_length() {
+        reset_state();
+
+        // 1. Noise bytes before valid address must be discarded
+        uart::mock::push_rx_bytes(&[0x00, 0x11, 0x22, 0x33, 0x55, 0xAA]);
+        poll_telemetry(100);
+        unsafe {
+            assert_eq!(RX_LEN, 0, "Noise bytes should not initiate frame capture");
+        }
+
+        // 2. Sync byte followed by invalid length (< 2) must reset parser
+        uart::mock::push_rx_bytes(&[CRSF_ADDRESS_RADIO_TRANSMITTER, 1, 0x14, 0x00]);
+        poll_telemetry(100);
+        unsafe {
+            assert_eq!(RX_LEN, 0, "Frame length < 2 must be rejected");
+        }
+
+        // 3. Sync byte followed by oversized length (> 62) must reset parser
+        uart::mock::push_rx_bytes(&[CRSF_ADDRESS_RADIO_TRANSMITTER, 63, 0x14]);
+        poll_telemetry(100);
+        unsafe {
+            assert_eq!(RX_LEN, 0, "Frame length > 62 must be rejected");
+        }
+    }
+
+    #[test]
+    fn test_crc_failure_and_resynchronization() {
+        reset_state();
+
+        // Feed Link Statistics frame with corrupt CRC
+        let bad_frame = [
+            CRSF_ADDRESS_RADIO_TRANSMITTER,
+            12,
+            CRSF_FRAMETYPE_LINK_STATISTICS,
+            80, 85, 99, 10, 0, 2, 3, 0, 0, 0,
+            0x00, // Bad CRC
+        ];
+        uart::mock::push_rx_bytes(&bad_frame);
+        poll_telemetry(1000);
+
+        let telem = get_telemetry();
+        assert!(!telem.connected, "Corrupt CRC frame must be dropped");
+
+        // Immediately follow with valid Link Statistics frame
+        let mut good_frame = bad_frame;
+        good_frame[13] = crc8(&good_frame[2..13]);
+        uart::mock::push_rx_bytes(&good_frame);
+        poll_telemetry(1000);
+
+        let telem_ok = get_telemetry();
+        assert!(telem_ok.connected, "Parser must resync and accept subsequent valid frame");
+        assert_eq!(telem_ok.uplink_link_quality, 99);
+        assert_eq!(telem_ok.tx_power_mw, 100);
+    }
+
+    #[test]
+    fn test_discovery_handshake_and_device_info() {
+        reset_state();
+        set_millis(1000);
+
+        // 1. Start config handshake
+        start_config();
+        let engine = get_config_engine();
+        assert_eq!(engine.state, ElrsConfigState::Discovering);
+
+        // Verify Ping packet transmitted
+        let tx = uart::mock::take_tx();
+        assert_eq!(tx.len(), 1, "start_config must transmit ping packet");
+        assert_eq!(tx[0][0], CRSF_ADDRESS_CRSF_TRANSMITTER);
+        assert_eq!(tx[0][2], protocol::CRSF_FRAMETYPE_DEVICE_PING);
+
+        // 2. Feed Device Info response frame (0x29)
+        // Frame: [addr=0xEA, len, type=0x29, dest=0xEA, orig=0xEE, "ELRS 2.4G\0", serial(4), hw(4), fw(4), count=3, ver=1, crc]
+        let mut frame = [0u8; 32];
+        frame[0] = CRSF_ADDRESS_RADIO_TRANSMITTER; // 0xEA
+        frame[2] = CRSF_FRAMETYPE_DEVICE_INFO;     // 0x29
+        frame[3] = CRSF_ADDRESS_RADIO_TRANSMITTER; // 0xEA
+        frame[4] = CRSF_ADDRESS_CRSF_TRANSMITTER;  // 0xEE (device_id)
+
+        // Device name: "ELRS 2.4G\0" (10 bytes)
+        let name = b"ELRS 2.4G\0";
+        frame[5..5 + name.len()].copy_from_slice(name);
+        let serial_pos = 5 + name.len();
+        // Serial (4), HW (4), FW (4) -> 12 bytes
+        let count_pos = serial_pos + 12;
+        frame[count_pos] = 3; // 3 parameters to load
+        frame[count_pos + 1] = 1; // version
+
+        let total_size = count_pos + 3;
+        frame[1] = (total_size - 2) as u8;
+        frame[total_size - 1] = crc8(&frame[2..total_size - 1]);
+
+        uart::mock::push_rx_bytes(&frame[..total_size]);
+        poll_telemetry(1100);
+
+        let engine = get_config_engine();
+        assert_eq!(engine.device_id, CRSF_ADDRESS_CRSF_TRANSMITTER);
+        assert_eq!(&engine.device_name[..9], b"ELRS 2.4G");
+        assert_eq!(engine.param_count, 3);
+        assert_eq!(engine.state, ElrsConfigState::LoadingParam(1));
+
+        // Handset must have transmitted Parameter Read for Param 1, Chunk 0
+        let tx = uart::mock::take_tx();
+        assert_eq!(tx.len(), 1, "Must request Param 1 Chunk 0 after Device Info");
+        assert_eq!(tx[0][2], protocol::CRSF_FRAMETYPE_PARAMETER_READ);
+        assert_eq!(tx[0][5], 1, "Requested param_id must be 1");
+        assert_eq!(tx[0][6], 0, "Requested chunk must be 0");
+    }
+
+    #[test]
+    fn test_device_info_zero_params_transitions_to_ready() {
+        reset_state();
+        start_config();
+        uart::mock::clear();
+
+        // Feed Device Info frame with param_count = 0
+        let mut frame = [0u8; 24];
+        frame[0] = CRSF_ADDRESS_RADIO_TRANSMITTER;
+        frame[1] = 22;
+        frame[2] = CRSF_FRAMETYPE_DEVICE_INFO;
+        frame[3] = CRSF_ADDRESS_RADIO_TRANSMITTER;
+        frame[4] = CRSF_ADDRESS_CRSF_TRANSMITTER;
+        frame[5..10].copy_from_slice(b"None\0");
+        // Count pos: 10 + 12 = 22
+        frame[22] = 0; // 0 params
+        frame[23] = crc8(&frame[2..23]);
+
+        uart::mock::push_rx_bytes(&frame);
+        poll_telemetry(1200);
+
+        let engine = get_config_engine();
+        assert_eq!(engine.state, ElrsConfigState::Ready, "0 parameters must transition directly to Ready");
+    }
+
+    #[test]
+    fn test_param_select_parsing_and_sequential_loading() {
+        reset_state();
+        // Setup engine expecting Param 1 of 2
+        unsafe {
+            CONFIG_ENGINE.device_id = CRSF_ADDRESS_CRSF_TRANSMITTER;
+            CONFIG_ENGINE.param_count = 2;
+            CONFIG_ENGINE.state = ElrsConfigState::LoadingParam(1);
+        }
+
+        // Construct Param 1 Entry: SELECT type, Name="Pkt Rate\0", Options="50Hz;150Hz;250Hz;500Hz\0", Value=2
+        let mut frame = [0u8; 64];
+        frame[0] = CRSF_ADDRESS_RADIO_TRANSMITTER;
+        frame[2] = CRSF_FRAMETYPE_PARAMETER_SETTINGS_ENTRY;
+        frame[3] = CRSF_ADDRESS_RADIO_TRANSMITTER;
+        frame[4] = CRSF_ADDRESS_CRSF_TRANSMITTER;
+        frame[5] = 1; // param_id
+        frame[6] = 0; // chunks_remain
+        frame[7] = 0; // parent
+        frame[8] = CRSF_TYPE_SELECT; // 9
+
+        let mut pos = 9;
+        let name = b"Pkt Rate\0";
+        frame[pos..pos + name.len()].copy_from_slice(name);
+        pos += name.len();
+
+        let opts = b"50Hz;150Hz;250Hz;500Hz\0";
+        frame[pos..pos + opts.len()].copy_from_slice(opts);
+        pos += opts.len();
+
+        frame[pos] = 2; // Value = 2 (250Hz)
+        pos += 1;
+
+        let frame_len = pos - 1;
+        frame[1] = frame_len as u8;
+        frame[pos] = crc8(&frame[2..pos]);
+        let total = pos + 1;
+
+        uart::mock::push_rx_bytes(&frame[..total]);
+        poll_telemetry(2000);
+
+        let engine = get_config_engine();
+        assert_eq!(engine.params_len, 1);
+        let p = &engine.params[0];
+        assert_eq!(p.id, 1);
+        assert_eq!(p.param_type, CRSF_TYPE_SELECT);
+        assert_eq!(&p.name[..8], b"Pkt Rate");
+        assert_eq!(p.value, 2);
+        assert_eq!(p.max_value, 3); // 4 options -> max_value = 3
+        let mut buf = [0u8; 16];
+        assert_eq!(p.current_option_str(&mut buf), "250Hz");
+
+        // Advanced to loading Param 2
+        assert_eq!(engine.state, ElrsConfigState::LoadingParam(2));
+        let tx = uart::mock::take_tx();
+        assert_eq!(tx.len(), 1, "Must request Param 2 Chunk 0");
+        assert_eq!(tx[0][5], 2);
+    }
+
+    #[test]
+    fn test_param_multi_frame_chunk_reassembly() {
+        reset_state();
+        unsafe {
+            CONFIG_ENGINE.device_id = CRSF_ADDRESS_CRSF_TRANSMITTER;
+            CONFIG_ENGINE.param_count = 1;
+            CONFIG_ENGINE.state = ElrsConfigState::LoadingParam(1);
+        }
+
+        // Chunk 0: chunks_remain = 1
+        let mut chunk0 = [0u8; 32];
+        chunk0[0] = CRSF_ADDRESS_RADIO_TRANSMITTER;
+        chunk0[2] = CRSF_FRAMETYPE_PARAMETER_SETTINGS_ENTRY;
+        chunk0[3] = CRSF_ADDRESS_RADIO_TRANSMITTER;
+        chunk0[4] = CRSF_ADDRESS_CRSF_TRANSMITTER;
+        chunk0[5] = 1; // param_id
+        chunk0[6] = 1; // chunks_remain = 1!
+        chunk0[7] = 0; // parent
+        chunk0[8] = CRSF_TYPE_SELECT; // type
+        chunk0[9..13].copy_from_slice(b"Pwr\0");
+        chunk0[13..23].copy_from_slice(b"10mW;25mW;"); // First half of options
+        let total0 = 24;
+        chunk0[1] = (total0 - 2) as u8;
+        chunk0[total0 - 1] = crc8(&chunk0[2..total0 - 1]);
+
+        uart::mock::push_rx_bytes(&chunk0[..total0]);
+        poll_telemetry(3000);
+
+        let engine = get_config_engine();
+        assert_eq!(engine.current_chunk, 1, "Must advance to chunk 1");
+        assert_eq!(engine.params_len, 0, "Parameter not parsed until final chunk");
+
+        // Verify request for Chunk 1 sent
+        let tx = uart::mock::take_tx();
+        assert_eq!(tx.len(), 1);
+        assert_eq!(tx[0][5], 1); // param_id 1
+        assert_eq!(tx[0][6], 1); // chunk 1
+
+        // Chunk 1: chunks_remain = 0 (final chunk)
+        let mut chunk1 = [0u8; 32];
+        chunk1[0] = CRSF_ADDRESS_RADIO_TRANSMITTER;
+        chunk1[2] = CRSF_FRAMETYPE_PARAMETER_SETTINGS_ENTRY;
+        chunk1[3] = CRSF_ADDRESS_RADIO_TRANSMITTER;
+        chunk1[4] = CRSF_ADDRESS_CRSF_TRANSMITTER;
+        chunk1[5] = 1;
+        chunk1[6] = 0; // chunks_remain = 0!
+        chunk1[7..19].copy_from_slice(b"100mW;250mW\0"); // Second half of options
+        chunk1[19] = 3; // value = 3 (250mW)
+        let total1 = 21;
+        chunk1[1] = (total1 - 2) as u8;
+        chunk1[total1 - 1] = crc8(&chunk1[2..total1 - 1]);
+
+        uart::mock::push_rx_bytes(&chunk1[..total1]);
+        poll_telemetry(3100);
+
+        let engine = get_config_engine();
+        assert_eq!(engine.params_len, 1, "Reassembled parameter must be stored");
+        let p = &engine.params[0];
+        assert_eq!(&p.name[..3], b"Pwr");
+        assert_eq!(p.value, 3);
+        assert_eq!(p.max_value, 3); // 4 options total: 10mW, 25mW, 100mW, 250mW
+        let mut buf = [0u8; 16];
+        assert_eq!(p.current_option_str(&mut buf), "250mW");
+
+        // Since param_count was 1, state must transition to Ready
+        assert_eq!(engine.state, ElrsConfigState::Ready);
+    }
+
+    #[test]
+    fn test_command_action_lifecycle_and_confirmations() {
+        reset_state();
+        set_millis(5000);
+
+        // Setup ready engine with 1 command param
+        unsafe {
+            CONFIG_ENGINE.device_id = CRSF_ADDRESS_CRSF_TRANSMITTER;
+            CONFIG_ENGINE.state = ElrsConfigState::Ready;
+            let mut name = [0u8; 16];
+            name[..4].copy_from_slice(b"Bind");
+            CONFIG_ENGINE.params[0] = Parameter {
+                id: 1,
+                parent: 0,
+                param_type: CRSF_TYPE_COMMAND,
+                name,
+                name_len: 4,
+                value: STATUS_READY,
+                max_value: 0,
+                options: [0; 48],
+                options_len: 0,
+                status: STATUS_READY,
+            };
+            CONFIG_ENGINE.params_len = 1;
+        }
+
+        // 1. Trigger command
+        trigger_command(0);
+        let engine = get_config_engine();
+        assert!(matches!(engine.active_cmd, ActiveCommandState::Starting { param_id: 1, .. }));
+        let tx = uart::mock::take_tx();
+        assert_eq!(tx.len(), 1);
+        assert_eq!(tx[0][2], protocol::CRSF_FRAMETYPE_PARAMETER_WRITE);
+        assert_eq!(tx[0][6], STATUS_START);
+
+        // 2. Module responds requiring confirmation (STATUS_CONFIRMATION_NEEDED = 3)
+        // Payload has: parent(0), type(CRSF_TYPE_COMMAND), "Bind\0", status
+        let mut frame = [0u8; 20];
+        frame[0] = CRSF_ADDRESS_RADIO_TRANSMITTER;
+        frame[2] = CRSF_FRAMETYPE_PARAMETER_SETTINGS_ENTRY;
+        frame[3] = CRSF_ADDRESS_RADIO_TRANSMITTER;
+        frame[4] = CRSF_ADDRESS_CRSF_TRANSMITTER;
+        frame[5] = 1; // param_id
+        frame[6] = 0; // chunks_remain
+        frame[7] = 0; // parent
+        frame[8] = CRSF_TYPE_COMMAND;
+        frame[9..14].copy_from_slice(b"Bind\0");
+        frame[14] = STATUS_CONFIRMATION_NEEDED; // status
+        let total = 16;
+        frame[1] = (total - 2) as u8;
+        frame[total - 1] = crc8(&frame[2..total - 1]);
+
+        uart::mock::push_rx_bytes(&frame[..total]);
+        poll_telemetry(5100);
+
+        let engine = get_config_engine();
+        assert_eq!(engine.active_cmd, ActiveCommandState::WaitingConfirm { param_id: 1 });
+
+        // 3. User accepts confirmation
+        confirm_command(true);
+        let engine = get_config_engine();
+        assert!(matches!(engine.active_cmd, ActiveCommandState::Running { param_id: 1, .. }));
+        let tx = uart::mock::take_tx();
+        assert_eq!(tx.len(), 1);
+        assert_eq!(tx[0][6], protocol::STATUS_CONFIRM);
+
+        // 4. Module responds with STATUS_PROGRESS (2)
+        frame[14] = STATUS_PROGRESS;
+        frame[total - 1] = crc8(&frame[2..total - 1]);
+        uart::mock::push_rx_bytes(&frame[..total]);
+        poll_telemetry(5200);
+
+        let engine = get_config_engine();
+        assert!(matches!(engine.active_cmd, ActiveCommandState::Running { param_id: 1, .. }));
+
+        // 5. Module completes with STATUS_READY (0)
+        frame[14] = STATUS_READY;
+        frame[total - 1] = crc8(&frame[2..total - 1]);
+        uart::mock::push_rx_bytes(&frame[..total]);
+        poll_telemetry(5300);
+
+        let engine = get_config_engine();
+        assert_eq!(engine.active_cmd, ActiveCommandState::Idle, "Completed command returns to Idle");
+    }
+
+    #[test]
+    fn test_telemetry_disconnect_timeout() {
+        reset_state();
+
+        // Feed link statistics at t = 1000
+        let mut frame = [0u8; 14];
+        frame[0] = CRSF_ADDRESS_RADIO_TRANSMITTER;
+        frame[1] = 12;
+        frame[2] = CRSF_FRAMETYPE_LINK_STATISTICS;
+        frame[3] = 80;
+        frame[4] = 85;
+        frame[5] = 99;
+        frame[6] = 10;
+        frame[7] = 0;
+        frame[8] = 2;
+        frame[9] = 3;
+        frame[13] = crc8(&frame[2..13]);
+
+        uart::mock::push_rx_bytes(&frame);
+        poll_telemetry(1000);
+        assert!(get_telemetry().connected);
+
+        // Poll at t = 1500 (500 ms later): still connected
+        poll_telemetry(1500);
+        assert!(get_telemetry().connected);
+
+        // Poll at t = 2050 (>1000 ms timeout): disconnected!
+        poll_telemetry(2050);
+        assert!(!get_telemetry().connected, "Must mark disconnected after 1000 ms silence");
+    }
+}
