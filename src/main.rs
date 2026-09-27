@@ -180,11 +180,17 @@ impl FlightPipeline {
 /// Background idle and UI context: tracks inactivity, backlight timers, user input, and screen rendering.
 struct BackgroundIdleManager {
     prev_stick_samples: [u16; 6],
+    prev_pots: [i16; 2],
     prev_switches: input::Switches,
     prev_bind_key: bool,
     bind_hold_ms: u32,
     bind_was_held: bool,
     ok_hold_ms: u16,
+    cancel_hold_ms: u16,
+    timer_remaining_secs: u16,
+    timer_elapsed_secs: u16,
+    timer_ms_acc: u16,
+    prev_timer_model: u8,
     bl_timer_ms: u32,
     inactivity_timer_ms: u32,
     inactivity_beep_timer: u32,
@@ -203,11 +209,17 @@ impl BackgroundIdleManager {
                 init_state.raw[6],
                 init_state.raw[7],
             ],
+            prev_pots: [init_state.pots.vr1, init_state.pots.vr2],
             prev_switches: init_state.switches,
             prev_bind_key: bind_on_boot,
             bind_hold_ms: 0,
             bind_was_held: false,
             ok_hold_ms: 0,
+            cancel_hold_ms: 0,
+            timer_remaining_secs: 0,
+            timer_elapsed_secs: 0,
+            timer_ms_acc: 0,
+            prev_timer_model: 0xFF,
             bl_timer_ms: 30_000,
             inactivity_timer_ms: 0,
             inactivity_beep_timer: 0,
@@ -245,6 +257,20 @@ impl BackgroundIdleManager {
             };
         }
         self.menu_was_active = menu_active;
+
+        // Pot Center Crossing Haptic/Audio Feedback (VR1 & VR2)
+        // Detect transitions across deadband ±25 from outside (|prev| >= 25 && |curr| < 25)
+        for (i, (&curr, prev)) in [flight.state.pots.vr1, flight.state.pots.vr2]
+            .iter()
+            .zip(self.prev_pots.iter_mut())
+            .enumerate()
+        {
+            let _ = i;
+            if prev.abs() >= 25 && curr.abs() < 25 {
+                buzzer.pot_center_click();
+            }
+            *prev = curr;
+        }
 
         // 2. Physical activity & inactivity tracking
         let stick_moved = (flight.state.raw[0] as i32 - self.prev_stick_samples[0] as i32).abs()
@@ -360,7 +386,58 @@ impl BackgroundIdleManager {
             }
         }
 
-        // 8. Display Frame Rendering (~30 Hz)
+        // 8. Flight Timer Engine
+        let active_idx = storage.radio.active_model;
+        let model = storage.active_model();
+        if self.prev_timer_model != active_idx {
+            self.prev_timer_model = active_idx;
+            self.timer_remaining_secs = model.timer_secs;
+            self.timer_elapsed_secs = 0;
+            self.timer_ms_acc = 0;
+        }
+
+        // Check for manual reset via [CANCEL] held for >= 1.0s on flight dashboard
+        if !menu_active && cancel_key {
+            self.cancel_hold_ms = self.cancel_hold_ms.saturating_add(dt_ms);
+            if self.cancel_hold_ms >= 1000 {
+                self.timer_remaining_secs = model.timer_secs;
+                self.timer_elapsed_secs = 0;
+                self.timer_ms_acc = 0;
+                self.cancel_hold_ms = 0;
+                buzzer.play_tone(2400, 100);
+            }
+        } else {
+            self.cancel_hold_ms = 0;
+        }
+
+        // Evaluate timer trigger condition
+        let timer_running = match model.timer_source {
+            0 => false,
+            1 => flight.state.sticks.throttle > -900,
+            sw if sw <= 10 => mixer::is_switch_active(sw, &flight.state.switches),
+            _ => false,
+        };
+
+        if timer_running && dt_ms > 0 {
+            self.timer_ms_acc = self.timer_ms_acc.saturating_add(dt_ms);
+            while self.timer_ms_acc >= 1000 {
+                self.timer_ms_acc -= 1000;
+                if self.timer_remaining_secs > 0 {
+                    self.timer_remaining_secs -= 1;
+                    if self.timer_remaining_secs == 0 {
+                        buzzer.timer_elapsed_alarm();
+                    } else if self.timer_remaining_secs <= 10 {
+                        buzzer.timer_countdown_beep();
+                    } else if self.timer_remaining_secs % 60 == 0 {
+                        buzzer.timer_minute_beep();
+                    }
+                } else {
+                    self.timer_elapsed_secs = self.timer_elapsed_secs.saturating_add(1);
+                }
+            }
+        }
+
+        // 9. Display Frame Rendering (~30 Hz)
         let run_display = now.wrapping_sub(self.last_display_ms) >= 33;
         if !run_display {
             return;
@@ -371,6 +448,7 @@ impl BackgroundIdleManager {
             menu_controller.update(
                 lcd,
                 keys,
+                &flight.state.switches,
                 storage,
                 trims,
                 &flight.state.raw,
@@ -394,6 +472,28 @@ impl BackgroundIdleManager {
             calib_wizard.update(lcd, storage, &flight.state.raw, keys, dt_ms.max(20), buzzer);
             lcd.flush();
         } else {
+            let mut timer_buf = [0u8; 8];
+            let timer_display = if model.timer_source != 0 {
+                let (disp_secs, expired) = if model.timer_secs > 0 {
+                    if self.timer_remaining_secs > 0 {
+                        (self.timer_remaining_secs, false)
+                    } else {
+                        (self.timer_elapsed_secs, true)
+                    }
+                } else {
+                    (self.timer_elapsed_secs, false)
+                };
+                let formatted = ui::format::format_timer(disp_secs, expired, &mut timer_buf);
+                Some((formatted, expired))
+            } else {
+                None
+            };
+
+            let (timer_str, timer_expired) = match timer_display {
+                Some((s, exp)) => (Some(s), exp),
+                None => (None, false),
+            };
+
             dashboard.render(
                 lcd,
                 &flight.state,
@@ -403,6 +503,8 @@ impl BackgroundIdleManager {
                 rf_ok,
                 flight.is_binding,
                 &flight.telem,
+                timer_str,
+                timer_expired,
                 buzzer,
             );
             lcd.flush();

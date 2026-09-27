@@ -43,6 +43,7 @@ pub enum MixSource {
     Sd = 10,
     Max = 11,
     // 12..25 map to Channel 1..14
+    ThrUnipolar = 26,
 }
 
 /// Wing and tail aircraft mixing templates.
@@ -62,6 +63,24 @@ impl WingTailTemplate {
             3 => Self::Flaperon,
             _ => Self::Normal,
         }
+    }
+}
+
+/// Helper to apply differential to a deflection value (-1000..+1000).
+/// When diff > 0, down-deflection (val < 0) is attenuated by (100 - diff)%.
+/// When diff < 0, up-deflection (val > 0) is attenuated by (100 + diff)%.
+#[inline(always)]
+pub fn apply_differential(val: i32, diff: i8) -> i32 {
+    if diff == 0 {
+        return val;
+    }
+    let d = diff.clamp(-100, 100) as i32;
+    if d > 0 && val < 0 {
+        (val * (100 - d)) / 100
+    } else if d < 0 && val > 0 {
+        (val * (100 + d)) / 100
+    } else {
+        val
     }
 }
 
@@ -156,6 +175,10 @@ pub fn evaluate_source(
             let ch_idx = (src - 12) as usize;
             channels[ch_idx]
         }
+        26 => {
+            let thr = cond_sticks[2] as i32;
+            ((thr + MIXER_MAX as i32) / 2).clamp(0, MIXER_MAX as i32)
+        }
         _ => MIXER_CENTER as i32,
     }
 }
@@ -200,10 +223,13 @@ pub fn compute_channels(
         }
         WingTailTemplate::Elevon => {
             // Delta wing: Left Elevon (CH1) = (Pitch - Roll)/2, Right Elevon (CH2) = (Pitch + Roll)/2
+            // With differential applied to the roll component:
             let p = cond_pitch as i32;
             let r = cond_roll as i32;
-            ch_vals[0] = (p - r).clamp(MIXER_MIN as i32, MIXER_MAX as i32);
-            ch_vals[1] = (p + r).clamp(MIXER_MIN as i32, MIXER_MAX as i32);
+            let left_r = apply_differential(-r, model.template_diff);
+            let right_r = apply_differential(r, model.template_diff);
+            ch_vals[0] = ((p + left_r) / 2).clamp(MIXER_MIN as i32, MIXER_MAX as i32);
+            ch_vals[1] = ((p + right_r) / 2).clamp(MIXER_MIN as i32, MIXER_MAX as i32);
             ch_vals[2] = cond_thr as i32;
             ch_vals[3] = cond_yaw as i32;
         }
@@ -212,19 +238,21 @@ pub fn compute_channels(
             let p = cond_pitch as i32;
             let y = cond_yaw as i32;
             ch_vals[0] = cond_roll as i32;
-            ch_vals[1] = (p + y).clamp(MIXER_MIN as i32, MIXER_MAX as i32);
+            ch_vals[1] = ((p + y) / 2).clamp(MIXER_MIN as i32, MIXER_MAX as i32);
             ch_vals[2] = cond_thr as i32;
-            ch_vals[3] = (p - y).clamp(MIXER_MIN as i32, MIXER_MAX as i32);
+            ch_vals[3] = ((p - y) / 2).clamp(MIXER_MIN as i32, MIXER_MAX as i32);
         }
         WingTailTemplate::Flaperon => {
             // Dual ailerons: CH1 Left Aileron, CH6 Right Aileron. Flaps driven from aux channel 6
             let r = cond_roll as i32;
+            let left_r = apply_differential(r, model.template_diff);
+            let right_r = apply_differential(-r, model.template_diff);
             let flap = evaluate_source(model.aux_channels[1], &cond_sticks, pots, switches, &ch_vals);
-            ch_vals[0] = (r + flap / 2).clamp(MIXER_MIN as i32, MIXER_MAX as i32);
+            ch_vals[0] = (left_r + flap / 2).clamp(MIXER_MIN as i32, MIXER_MAX as i32);
             ch_vals[1] = cond_pitch as i32;
             ch_vals[2] = cond_thr as i32;
             ch_vals[3] = cond_yaw as i32;
-            ch_vals[5] = (-r + flap / 2).clamp(MIXER_MIN as i32, MIXER_MAX as i32);
+            ch_vals[5] = (right_r + flap / 2).clamp(MIXER_MIN as i32, MIXER_MAX as i32);
         }
     }
 
@@ -413,15 +441,75 @@ mod tests {
         };
         let pots = [0i16, 0i16];
 
-        // Pitch up (1000), Roll zero -> Both elevons deflect together
+        // Pitch up (1000), Roll zero -> Both elevons deflect together with 50% throw
         let chs = compute_channels(0, 1000, 0, 0, &pots, &switches, &model, &trims, 0);
-        assert_eq!(chs[0], CHANNEL_MAX_US, "CH1 Left elevon");
-        assert_eq!(chs[1], CHANNEL_MAX_US, "CH2 Right elevon");
+        assert_eq!(chs[0], 1756, "CH1 Left elevon 50% up");
+        assert_eq!(chs[1], 1756, "CH2 Right elevon 50% up");
 
-        // Roll right (1000), Pitch zero -> Left elevon down, Right elevon up
-        let chs_roll = compute_channels(1000, 0, 0, 0, &pots, &switches, &model, &trims, 0);
-        assert_eq!(chs_roll[0], CHANNEL_MIN_US, "CH1 Left elevon (p - r)");
-        assert_eq!(chs_roll[1], CHANNEL_MAX_US, "CH2 Right elevon (p + r)");
+        // Pitch up (1000) + Roll right (1000) -> Right elevon full throw (100%), Left elevon center (0%)
+        let chs_corner = compute_channels(1000, 1000, 0, 0, &pots, &switches, &model, &trims, 0);
+        assert_eq!(chs_corner[0], CHANNEL_CENTER_US, "CH1 Left elevon neutral without clipping");
+        assert_eq!(chs_corner[1], CHANNEL_MAX_US, "CH2 Right elevon full travel 2012 µs");
+
+        // Differential test: diff = +50% (down-deflection attenuated by 50%)
+        model.template_diff = 50;
+        let chs_diff = compute_channels(1000, 0, 0, 0, &pots, &switches, &model, &trims, 0);
+        assert_eq!(chs_diff[1], 1756, "Right elevon up-deflection unattenuated");
+        assert_eq!(chs_diff[0], 1372, "Left elevon down-deflection attenuated by 50%");
+    }
+
+    #[test]
+    fn test_compute_channels_vtail_mixing() {
+        let mut model = ModelConfig::default_for_index(0);
+        model.wing_tail_mix = 2; // VTail
+        let trims = TrimController::new();
+        let switches = Switches {
+            sa: SwitchPos::Up,
+            sb: SwitchPos::Up,
+            sc: SwitchPos::Up,
+            sd: SwitchPos::Up,
+        };
+        let pots = [0i16, 0i16];
+
+        // Pitch up (1000), Yaw zero -> Both V-tail ruddervators deflect up together with 50% authority
+        let chs = compute_channels(0, 1000, 0, 0, &pots, &switches, &model, &trims, 0);
+        assert_eq!(chs[1], 1756, "CH2 Left V-Tail");
+        assert_eq!(chs[3], 1756, "CH4 Right V-Tail");
+
+        // Full corner Pitch up (1000) + Yaw right (1000) -> CH2 full travel (2012 µs), CH4 neutral (1500 µs)
+        let chs_corner = compute_channels(0, 1000, 0, 1000, &pots, &switches, &model, &trims, 0);
+        assert_eq!(chs_corner[1], CHANNEL_MAX_US, "CH2 Left V-Tail full up");
+        assert_eq!(chs_corner[3], CHANNEL_CENTER_US, "CH4 Right V-Tail neutral without clipping");
+    }
+
+    #[test]
+    fn test_unipolar_throttle_mixer() {
+        let mut model = ModelConfig::default_for_index(0);
+        // Mix line 1: CH2 (Elevator) <- Thr+ with -20% weight, ADD
+        model.mixes[0] = MixLine {
+            target_ch: 2,
+            source: 26, // Thr+
+            weight: -20,
+            offset: 0,
+            mode: 0,
+            switch: 0,
+        };
+        let trims = TrimController::new();
+        let switches = Switches {
+            sa: SwitchPos::Up,
+            sb: SwitchPos::Up,
+            sc: SwitchPos::Up,
+            sd: SwitchPos::Up,
+        };
+        let pots = [0i16, 0i16];
+
+        // At zero throttle (curved_throttle = 0): Thr+ evaluates to 0 -> zero elevator compensation!
+        let chs_idle = compute_channels(0, 0, 0, 0, &pots, &switches, &model, &trims, 0);
+        assert_eq!(chs_idle[1], CHANNEL_CENTER_US, "CH2 Elevator must stay neutral at idle throttle");
+
+        // At 100% throttle (curved_throttle = 1000): Thr+ is 1000 -> -20% weight gives -200 offset (-102 µs)
+        let chs_full = compute_channels(0, 0, 1000, 0, &pots, &switches, &model, &trims, 0);
+        assert_eq!(chs_full[1], 1398, "CH2 Elevator receives smooth down-pitch compensation at full throttle");
     }
 
     #[test]
