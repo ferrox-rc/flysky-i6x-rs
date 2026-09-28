@@ -252,14 +252,14 @@ pub fn update_setup(
             4 => {
                 // Timer trigger editing mode (with switch auto-detection)
                 if let Some(sw) = keys.sw_change {
-                    storage.models[active_idx].timer_source = sw + 1; // 1..10 maps to 2..11
+                    storage.models[active_idx].timer_source = sw + 3; // 1..10 maps to 4..13
                     buzzer.play_tone(2400, 40);
                 } else if keys.up {
-                    storage.models[active_idx].timer_source = (storage.models[active_idx].timer_source + 1) % 12;
+                    storage.models[active_idx].timer_source = (storage.models[active_idx].timer_source + 1) % 14;
                     buzzer.play_tone(2200, 20);
                 } else if keys.down {
                     storage.models[active_idx].timer_source = if storage.models[active_idx].timer_source == 0 {
-                        11
+                        13
                     } else {
                         storage.models[active_idx].timer_source - 1
                     };
@@ -358,8 +358,10 @@ pub fn update_setup(
             4 => {
                 let trig_str = match storage.models[active_idx].timer_source {
                     0 => "OFF",
-                    1 => "THR>5%",
-                    s if s >= 2 && s <= 11 => crate::ui::format::SWITCH_COND_NAMES[s as usize - 1],
+                    1 => "THs (RUN)",
+                    2 => "THt (LTCH)",
+                    3 => "ALWAYS ON",
+                    s if (4..=13).contains(&s) => crate::ui::format::SWITCH_COND_NAMES[(s - 3) as usize],
                     _ => "OFF",
                 };
                 Text::new("T-Trig:", Point::new(4, y + 7), style).draw(lcd).ok();
