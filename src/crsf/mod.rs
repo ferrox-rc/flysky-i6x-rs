@@ -70,9 +70,11 @@ pub fn update_channels(now_ms: u32, channels: &[u16; 14]) {
     }
 }
 
-pub const MAX_PARAMS: usize = 16;
+pub const MAX_PARAMS: usize = 255;
+pub const MAX_FOLDER_ITEMS: usize = 64;
+pub const STRING_POOL_SIZE: usize = 3584;
 
-static mut CHUNK_BUF: [u8; 96] = [0; 96];
+static mut CHUNK_BUF: [u8; 320] = [0; 320];
 static mut CHUNK_LEN: usize = 0;
 static mut CHUNK_PARAM_ID: u8 = 0;
 
@@ -132,14 +134,14 @@ pub enum ActiveCommandState {
 pub struct Parameter {
     pub id: u8,
     pub parent: u8,
-    pub param_type: u8,
-    pub name: [u8; 16],
-    pub name_len: u8,
+    pub param_type: u8, // lower 7 bits = type, bit 7 = hidden flag
     pub value: u8,
     pub max_value: u8,
-    pub options: [u8; 48],
-    pub options_len: u8,
     pub status: u8,
+    pub name_offset: u16,
+    pub name_len: u8,
+    pub options_offset: u16,
+    pub options_len: u8,
 }
 
 impl Parameter {
@@ -148,53 +150,109 @@ impl Parameter {
             id: 0,
             parent: 0,
             param_type: 0,
-            name: [0; 16],
-            name_len: 0,
             value: 0,
             max_value: 0,
-            options: [0; 48],
-            options_len: 0,
             status: 0,
+            name_offset: 0,
+            name_len: 0,
+            options_offset: 0,
+            options_len: 0,
         }
     }
 
-    /// Extract option string for current `value` index into buffer.
-    pub fn current_option_str<'a>(&'a self, buf: &'a mut [u8; 16]) -> &'a str {
+    #[inline]
+    pub fn is_hidden(&self) -> bool {
+        (self.param_type & 0x80) != 0
+    }
+
+    #[inline]
+    pub fn clean_type(&self) -> u8 {
+        self.param_type & 0x7F
+    }
+
+    pub fn name<'a>(&'a self, pool: &'a [u8]) -> &'a str {
+        if self.name_len == 0 {
+            return "";
+        }
+        let start = self.name_offset as usize;
+        let end = (start + self.name_len as usize).min(pool.len());
+        if start < end {
+            core::str::from_utf8(&pool[start..end]).unwrap_or("")
+        } else {
+            ""
+        }
+    }
+
+    /// Extract option string for any `val` index into buffer.
+    pub fn option_str_for_val<'a>(&'a self, pool: &'a [u8], val: u8, buf: &'a mut [u8; 24]) -> &'a str {
         if self.options_len == 0 {
             return "";
         }
-        let opts = &self.options[..self.options_len as usize];
+        let start = self.options_offset as usize;
+        let end = (start + self.options_len as usize).min(pool.len());
+        if start >= end {
+            return "";
+        }
+        let opts = &pool[start..end];
         let mut idx = 0u8;
-        let mut start = 0usize;
+        let mut chunk_start = 0usize;
 
         for (i, &b) in opts.iter().enumerate() {
             if b == b';' || b == 0 {
-                if idx == self.value {
-                    let chunk = &opts[start..i];
-                    let copy_len = chunk.len().min(15);
+                if idx == val {
+                    let chunk = &opts[chunk_start..i];
+                    let copy_len = chunk.len().min(buf.len() - 1);
                     buf[..copy_len].copy_from_slice(&chunk[..copy_len]);
                     return core::str::from_utf8(&buf[..copy_len]).unwrap_or("");
                 }
                 idx += 1;
-                start = i + 1;
+                chunk_start = i + 1;
             }
         }
-        if idx == self.value && start < opts.len() {
-            let chunk = &opts[start..];
-            let copy_len = chunk.len().min(15);
+        if idx == val && chunk_start < opts.len() {
+            let chunk = &opts[chunk_start..];
+            let copy_len = chunk.len().min(buf.len() - 1);
             buf[..copy_len].copy_from_slice(&chunk[..copy_len]);
             return core::str::from_utf8(&buf[..copy_len]).unwrap_or("");
         }
         ""
+    }
+
+    /// Extract option string for current `value` index into buffer.
+    pub fn current_option_str<'a>(&'a self, pool: &'a [u8], buf: &'a mut [u8; 24]) -> &'a str {
+        self.option_str_for_val(pool, self.value, buf)
+    }
+}
+
+pub const MAX_DISCOVERED_DEVICES: usize = 4;
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub struct DiscoveredDevice {
+    pub address: u8,
+    pub name: [u8; 16],
+    pub name_len: u8,
+    pub param_count: u8,
+    pub last_seen_ms: u32,
+}
+
+impl DiscoveredDevice {
+    pub const fn empty() -> Self {
+        Self {
+            address: 0,
+            name: [0; 16],
+            name_len: 0,
+            param_count: 0,
+            last_seen_ms: 0,
+        }
     }
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum ElrsConfigState {
     Idle,
-    Discovering,      // Sending ping 0x28
+    Discovering,      // Sending broadcast ping 0x28, collecting devices
     Connected,        // Received device info 0x29
-    LoadingParam(u8), // Requesting param 1..param_count
+    LoadingParam(u8), // Requesting param 1..param_count for chosen device
     Ready,            // All parameters cached and interactive
 }
 
@@ -205,10 +263,18 @@ pub struct ElrsConfigEngine {
     pub device_name: [u8; 20],
     pub device_name_len: u8,
     pub param_count: u8,
+    pub devices: [DiscoveredDevice; MAX_DISCOVERED_DEVICES],
+    pub devices_len: usize,
+    pub selected_device_idx: usize,
     pub params: [Parameter; MAX_PARAMS],
     pub params_len: usize,
+    pub string_pool: [u8; STRING_POOL_SIZE],
+    pub string_pool_len: usize,
     pub last_req_ms: u32,
+    pub next_req_ms: u32,
     pub current_chunk: u8,
+    pub expect_chunks_remain: u8,
+    pub retry_count: u8,
 }
 
 impl ElrsConfigEngine {
@@ -220,10 +286,18 @@ impl ElrsConfigEngine {
             device_name: [0; 20],
             device_name_len: 0,
             param_count: 0,
+            devices: [DiscoveredDevice::empty(); MAX_DISCOVERED_DEVICES],
+            devices_len: 0,
+            selected_device_idx: 0,
             params: [Parameter::empty(); MAX_PARAMS],
             params_len: 0,
+            string_pool: [0; STRING_POOL_SIZE],
+            string_pool_len: 0,
             last_req_ms: 0,
+            next_req_ms: 0,
             current_chunk: 0,
+            expect_chunks_remain: 0xFF,
+            retry_count: 0,
         }
     }
 }
@@ -247,11 +321,15 @@ pub fn poll_telemetry(now_ms: u32) {
         while let Some(b) = uart::read_byte() {
             LAST_RX_BYTE_MS = now_ms;
             if RX_LEN == 0 {
-                // Look for frame start: valid destination addresses (0xEE, 0xEA, 0xEC, 0xC8, etc.)
-                if b == protocol::CRSF_ADDRESS_RADIO_TRANSMITTER
+                // Look for frame start: CRSF Sync Byte (0xC8) or valid destination addresses (0xEE, 0xEA, 0xEC)
+                // Note: CRSF_SYNC_BYTE and CRSF_ADDRESS_FLIGHT_CONTROLLER both equal 0xC8.
+                // At byte index 0 of an incoming frame, 0xC8 is the wire sync byte delimiter.
+                // Within extended frames (0x28, 0x29, 0x2B, 0x2C, 0x2D), device addresses (such as
+                // CRSF_ADDRESS_FLIGHT_CONTROLLER 0xC8) are indexed at frame[3] (dest) and frame[4] (orig).
+                if b == protocol::CRSF_SYNC_BYTE
+                    || b == protocol::CRSF_ADDRESS_RADIO_TRANSMITTER
                     || b == protocol::CRSF_ADDRESS_CRSF_TRANSMITTER
                     || b == protocol::CRSF_ADDRESS_CRSF_RECEIVER
-                    || b == protocol::CRSF_ADDRESS_FLIGHT_CONTROLLER
                 {
                     RX_BUF[0] = b;
                     RX_LEN = 1;
@@ -324,30 +402,167 @@ unsafe fn handle_device_info_frame(payload: &[u8], now_ms: u32) {
         return;
     }
     let orig = payload[1];
-    CONFIG_ENGINE.device_id = orig;
 
-    let (next_offset, name_len) = extract_null_string(payload, 2, &mut CONFIG_ENGINE.device_name);
-    CONFIG_ENGINE.device_name_len = name_len;
+    let mut name_buf = [0u8; 16];
+    let (next_offset, name_len) = extract_null_string(payload, 2, &mut name_buf);
 
     // Skip past serial (4B), hw (4B), fw (4B) to read param_count
     let param_count_offset = next_offset + 4 + 4 + 4;
-    if param_count_offset < payload.len() {
-        CONFIG_ENGINE.param_count = payload[param_count_offset];
+    let param_count = if param_count_offset < payload.len() {
+        payload[param_count_offset]
     } else {
-        CONFIG_ENGINE.param_count = 10;
+        10
+    };
+
+    // If in Discovering state, collect responding devices into device list
+    if CONFIG_ENGINE.state == ElrsConfigState::Discovering {
+        let mut found = false;
+        for d in &mut CONFIG_ENGINE.devices[..CONFIG_ENGINE.devices_len] {
+            if d.address == orig {
+                d.name = name_buf;
+                d.name_len = name_len;
+                d.param_count = param_count;
+                d.last_seen_ms = now_ms;
+                found = true;
+                break;
+            }
+        }
+        if !found && CONFIG_ENGINE.devices_len < MAX_DISCOVERED_DEVICES {
+            CONFIG_ENGINE.devices[CONFIG_ENGINE.devices_len] = DiscoveredDevice {
+                address: orig,
+                name: name_buf,
+                name_len,
+                param_count,
+                last_seen_ms: now_ms,
+            };
+            CONFIG_ENGINE.devices_len += 1;
+        }
+        return;
     }
 
-    if CONFIG_ENGINE.param_count > 0 {
-        CONFIG_ENGINE.state = ElrsConfigState::LoadingParam(1);
-        CONFIG_ENGINE.params_len = 0;
-        CONFIG_ENGINE.current_chunk = 0;
-        CHUNK_LEN = 0;
-        CHUNK_PARAM_ID = 0;
-        CONFIG_ENGINE.last_req_ms = now_ms;
-        send_param_read(CONFIG_ENGINE.device_id, 1, 0);
-    } else {
-        CONFIG_ENGINE.state = ElrsConfigState::Ready;
-        CONFIG_ENGINE.params_len = 0;
+    // Only accept device info updates from the active device being configured.
+    // Discard broadcasts from other devices while loading/ready.
+    if orig != CONFIG_ENGINE.device_id {
+        return;
+    }
+
+    let dev_name_len = name_len.min(20);
+    CONFIG_ENGINE.device_name[..dev_name_len as usize]
+        .copy_from_slice(&name_buf[..dev_name_len as usize]);
+    CONFIG_ENGINE.device_name_len = dev_name_len;
+    CONFIG_ENGINE.param_count = param_count;
+}
+
+unsafe fn parse_and_store_parameter(chunk: &[u8], param_id: u8, now_ms: u32) {
+    if chunk.len() < 3 {
+        return;
+    }
+    let parent = chunk[0];
+    let raw_type = chunk[1];
+    let p_type = raw_type & 0x7F;
+
+    let mut name_buf = [0u8; 16];
+    let (rest_start, name_len) = extract_null_string(chunk, 2, &mut name_buf);
+
+    let mut opt_slice_len = 0usize;
+    let mut val = 0u8;
+    let mut max_val = 0u8;
+    let mut status = 0u8;
+
+    if rest_start < chunk.len() {
+        if p_type == protocol::CRSF_TYPE_SELECT {
+            let mut opt_end = rest_start;
+            let mut opt_count = 1u8;
+            while opt_end < chunk.len() && chunk[opt_end] != 0 {
+                if chunk[opt_end] == b';' {
+                    opt_count += 1;
+                }
+                opt_end += 1;
+            }
+            opt_slice_len = opt_end.saturating_sub(rest_start);
+            max_val = opt_count.saturating_sub(1);
+
+            let val_pos = opt_end + 1;
+            if val_pos < chunk.len() {
+                val = chunk[val_pos];
+            }
+        } else if p_type == protocol::CRSF_TYPE_COMMAND {
+            status = chunk[rest_start];
+            val = status;
+
+            // Drive active command state transitions based on module response
+            match CONFIG_ENGINE.active_cmd {
+                ActiveCommandState::Starting {
+                    param_id: cmd_id, ..
+                }
+                | ActiveCommandState::Running {
+                    param_id: cmd_id, ..
+                } if cmd_id == param_id => match status {
+                    protocol::STATUS_CONFIRMATION_NEEDED => {
+                        CONFIG_ENGINE.active_cmd =
+                            ActiveCommandState::WaitingConfirm { param_id };
+                    }
+                    protocol::STATUS_PROGRESS => {
+                        CONFIG_ENGINE.active_cmd = ActiveCommandState::Running {
+                            param_id,
+                            poll_timer_ms: now_ms.wrapping_add(250),
+                            timeout_ms: now_ms.wrapping_add(8000),
+                        };
+                    }
+                    protocol::STATUS_READY => {
+                        CONFIG_ENGINE.active_cmd = ActiveCommandState::Idle;
+                    }
+                    _ => {}
+                },
+                _ => {}
+            }
+        }
+    }
+
+    let mut found = false;
+    for p in &mut CONFIG_ENGINE.params[..CONFIG_ENGINE.params_len] {
+        if p.id == param_id {
+            p.value = val;
+            p.status = status;
+            p.max_value = max_val;
+            found = true;
+            break;
+        }
+    }
+    if !found && CONFIG_ENGINE.params_len < MAX_PARAMS {
+        // Append name to string_pool
+        let name_offset = CONFIG_ENGINE.string_pool_len as u16;
+        let pool_avail_name = STRING_POOL_SIZE.saturating_sub(CONFIG_ENGINE.string_pool_len);
+        let actual_name_len = (name_len as usize).min(pool_avail_name);
+        if actual_name_len > 0 {
+            CONFIG_ENGINE.string_pool[CONFIG_ENGINE.string_pool_len..CONFIG_ENGINE.string_pool_len + actual_name_len]
+                .copy_from_slice(&chunk[2..2 + actual_name_len]);
+            CONFIG_ENGINE.string_pool_len += actual_name_len;
+        }
+
+        // Append options to string_pool
+        let opt_offset = CONFIG_ENGINE.string_pool_len as u16;
+        let pool_avail_opt = STRING_POOL_SIZE.saturating_sub(CONFIG_ENGINE.string_pool_len);
+        let actual_opt_len = opt_slice_len.min(pool_avail_opt);
+        if actual_opt_len > 0 {
+            CONFIG_ENGINE.string_pool[CONFIG_ENGINE.string_pool_len..CONFIG_ENGINE.string_pool_len + actual_opt_len]
+                .copy_from_slice(&chunk[rest_start..rest_start + actual_opt_len]);
+            CONFIG_ENGINE.string_pool_len += actual_opt_len;
+        }
+
+        CONFIG_ENGINE.params[CONFIG_ENGINE.params_len] = Parameter {
+            id: param_id,
+            parent,
+            param_type: raw_type,
+            value: val,
+            max_value: max_val,
+            status,
+            name_offset,
+            name_len: actual_name_len as u8,
+            options_offset: opt_offset,
+            options_len: actual_opt_len as u8,
+        };
+        CONFIG_ENGINE.params_len += 1;
     }
 }
 
@@ -355,9 +570,29 @@ unsafe fn handle_param_entry_frame(payload: &[u8], now_ms: u32) {
     if payload.len() < 5 {
         return;
     }
+    let orig = payload[1];
+    if orig != CONFIG_ENGINE.device_id {
+        return;
+    }
+
     let param_id = payload[2];
     let chunks_remain = payload[3];
     let chunk_slice = &payload[4..];
+
+    // If we're loading parameters, verify this frame matches the parameter being loaded
+    if let ElrsConfigState::LoadingParam(loading_id) = CONFIG_ENGINE.state {
+        if param_id != loading_id {
+            // Stale or unsolicited param frame while loading another param, discard
+            return;
+        }
+    }
+
+    // Sequence check: if expecting specific chunks_remain, discard duplicates / out-of-order
+    if CONFIG_ENGINE.expect_chunks_remain != 0xFF
+        && chunks_remain != CONFIG_ENGINE.expect_chunks_remain
+    {
+        return;
+    }
 
     // If starting a new parameter or chunk index 0, reset accumulator
     if CONFIG_ENGINE.current_chunk == 0 || CHUNK_PARAM_ID != param_id {
@@ -371,115 +606,33 @@ unsafe fn handle_param_entry_frame(payload: &[u8], now_ms: u32) {
     CHUNK_BUF[CHUNK_LEN..CHUNK_LEN + to_copy].copy_from_slice(&chunk_slice[..to_copy]);
     CHUNK_LEN += to_copy;
 
-    // Multi-frame parameter: request next chunk until complete
+    // Multi-frame parameter: immediately request next chunk without artificial pacing delay
     if chunks_remain > 0 {
         CONFIG_ENGINE.current_chunk += 1;
+        CONFIG_ENGINE.expect_chunks_remain = chunks_remain - 1;
+        CONFIG_ENGINE.retry_count = 0;
+        let timeout: u32 = if CONFIG_ENGINE.device_id == protocol::CRSF_ADDRESS_CRSF_RECEIVER {
+            1000
+        } else {
+            500
+        };
+        CONFIG_ENGINE.last_req_ms = now_ms;
+        CONFIG_ENGINE.next_req_ms = now_ms.wrapping_add(timeout);
         send_param_read(
             CONFIG_ENGINE.device_id,
             param_id,
             CONFIG_ENGINE.current_chunk,
         );
-        CONFIG_ENGINE.last_req_ms = now_ms;
         return;
     }
 
     // Parameter stream complete! Parse reassembled payload
     let chunk = &CHUNK_BUF[..CHUNK_LEN];
     CONFIG_ENGINE.current_chunk = 0;
+    CONFIG_ENGINE.expect_chunks_remain = 0xFF;
+    CONFIG_ENGINE.retry_count = 0;
 
-    if chunk.len() >= 3 {
-        let parent = chunk[0];
-        let p_type = chunk[1] & 0x7F;
-
-        let mut name_buf = [0u8; 16];
-        let (rest_start, name_len) = extract_null_string(chunk, 2, &mut name_buf);
-
-        let mut opt_buf = [0u8; 48];
-        let mut opt_len = 0u8;
-        let mut val = 0u8;
-        let mut max_val = 0u8;
-        let mut status = 0u8;
-
-        if rest_start < chunk.len() {
-            if p_type == protocol::CRSF_TYPE_SELECT {
-                let mut opt_end = rest_start;
-                let mut opt_count = 1u8;
-                while opt_end < chunk.len() && chunk[opt_end] != 0 {
-                    if chunk[opt_end] == b';' {
-                        opt_count += 1;
-                    }
-                    opt_end += 1;
-                }
-                let copy_len = (opt_end - rest_start).min(48);
-                opt_buf[..copy_len].copy_from_slice(&chunk[rest_start..rest_start + copy_len]);
-                opt_len = copy_len as u8;
-                max_val = opt_count.saturating_sub(1);
-
-                let val_pos = opt_end + 1;
-                if val_pos < chunk.len() {
-                    val = chunk[val_pos];
-                }
-            } else if p_type == protocol::CRSF_TYPE_COMMAND {
-                status = chunk[rest_start];
-                val = status;
-
-                // Drive active command state transitions based on module response
-                match CONFIG_ENGINE.active_cmd {
-                    ActiveCommandState::Starting {
-                        param_id: cmd_id, ..
-                    }
-                    | ActiveCommandState::Running {
-                        param_id: cmd_id, ..
-                    } if cmd_id == param_id => match status {
-                        protocol::STATUS_CONFIRMATION_NEEDED => {
-                            CONFIG_ENGINE.active_cmd =
-                                ActiveCommandState::WaitingConfirm { param_id };
-                        }
-                        protocol::STATUS_PROGRESS => {
-                            CONFIG_ENGINE.active_cmd = ActiveCommandState::Running {
-                                param_id,
-                                poll_timer_ms: now_ms.wrapping_add(250),
-                                timeout_ms: now_ms.wrapping_add(8000),
-                            };
-                        }
-                        protocol::STATUS_READY => {
-                            CONFIG_ENGINE.active_cmd = ActiveCommandState::Idle;
-                        }
-                        _ => {}
-                    },
-                    _ => {}
-                }
-            }
-        }
-
-        let mut found = false;
-        for p in &mut CONFIG_ENGINE.params[..CONFIG_ENGINE.params_len] {
-            if p.id == param_id {
-                p.value = val;
-                p.status = status;
-                p.options = opt_buf;
-                p.options_len = opt_len;
-                p.max_value = max_val;
-                found = true;
-                break;
-            }
-        }
-        if !found && CONFIG_ENGINE.params_len < MAX_PARAMS {
-            CONFIG_ENGINE.params[CONFIG_ENGINE.params_len] = Parameter {
-                id: param_id,
-                parent,
-                param_type: p_type,
-                name: name_buf,
-                name_len,
-                value: val,
-                max_value: max_val,
-                options: opt_buf,
-                options_len: opt_len,
-                status,
-            };
-            CONFIG_ENGINE.params_len += 1;
-        }
-    }
+    parse_and_store_parameter(chunk, param_id, now_ms);
 
     // Only advance loading sequence if engine was actively in initial loading phase
     if let ElrsConfigState::LoadingParam(loading_id) = CONFIG_ENGINE.state {
@@ -488,9 +641,18 @@ unsafe fn handle_param_entry_frame(payload: &[u8], now_ms: u32) {
                 let next_id = param_id + 1;
                 CONFIG_ENGINE.state = ElrsConfigState::LoadingParam(next_id);
                 CONFIG_ENGINE.current_chunk = 0;
+                CONFIG_ENGINE.expect_chunks_remain = 0xFF;
+                CONFIG_ENGINE.retry_count = 0;
                 CHUNK_LEN = 0;
-                send_param_read(CONFIG_ENGINE.device_id, next_id, 0);
+                CHUNK_PARAM_ID = 0;
+                let timeout: u32 = if CONFIG_ENGINE.device_id == protocol::CRSF_ADDRESS_CRSF_RECEIVER {
+                    1000
+                } else {
+                    500
+                };
                 CONFIG_ENGINE.last_req_ms = now_ms;
+                CONFIG_ENGINE.next_req_ms = now_ms.wrapping_add(timeout);
+                send_param_read(CONFIG_ENGINE.device_id, next_id, 0);
             } else {
                 CONFIG_ENGINE.state = ElrsConfigState::Ready;
             }
@@ -501,16 +663,63 @@ unsafe fn handle_param_entry_frame(payload: &[u8], now_ms: u32) {
 unsafe fn elrs_tick(now_ms: u32) {
     match CONFIG_ENGINE.state {
         ElrsConfigState::Discovering => {
-            if now_ms.wrapping_sub(CONFIG_ENGINE.last_req_ms) >= 300 {
+            if now_ms.wrapping_sub(CONFIG_ENGINE.last_req_ms) >= 1000 {
                 CONFIG_ENGINE.last_req_ms = now_ms;
                 send_ping();
+
+                // Auto-prune disconnected devices not seen for > 3000ms (3 missed 1Hz pings)
+                let mut i = 0;
+                while i < CONFIG_ENGINE.devices_len {
+                    if now_ms.wrapping_sub(CONFIG_ENGINE.devices[i].last_seen_ms) > 3000 {
+                        for j in i..(CONFIG_ENGINE.devices_len - 1) {
+                            CONFIG_ENGINE.devices[j] = CONFIG_ENGINE.devices[j + 1];
+                        }
+                        CONFIG_ENGINE.devices_len -= 1;
+                    } else {
+                        i += 1;
+                    }
+                }
+                if CONFIG_ENGINE.selected_device_idx >= CONFIG_ENGINE.devices_len && CONFIG_ENGINE.devices_len > 0 {
+                    CONFIG_ENGINE.selected_device_idx = CONFIG_ENGINE.devices_len - 1;
+                }
             }
         }
-        ElrsConfigState::LoadingParam(id)
-            if now_ms.wrapping_sub(CONFIG_ENGINE.last_req_ms) >= 350 =>
-        {
-            CONFIG_ENGINE.last_req_ms = now_ms;
-            send_param_read(CONFIG_ENGINE.device_id, id, CONFIG_ENGINE.current_chunk);
+        ElrsConfigState::LoadingParam(id) => {
+            if now_ms.wrapping_sub(CONFIG_ENGINE.next_req_ms) < 0x8000_0000 {
+                let timeout: u32 = if CONFIG_ENGINE.device_id == protocol::CRSF_ADDRESS_CRSF_RECEIVER {
+                    1000
+                } else {
+                    500
+                };
+
+                if CONFIG_ENGINE.retry_count < 4 {
+                    CONFIG_ENGINE.retry_count += 1;
+                    CONFIG_ENGINE.last_req_ms = now_ms;
+                    CONFIG_ENGINE.next_req_ms = now_ms.wrapping_add(timeout);
+                    send_param_read(
+                        CONFIG_ENGINE.device_id,
+                        id,
+                        CONFIG_ENGINE.current_chunk,
+                    );
+                } else {
+                    // Retries exhausted for this parameter (packet lost over the air).
+                    // Advance to next parameter immediately to avoid freezing UI permanently.
+                    CONFIG_ENGINE.retry_count = 0;
+                    CONFIG_ENGINE.current_chunk = 0;
+                    CONFIG_ENGINE.expect_chunks_remain = 0xFF;
+                    CHUNK_LEN = 0;
+                    CHUNK_PARAM_ID = 0;
+                    if id < CONFIG_ENGINE.param_count && CONFIG_ENGINE.params_len < MAX_PARAMS {
+                        let next_id = id + 1;
+                        CONFIG_ENGINE.state = ElrsConfigState::LoadingParam(next_id);
+                        CONFIG_ENGINE.last_req_ms = now_ms;
+                        CONFIG_ENGINE.next_req_ms = now_ms.wrapping_add(timeout);
+                        send_param_read(CONFIG_ENGINE.device_id, next_id, 0);
+                    } else {
+                        CONFIG_ENGINE.state = ElrsConfigState::Ready;
+                    }
+                }
+            }
         }
         _ => {}
     }
@@ -542,18 +751,150 @@ unsafe fn elrs_tick(now_ms: u32) {
     }
 }
 
-/// Start or refresh the native ELRS module configuration handshake.
+/// Start or refresh the native CRSF multi-device discovery handshake (TBS-Agent style).
 pub fn start_config() {
     unsafe {
-        CONFIG_ENGINE.device_id = protocol::CRSF_ADDRESS_CRSF_TRANSMITTER;
+        let now = crate::time::millis();
         CONFIG_ENGINE.state = ElrsConfigState::Discovering;
+        CONFIG_ENGINE.device_id = 0;
+        CONFIG_ENGINE.devices_len = 0;
+        CONFIG_ENGINE.selected_device_idx = 0;
         CONFIG_ENGINE.params_len = 0;
-        CONFIG_ENGINE.last_req_ms = 0;
+        CONFIG_ENGINE.string_pool_len = 0;
+        CONFIG_ENGINE.last_req_ms = now;
+        CONFIG_ENGINE.next_req_ms = now.wrapping_add(1000);
         CONFIG_ENGINE.current_chunk = 0;
+        CONFIG_ENGINE.expect_chunks_remain = 0xFF;
+        CONFIG_ENGINE.retry_count = 0;
         CHUNK_LEN = 0;
         CHUNK_PARAM_ID = 0;
         CONFIG_ENGINE.active_cmd = ActiveCommandState::Idle;
         send_ping();
+    }
+}
+
+/// Select a discovered device by index (0..devices_len) to load and configure its parameters.
+pub fn select_device(idx: usize) -> bool {
+    unsafe {
+        if idx >= CONFIG_ENGINE.devices_len {
+            return false;
+        }
+        let dev = CONFIG_ENGINE.devices[idx];
+        let now = crate::time::millis();
+        CONFIG_ENGINE.selected_device_idx = idx;
+        CONFIG_ENGINE.device_id = dev.address;
+        CONFIG_ENGINE.device_name = [0; 20];
+        let n_len = (dev.name_len as usize).min(20);
+        CONFIG_ENGINE.device_name[..n_len].copy_from_slice(&dev.name[..n_len]);
+        CONFIG_ENGINE.device_name_len = n_len as u8;
+        CONFIG_ENGINE.param_count = dev.param_count;
+        CONFIG_ENGINE.params_len = 0;
+        CONFIG_ENGINE.string_pool_len = 0;
+        CONFIG_ENGINE.current_chunk = 0;
+        CONFIG_ENGINE.expect_chunks_remain = 0xFF;
+        CONFIG_ENGINE.retry_count = 0;
+        CHUNK_LEN = 0;
+        CHUNK_PARAM_ID = 0;
+        CONFIG_ENGINE.last_req_ms = now;
+
+        if dev.param_count > 0 {
+            CONFIG_ENGINE.state = ElrsConfigState::LoadingParam(1);
+            let timeout: u32 = if CONFIG_ENGINE.device_id == protocol::CRSF_ADDRESS_CRSF_RECEIVER {
+                1000
+            } else {
+                500
+            };
+            CONFIG_ENGINE.last_req_ms = now;
+            CONFIG_ENGINE.next_req_ms = now.wrapping_add(timeout);
+            send_param_read(CONFIG_ENGINE.device_id, 1, 0);
+        } else {
+            CONFIG_ENGINE.state = ElrsConfigState::Ready;
+        }
+        true
+    }
+}
+
+/// Select a discovered device by its physical address (e.g. 0xEE for TX, 0xEC for RX).
+pub fn select_device_by_addr(addr: u8) -> bool {
+    unsafe {
+        for i in 0..CONFIG_ENGINE.devices_len {
+            if CONFIG_ENGINE.devices[i].address == addr {
+                return select_device(i);
+            }
+        }
+        false
+    }
+}
+
+/// Return from parameter view back to the Device Selection screen.
+pub fn return_to_device_list() {
+    unsafe {
+        let now = crate::time::millis();
+        CONFIG_ENGINE.state = ElrsConfigState::Discovering;
+        CONFIG_ENGINE.params_len = 0;
+        CONFIG_ENGINE.string_pool_len = 0;
+        CONFIG_ENGINE.current_chunk = 0;
+        CONFIG_ENGINE.expect_chunks_remain = 0xFF;
+        CHUNK_LEN = 0;
+        CHUNK_PARAM_ID = 0;
+        CONFIG_ENGINE.active_cmd = ActiveCommandState::Idle;
+        CONFIG_ENGINE.last_req_ms = now;
+        CONFIG_ENGINE.next_req_ms = now.wrapping_add(1000);
+        send_ping();
+    }
+}
+
+/// Set a specific value for a select parameter index and transmit write frame to module.
+pub fn set_param_value(param_idx: usize, value: u8) {
+    unsafe {
+        if param_idx < CONFIG_ENGINE.params_len {
+            let p = &mut CONFIG_ENGINE.params[param_idx];
+            if p.clean_type() == protocol::CRSF_TYPE_SELECT {
+                p.value = value.min(p.max_value);
+                send_param_write(CONFIG_ENGINE.device_id, p.id, p.value);
+            }
+        }
+    }
+}
+
+/// Query parameter indices belonging to a given folder ID (0 = root).
+/// Returns count of matching parameters.
+pub fn get_folder_params(folder_id: u8, out_indices: &mut [u8; MAX_FOLDER_ITEMS]) -> usize {
+    unsafe {
+        let mut count = 0;
+        for (idx, p) in CONFIG_ENGINE.params[..CONFIG_ENGINE.params_len].iter().enumerate() {
+            if p.parent == folder_id && !p.is_hidden() {
+                if count < MAX_FOLDER_ITEMS {
+                    out_indices[count] = idx as u8;
+                    count += 1;
+                }
+            }
+        }
+        count
+    }
+}
+
+/// Find parent folder ID of a given folder ID. Returns 0 if root or not found.
+pub fn get_parent_folder(folder_id: u8) -> u8 {
+    unsafe {
+        for p in &CONFIG_ENGINE.params[..CONFIG_ENGINE.params_len] {
+            if p.id == folder_id {
+                return p.parent;
+            }
+        }
+        0
+    }
+}
+
+/// Find display name of a folder by ID.
+pub fn get_folder_name<'a>(folder_id: u8, _buf: &'a mut [u8; 16]) -> &'a str {
+    unsafe {
+        for p in &CONFIG_ENGINE.params[..CONFIG_ENGINE.params_len] {
+            if p.id == folder_id {
+                return p.name(&CONFIG_ENGINE.string_pool);
+            }
+        }
+        "Folder"
     }
 }
 
@@ -626,8 +967,8 @@ mod tests {
         crc8, CRSF_ADDRESS_CRSF_TRANSMITTER,
         CRSF_ADDRESS_RADIO_TRANSMITTER, CRSF_FRAMETYPE_DEVICE_INFO,
         CRSF_FRAMETYPE_LINK_STATISTICS, CRSF_FRAMETYPE_PARAMETER_SETTINGS_ENTRY,
-        CRSF_TYPE_COMMAND, CRSF_TYPE_SELECT, STATUS_CONFIRMATION_NEEDED, STATUS_PROGRESS,
-        STATUS_READY, STATUS_START,
+        CRSF_SYNC_BYTE, CRSF_TYPE_COMMAND, CRSF_TYPE_SELECT, STATUS_CONFIRMATION_NEEDED,
+        STATUS_PROGRESS, STATUS_READY, STATUS_START,
     };
     use crate::time::set_millis;
 
@@ -639,13 +980,53 @@ mod tests {
             RX_BUF = [0; 64];
             RX_LEN = 0;
             LAST_RX_BYTE_MS = 0;
-            CHUNK_BUF = [0; 96];
+            CHUNK_BUF = [0; 320];
             CHUNK_LEN = 0;
             CHUNK_PARAM_ID = 0;
             CONFIG_ENGINE = ElrsConfigEngine::new();
             TELEMETRY = CrsfTelemetry::new();
             uart::mock::clear();
         }
+    }
+
+    unsafe fn add_test_param(
+        id: u8,
+        parent: u8,
+        param_type: u8,
+        name: &str,
+        value: u8,
+        max_val: u8,
+        options: &str,
+    ) -> usize {
+        let name_offset = CONFIG_ENGINE.string_pool_len as u16;
+        let n_bytes = name.as_bytes();
+        CONFIG_ENGINE.string_pool[CONFIG_ENGINE.string_pool_len..CONFIG_ENGINE.string_pool_len + n_bytes.len()]
+            .copy_from_slice(n_bytes);
+        CONFIG_ENGINE.string_pool_len += n_bytes.len();
+
+        let opt_offset = CONFIG_ENGINE.string_pool_len as u16;
+        let o_bytes = options.as_bytes();
+        if !o_bytes.is_empty() {
+            CONFIG_ENGINE.string_pool[CONFIG_ENGINE.string_pool_len..CONFIG_ENGINE.string_pool_len + o_bytes.len()]
+                .copy_from_slice(o_bytes);
+            CONFIG_ENGINE.string_pool_len += o_bytes.len();
+        }
+
+        let idx = CONFIG_ENGINE.params_len;
+        CONFIG_ENGINE.params[idx] = Parameter {
+            id,
+            parent,
+            param_type,
+            value,
+            max_value: max_val,
+            status: value,
+            name_offset,
+            name_len: n_bytes.len() as u8,
+            options_offset: opt_offset,
+            options_len: o_bytes.len() as u8,
+        };
+        CONFIG_ENGINE.params_len += 1;
+        idx
     }
 
     #[test]
@@ -717,7 +1098,7 @@ mod tests {
         // Verify Ping packet transmitted
         let tx = uart::mock::take_tx();
         assert_eq!(tx.len(), 1, "start_config must transmit ping packet");
-        assert_eq!(tx[0][0], CRSF_ADDRESS_CRSF_TRANSMITTER);
+        assert_eq!(tx[0][0], CRSF_SYNC_BYTE);
         assert_eq!(tx[0][2], protocol::CRSF_FRAMETYPE_DEVICE_PING);
 
         // 2. Feed Device Info response frame (0x29)
@@ -745,14 +1126,23 @@ mod tests {
         poll_telemetry(1100);
 
         let engine = get_config_engine();
+        assert_eq!(engine.devices_len, 1);
+        assert_eq!(engine.devices[0].address, CRSF_ADDRESS_CRSF_TRANSMITTER);
+        assert_eq!(&engine.devices[0].name[..9], b"ELRS 2.4G");
+        assert_eq!(engine.devices[0].param_count, 3);
+
+        // Pilot selects device 0 from TBS-Agent device list
+        assert!(select_device(0));
+
+        let engine = get_config_engine();
         assert_eq!(engine.device_id, CRSF_ADDRESS_CRSF_TRANSMITTER);
         assert_eq!(&engine.device_name[..9], b"ELRS 2.4G");
         assert_eq!(engine.param_count, 3);
         assert_eq!(engine.state, ElrsConfigState::LoadingParam(1));
 
-        // Handset must have transmitted Parameter Read for Param 1, Chunk 0
+        // Immediate query dispatch: Parameter Read for Param 1, Chunk 0 is sent immediately
         let tx = uart::mock::take_tx();
-        assert_eq!(tx.len(), 1, "Must request Param 1 Chunk 0 after Device Info");
+        assert_eq!(tx.len(), 1, "Must immediately request Param 1 Chunk 0 upon selection");
         assert_eq!(tx[0][2], protocol::CRSF_FRAMETYPE_PARAMETER_READ);
         assert_eq!(tx[0][5], 1, "Requested param_id must be 1");
         assert_eq!(tx[0][6], 0, "Requested chunk must be 0");
@@ -778,6 +1168,10 @@ mod tests {
 
         uart::mock::push_rx_bytes(&frame);
         poll_telemetry(1200);
+
+        let engine = get_config_engine();
+        assert_eq!(engine.devices_len, 1);
+        assert!(select_device(0));
 
         let engine = get_config_engine();
         assert_eq!(engine.state, ElrsConfigState::Ready, "0 parameters must transition directly to Ready");
@@ -828,17 +1222,19 @@ mod tests {
         assert_eq!(engine.params_len, 1);
         let p = &engine.params[0];
         assert_eq!(p.id, 1);
-        assert_eq!(p.param_type, CRSF_TYPE_SELECT);
-        assert_eq!(&p.name[..8], b"Pkt Rate");
+        assert_eq!(p.clean_type(), CRSF_TYPE_SELECT);
+        assert_eq!(p.name(&engine.string_pool), "Pkt Rate");
         assert_eq!(p.value, 2);
         assert_eq!(p.max_value, 3); // 4 options -> max_value = 3
-        let mut buf = [0u8; 16];
-        assert_eq!(p.current_option_str(&mut buf), "250Hz");
+        let mut buf = [0u8; 24];
+        assert_eq!(p.current_option_str(&engine.string_pool, &mut buf), "250Hz");
 
         // Advanced to loading Param 2
         assert_eq!(engine.state, ElrsConfigState::LoadingParam(2));
+
+        // Immediate query dispatch: request for Param 2 Chunk 0 sent immediately
         let tx = uart::mock::take_tx();
-        assert_eq!(tx.len(), 1, "Must request Param 2 Chunk 0");
+        assert_eq!(tx.len(), 1, "Must immediately request Param 2 Chunk 0");
         assert_eq!(tx[0][5], 2);
     }
 
@@ -874,9 +1270,9 @@ mod tests {
         assert_eq!(engine.current_chunk, 1, "Must advance to chunk 1");
         assert_eq!(engine.params_len, 0, "Parameter not parsed until final chunk");
 
-        // Verify request for Chunk 1 sent
+        // Immediate query dispatch: request for Chunk 1 sent immediately upon receiving Chunk 0
         let tx = uart::mock::take_tx();
-        assert_eq!(tx.len(), 1);
+        assert_eq!(tx.len(), 1, "Must immediately request Chunk 1");
         assert_eq!(tx[0][5], 1); // param_id 1
         assert_eq!(tx[0][6], 1); // chunk 1
 
@@ -900,11 +1296,11 @@ mod tests {
         let engine = get_config_engine();
         assert_eq!(engine.params_len, 1, "Reassembled parameter must be stored");
         let p = &engine.params[0];
-        assert_eq!(&p.name[..3], b"Pwr");
+        assert_eq!(p.name(&engine.string_pool), "Pwr");
         assert_eq!(p.value, 3);
         assert_eq!(p.max_value, 3); // 4 options total: 10mW, 25mW, 100mW, 250mW
-        let mut buf = [0u8; 16];
-        assert_eq!(p.current_option_str(&mut buf), "250mW");
+        let mut buf = [0u8; 24];
+        assert_eq!(p.current_option_str(&engine.string_pool, &mut buf), "250mW");
 
         // Since param_count was 1, state must transition to Ready
         assert_eq!(engine.state, ElrsConfigState::Ready);
@@ -919,21 +1315,7 @@ mod tests {
         unsafe {
             CONFIG_ENGINE.device_id = CRSF_ADDRESS_CRSF_TRANSMITTER;
             CONFIG_ENGINE.state = ElrsConfigState::Ready;
-            let mut name = [0u8; 16];
-            name[..4].copy_from_slice(b"Bind");
-            CONFIG_ENGINE.params[0] = Parameter {
-                id: 1,
-                parent: 0,
-                param_type: CRSF_TYPE_COMMAND,
-                name,
-                name_len: 4,
-                value: STATUS_READY,
-                max_value: 0,
-                options: [0; 48],
-                options_len: 0,
-                status: STATUS_READY,
-            };
-            CONFIG_ENGINE.params_len = 1;
+            add_test_param(1, 0, CRSF_TYPE_COMMAND, "Bind", STATUS_READY, 0, "");
         }
 
         // 1. Trigger command
@@ -1097,15 +1479,520 @@ mod tests {
         poll_telemetry(1000);
 
         let engine = get_config_engine();
+        assert_eq!(engine.devices_len, 1);
+        assert_eq!(engine.devices[0].address, 0xEE);
+        assert_eq!(&engine.devices[0].name[..6], b"RM RP2");
+        assert_eq!(engine.devices[0].param_count, 21);
+
+        assert!(select_device(0));
+        let engine = get_config_engine();
         assert_eq!(engine.device_id, 0xEE);
         assert_eq!(&engine.device_name[..6], b"RM RP2");
         assert_eq!(engine.param_count, 21);
         assert_eq!(engine.state, ElrsConfigState::LoadingParam(1));
 
-        // Handset must reply with Parameter Read for Param 1 Chunk 0 addressed to 0xEE:
-        // [0xEE, 0x06, 0x2C, 0xEE, 0xEA, 0x01, 0x00, 0x86]
+        // Immediate query dispatch: Parameter Read for Param 1 Chunk 0 is sent immediately upon selection
         let tx = uart::mock::take_tx();
-        assert_eq!(tx.len(), 1, "Must emit outbound parameter read for Param 1");
-        assert_eq!(tx[0], &[0xEE, 0x06, 0x2C, 0xEE, 0xEA, 0x01, 0x00, 0x86]);
+        assert_eq!(tx.len(), 1, "Must immediately emit outbound parameter read for Param 1");
+        assert_eq!(tx[0], &[0xC8, 0x06, 0x2C, 0xEE, 0xEA, 0x01, 0x00, 0x86]);
+    }
+
+    #[test]
+    fn test_param_immediate_query_dispatch() {
+        reset_state();
+        set_millis(1000);
+        start_config();
+        uart::mock::clear();
+
+        // Feed Device Info frame at t = 1000
+        let mut frame = [0u8; 32];
+        frame[0] = CRSF_ADDRESS_RADIO_TRANSMITTER;
+        frame[2] = CRSF_FRAMETYPE_DEVICE_INFO;
+        frame[3] = CRSF_ADDRESS_RADIO_TRANSMITTER;
+        frame[4] = CRSF_ADDRESS_CRSF_TRANSMITTER;
+        let name = b"TX\0";
+        frame[5..5 + name.len()].copy_from_slice(name);
+        let serial_pos = 5 + name.len();
+        let count_pos = serial_pos + 12;
+        frame[count_pos] = 2; // param_count = 2
+        frame[count_pos + 1] = 1;
+        let total = count_pos + 3;
+        frame[1] = (total - 2) as u8;
+        frame[total - 1] = crc8(&frame[2..total - 1]);
+
+        uart::mock::push_rx_bytes(&frame[..total]);
+        poll_telemetry(1000);
+
+        // Selecting device immediately dispatches request for Param 1 Chunk 0
+        assert!(select_device(0));
+        let tx = uart::mock::take_tx();
+        assert_eq!(tx.len(), 1, "Must immediately dispatch Param 1 Chunk 0 on select_device");
+        assert_eq!(tx[0][2], protocol::CRSF_FRAMETYPE_PARAMETER_READ);
+        assert_eq!(tx[0][5], 1); // param 1
+        assert_eq!(tx[0][6], 0); // chunk 0
+
+        // Now respond with Chunk 0 (chunks_remain = 1) at t = 1060
+        let mut chunk0 = [0u8; 24];
+        chunk0[0] = CRSF_ADDRESS_RADIO_TRANSMITTER;
+        chunk0[2] = CRSF_FRAMETYPE_PARAMETER_SETTINGS_ENTRY;
+        chunk0[3] = CRSF_ADDRESS_RADIO_TRANSMITTER;
+        chunk0[4] = CRSF_ADDRESS_CRSF_TRANSMITTER;
+        chunk0[5] = 1; // param 1
+        chunk0[6] = 1; // chunks_remain = 1
+        chunk0[7] = 0; // parent
+        chunk0[8] = CRSF_TYPE_SELECT;
+        chunk0[9..14].copy_from_slice(b"Test\0");
+        chunk0[1] = (chunk0.len() - 2) as u8;
+        chunk0[chunk0.len() - 1] = crc8(&chunk0[2..chunk0.len() - 1]);
+
+        uart::mock::push_rx_bytes(&chunk0);
+        poll_telemetry(1060);
+
+        // Immediate query dispatch: Chunk 1 request sent immediately upon receiving Chunk 0!
+        let tx2 = uart::mock::take_tx();
+        assert_eq!(tx2.len(), 1, "Must immediately request Chunk 1 without pacing delay");
+        assert_eq!(tx2[0][5], 1);
+        assert_eq!(tx2[0][6], 1);
+    }
+
+    #[test]
+    fn test_duplicate_chunk_discard() {
+        reset_state();
+        unsafe {
+            CONFIG_ENGINE.device_id = CRSF_ADDRESS_CRSF_TRANSMITTER;
+            CONFIG_ENGINE.param_count = 1;
+            CONFIG_ENGINE.state = ElrsConfigState::LoadingParam(1);
+        }
+
+        // Chunk 0: chunks_remain = 2
+        let mut chunk0 = [0u8; 20];
+        chunk0[0] = CRSF_ADDRESS_RADIO_TRANSMITTER;
+        chunk0[2] = CRSF_FRAMETYPE_PARAMETER_SETTINGS_ENTRY;
+        chunk0[3] = CRSF_ADDRESS_RADIO_TRANSMITTER;
+        chunk0[4] = CRSF_ADDRESS_CRSF_TRANSMITTER;
+        chunk0[5] = 1; // param 1
+        chunk0[6] = 2; // chunks_remain = 2
+        chunk0[7..12].copy_from_slice(b"Hello");
+        chunk0[1] = (chunk0.len() - 2) as u8;
+        chunk0[chunk0.len() - 1] = crc8(&chunk0[2..chunk0.len() - 1]);
+
+        uart::mock::push_rx_bytes(&chunk0);
+        poll_telemetry(2000);
+
+        let engine = get_config_engine();
+        assert_eq!(engine.current_chunk, 1);
+        assert_eq!(engine.expect_chunks_remain, 1);
+        unsafe {
+            assert_eq!(CHUNK_LEN, 12); // 12 payload bytes
+        }
+
+        // Duplicate or stale chunk arrived with chunks_remain = 2 (expected 1)
+        uart::mock::push_rx_bytes(&chunk0);
+        poll_telemetry(2010);
+
+        // Verify accumulator was NOT corrupted by duplicate chunk
+        let engine = get_config_engine();
+        assert_eq!(engine.current_chunk, 1, "Must not advance chunk on duplicate");
+        assert_eq!(engine.expect_chunks_remain, 1);
+        unsafe {
+            assert_eq!(CHUNK_LEN, 12, "Accumulator length must remain untouched");
+        }
+    }
+
+    #[test]
+    fn test_param_timeout_retry_and_recovery() {
+        reset_state();
+        unsafe {
+            CONFIG_ENGINE.device_id = CRSF_ADDRESS_CRSF_TRANSMITTER; // 500ms timeout
+            CONFIG_ENGINE.param_count = 2;
+            CONFIG_ENGINE.state = ElrsConfigState::LoadingParam(1);
+            CONFIG_ENGINE.next_req_ms = 1000;
+        }
+
+        // First attempt at t = 1000
+        poll_telemetry(1000);
+        let tx = uart::mock::take_tx();
+        assert_eq!(tx.len(), 1, "Attempt 1 sent");
+        assert_eq!(tx[0][5], 1); // Param 1
+
+        let engine = get_config_engine();
+        assert_eq!(engine.retry_count, 1);
+
+        // Advance to t = 1499: no retry yet (< 500ms timeout)
+        poll_telemetry(1499);
+        assert_eq!(uart::mock::take_tx().len(), 0);
+
+        // t = 1500: Retry 1
+        poll_telemetry(1500);
+        let tx = uart::mock::take_tx();
+        assert_eq!(tx.len(), 1, "Retry 1 sent");
+        let engine = get_config_engine();
+        assert_eq!(engine.retry_count, 2);
+
+        // t = 2000: Retry 2
+        poll_telemetry(2000);
+        assert_eq!(uart::mock::take_tx().len(), 1, "Retry 2 sent");
+        let engine = get_config_engine();
+        assert_eq!(engine.retry_count, 3);
+
+        // t = 2500: Retry 3
+        poll_telemetry(2500);
+        assert_eq!(uart::mock::take_tx().len(), 1, "Retry 3 sent");
+        let engine = get_config_engine();
+        assert_eq!(engine.retry_count, 4);
+
+        // t = 3000: Retries exhausted! Must safely advance to Param 2 immediately
+        poll_telemetry(3000);
+        let tx = uart::mock::take_tx();
+        assert_eq!(tx.len(), 1, "Immediate request for Param 2 Chunk 0 sent upon skipping");
+        assert_eq!(tx[0][5], 2, "Requested Param 2");
+        assert_eq!(tx[0][6], 0, "Chunk 0");
+        let engine = get_config_engine();
+        assert_eq!(engine.state, ElrsConfigState::LoadingParam(2), "Advanced to Param 2");
+        assert_eq!(engine.retry_count, 0, "Retry count reset for next param");
+    }
+
+    #[test]
+    fn test_discovery_ping_interval_1000ms() {
+        reset_state();
+        set_millis(1000);
+        start_config();
+
+        // Initial ping sent by start_config()
+        let tx = uart::mock::take_tx();
+        assert_eq!(tx.len(), 1, "Initial ping sent");
+
+        // Polling before 1000ms elapsed must NOT send additional pings
+        poll_telemetry(1100);
+        poll_telemetry(1500);
+        poll_telemetry(1999);
+        assert_eq!(uart::mock::take_tx().len(), 0, "No ping before 1000ms interval");
+
+        // At t = 2000 (>= 1000ms), second ping is sent
+        poll_telemetry(2000);
+        let tx2 = uart::mock::take_tx();
+        assert_eq!(tx2.len(), 1, "Second ping sent at t = 2000");
+    }
+
+    #[test]
+    fn test_remote_receiver_device_info_ignored_and_param_chunk_progression() {
+        reset_state();
+        set_millis(1000);
+        start_config();
+        uart::mock::clear();
+
+        // 1. Module (RM RP2, 0xEE, 21 params) replies to ping with Device Info
+        let rp2_info: [u8; 27] = [
+            0xC8, 0x19, 0x29, 0xEA, 0xEE, 0x52, 0x4D, 0x20, 0x52, 0x50, 0x32, 0x00,
+            0x45, 0x4C, 0x52, 0x53, 0x00, 0x00, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00,
+            0x15, 0x00, 0x0D,
+        ];
+        uart::mock::push_rx_bytes(&rp2_info);
+        poll_telemetry(1000);
+        assert!(select_device(0));
+
+        let engine = get_config_engine();
+        assert_eq!(engine.device_id, 0xEE);
+        assert_eq!(&engine.device_name[..6], b"RM RP2");
+        assert_eq!(engine.param_count, 21);
+        assert_eq!(engine.state, ElrsConfigState::LoadingParam(1));
+
+        // 2. Remote receiver (RM RP4TD-M, 0xEC, 11 params) broadcasts Device Info over the air
+        let rp4td_info: [u8; 36] = [
+            0xC8, 0x22, 0x29, 0xEA, 0xEC, 0x52, 0x4D, 0x20, 0x52, 0x50, 0x34, 0x54,
+            0x44, 0x2D, 0x4D, 0x20, 0x32, 0x34, 0x30, 0x30, 0x00, 0x45, 0x4C, 0x52,
+            0x53, 0x00, 0x00, 0x00, 0x00, 0x00, 0x04, 0x00, 0x80, 0x0B, 0x00, 0x76,
+        ];
+        uart::mock::push_rx_bytes(&rp4td_info);
+        poll_telemetry(1020);
+
+        // Handset must NOT be hijacked by remote receiver 0xEC:
+        let engine = get_config_engine();
+        assert_eq!(engine.device_id, 0xEE, "device_id must remain 0xEE");
+        assert_eq!(&engine.device_name[..6], b"RM RP2", "device_name must remain RM RP2");
+        assert_eq!(engine.param_count, 21, "param_count must remain 21, not overwritten to 11");
+
+        // 3. At t = 1040 (40ms pacing delay), request Param 1 Chunk 0 is sent to 0xEE
+        poll_telemetry(1040);
+        let tx = uart::mock::take_tx();
+        assert_eq!(tx.len(), 1);
+        assert_eq!(tx[0][0], CRSF_SYNC_BYTE, "Wire sync byte must be 0xC8");
+        assert_eq!(tx[0][3], 0xEE, "Dest payload byte must be 0xEE");
+        assert_eq!(tx[0][5], 1, "Param 1");
+        assert_eq!(tx[0][6], 0, "Chunk 0");
+
+        // 4. Feed real capture Chunk 0 of Param 1 ("Packet Rate") from 0xEE (chunks_remain = 3)
+        let rp2_param1_chunk0: [u8; 64] = [
+            0xC8, 0x3E, 0x2B, 0xEA, 0xEE, 0x01, 0x03, 0x00, 0x09, 0x50, 0x61, 0x63,
+            0x6B, 0x65, 0x74, 0x20, 0x52, 0x61, 0x74, 0x65, 0x00, 0x35, 0x30, 0x48,
+            0x7A, 0x28, 0x2D, 0x31, 0x31, 0x35, 0x64, 0x42, 0x6D, 0x29, 0x3B, 0x31,
+            0x30, 0x30, 0x48, 0x7A, 0x20, 0x46, 0x75, 0x6C, 0x6C, 0x28, 0x2D, 0x31,
+            0x31, 0x32, 0x64, 0x42, 0x6D, 0x29, 0x3B, 0x31, 0x35, 0x30, 0x48, 0x7A,
+            0x28, 0x2D, 0x31, 0x8A,
+        ];
+        uart::mock::push_rx_bytes(&rp2_param1_chunk0);
+        poll_telemetry(1050);
+
+        let engine = get_config_engine();
+        assert_eq!(engine.current_chunk, 1, "Must advance to Chunk 1");
+        assert_eq!(engine.expect_chunks_remain, 2, "Must expect chunks_remain = 2 next");
+        unsafe {
+            assert_eq!(CHUNK_LEN, 56, "56 bytes accumulated from Chunk 0");
+        }
+
+        // 5. At t = 1090 (1050 + 40ms pacing delay), request Chunk 1 addressed to 0xEE!
+        poll_telemetry(1090);
+        let tx2 = uart::mock::take_tx();
+        assert_eq!(tx2.len(), 1);
+        assert_eq!(tx2[0][0], CRSF_SYNC_BYTE, "Wire sync byte must be 0xC8");
+        assert_eq!(tx2[0][3], 0xEE, "Dest payload byte must be 0xEE");
+        assert_eq!(tx2[0][5], 1, "Param 1");
+        assert_eq!(tx2[0][6], 1, "Chunk 1");
+    }
+
+    #[test]
+    fn test_multi_device_discovery_and_selection() {
+        reset_state();
+        set_millis(1000);
+        start_config();
+        uart::mock::clear();
+
+        // 1. Device 1 responds: TX module (RM RP2, 0xEE, 21 params)
+        let rp2_info: [u8; 27] = [
+            0xC8, 0x19, 0x29, 0xEA, 0xEE, 0x52, 0x4D, 0x20, 0x52, 0x50, 0x32, 0x00,
+            0x45, 0x4C, 0x52, 0x53, 0x00, 0x00, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00,
+            0x15, 0x00, 0x0D,
+        ];
+        uart::mock::push_rx_bytes(&rp2_info);
+        poll_telemetry(1010);
+
+        // 2. Device 2 responds: RX module (RM RP4TD-M 2400, 0xEC, 11 params)
+        let rp4td_info: [u8; 36] = [
+            0xC8, 0x22, 0x29, 0xEA, 0xEC, 0x52, 0x4D, 0x20, 0x52, 0x50, 0x34, 0x54,
+            0x44, 0x2D, 0x4D, 0x20, 0x32, 0x34, 0x30, 0x30, 0x00, 0x45, 0x4C, 0x52,
+            0x53, 0x00, 0x00, 0x00, 0x00, 0x00, 0x04, 0x00, 0x80, 0x0B, 0x00, 0x76,
+        ];
+        uart::mock::push_rx_bytes(&rp4td_info);
+        poll_telemetry(1020);
+
+        // 3. Repeat ping response from TX (deduplication check)
+        uart::mock::push_rx_bytes(&rp2_info);
+        poll_telemetry(1030);
+
+        let engine = get_config_engine();
+        assert_eq!(engine.state, ElrsConfigState::Discovering);
+        assert_eq!(engine.devices_len, 2, "Must deduplicate and register exactly 2 devices");
+        assert_eq!(engine.devices[0].address, 0xEE);
+        assert_eq!(&engine.devices[0].name[..6], b"RM RP2");
+        assert_eq!(engine.devices[0].param_count, 21);
+        assert_eq!(engine.devices[1].address, 0xEC);
+        assert_eq!(&engine.devices[1].name[..10], b"RM RP4TD-M");
+        assert_eq!(engine.devices[1].param_count, 11);
+
+        // 4. Select the over-the-air Receiver (Device 1)
+        assert!(select_device(1));
+
+        let engine = get_config_engine();
+        assert_eq!(engine.device_id, 0xEC, "Device ID must switch to 0xEC for receiver");
+        assert_eq!(engine.param_count, 11);
+        assert_eq!(engine.state, ElrsConfigState::LoadingParam(1));
+
+        // Pacing delay: verify request for receiver param 1 chunk 0 sent after 40ms
+        poll_telemetry(1070);
+        let tx = uart::mock::take_tx();
+        assert_eq!(tx.len(), 1);
+        assert_eq!(tx[0][0], CRSF_SYNC_BYTE, "Wire sync byte must be 0xC8 per TBS CRSF spec");
+        assert_eq!(tx[0][3], 0xEC, "Outbound payload dest must be 0xEC");
+        assert_eq!(tx[0][5], 1); // Param 1
+        assert_eq!(tx[0][6], 0); // Chunk 0
+
+        // 5. Test return to device list
+        return_to_device_list();
+        let engine = get_config_engine();
+        assert_eq!(engine.state, ElrsConfigState::Discovering);
+        assert_eq!(engine.devices_len, 2, "Discovered devices must persist when returning to list");
+    }
+
+    #[test]
+    fn test_folder_hierarchy_and_filtering() {
+        reset_state();
+        unsafe {
+            add_test_param(1, 0, protocol::CRSF_TYPE_SELECT, "Packet Rate", 0, 3, "");
+            add_test_param(2, 0, protocol::CRSF_TYPE_FOLDER, "VTX Admin", 0, 0, "");
+            add_test_param(3, 2, protocol::CRSF_TYPE_SELECT, "Band", 1, 4, "");
+            add_test_param(4, 2, protocol::CRSF_TYPE_SELECT, "Channel", 2, 7, "");
+        }
+
+        let mut indices = [0u8; MAX_FOLDER_ITEMS];
+
+        // Root folder (0): must contain Param 1 and Param 2 (count = 2)
+        let root_count = get_folder_params(0, &mut indices);
+        assert_eq!(root_count, 2);
+        assert_eq!(indices[0], 0); // Param 1 index
+        assert_eq!(indices[1], 1); // Param 2 index
+
+        // VTX Admin folder (2): must contain Param 3 and Param 4 (count = 2)
+        let vtx_count = get_folder_params(2, &mut indices);
+        assert_eq!(vtx_count, 2);
+        assert_eq!(indices[0], 2); // Param 3 index
+        assert_eq!(indices[1], 3); // Param 4 index
+
+        // Parent lookup: parent of VTX Admin (2) must be 0
+        assert_eq!(get_parent_folder(2), 0);
+        // Parent of Band (3) must be 2
+        assert_eq!(get_parent_folder(3), 2);
+
+        // Name lookup
+        let mut name_buf = [0u8; 16];
+        let fname = get_folder_name(2, &mut name_buf);
+        assert_eq!(fname, "VTX Admin");
+    }
+
+    #[test]
+    fn test_in_place_editing_and_set_param_value() {
+        reset_state();
+        unsafe {
+            CONFIG_ENGINE.device_id = CRSF_ADDRESS_CRSF_TRANSMITTER;
+            add_test_param(1, 0, protocol::CRSF_TYPE_SELECT, "Power", 0, 3, "10mW;25mW;100mW;250mW");
+        }
+
+        let engine = get_config_engine();
+        let p = &engine.params[0];
+        let mut buf = [0u8; 24];
+        assert_eq!(p.current_option_str(&engine.string_pool, &mut buf), "10mW");
+        assert_eq!(p.option_str_for_val(&engine.string_pool, 1, &mut buf), "25mW");
+        assert_eq!(p.option_str_for_val(&engine.string_pool, 2, &mut buf), "100mW");
+        assert_eq!(p.option_str_for_val(&engine.string_pool, 3, &mut buf), "250mW");
+
+        // Simulate committing tentative edit value = 2 (100mW)
+        uart::mock::clear();
+        set_param_value(0, 2);
+
+        // Param value updated locally
+        let p_updated = &get_config_engine().params[0];
+        assert_eq!(p_updated.value, 2);
+        assert_eq!(p_updated.current_option_str(&get_config_engine().string_pool, &mut buf), "100mW");
+
+        // Param Write frame (0x2D) transmitted
+        let tx = uart::mock::take_tx();
+        assert_eq!(tx.len(), 1, "Must transmit 0x2D Param Write");
+        assert_eq!(tx[0][0], CRSF_SYNC_BYTE);
+        assert_eq!(tx[0][2], protocol::CRSF_FRAMETYPE_PARAMETER_WRITE);
+        assert_eq!(tx[0][5], 1, "Param ID 1");
+        assert_eq!(tx[0][6], 2, "New value = 2");
+    }
+
+    #[test]
+    fn test_parameter_hidden_flag_filtering() {
+        reset_state();
+        unsafe {
+            // Visible parameter: Model Match (id 1, parent 0, type 0x09)
+            add_test_param(1, 0, protocol::CRSF_TYPE_SELECT, "Model Match", 0, 1, "Off;On");
+            // Hidden parameter: Internal UID (id 2, parent 0, type 0x89 -> 0x09 with bit 7 set)
+            add_test_param(2, 0, protocol::CRSF_TYPE_SELECT | 0x80, "UID", 0, 0, "");
+            // Visible parameter: Output Map (id 3, parent 0, type 0x0B)
+            add_test_param(3, 0, protocol::CRSF_TYPE_FOLDER, "Output Map", 0, 0, "");
+        }
+
+        let engine = get_config_engine();
+        assert_eq!(engine.params_len, 3);
+        assert!(!engine.params[0].is_hidden());
+        assert!(engine.params[1].is_hidden(), "Param 2 must have is_hidden() == true");
+        assert_eq!(engine.params[1].clean_type(), protocol::CRSF_TYPE_SELECT);
+        assert!(!engine.params[2].is_hidden());
+
+        // Querying root folder (0) must filter out the hidden parameter (UID)
+        let mut indices = [0u8; MAX_FOLDER_ITEMS];
+        let count = get_folder_params(0, &mut indices);
+        assert_eq!(count, 2, "Hidden parameter must be excluded from folder items");
+        assert_eq!(indices[0], 0); // Model Match
+        assert_eq!(indices[1], 2); // Output Map (skipped index 1 UID)
+    }
+
+    #[test]
+    fn test_unified_255_parameter_pool_and_capacity() {
+        reset_state();
+        unsafe {
+            for i in 1..=255 {
+                let id = i as u8;
+                let opt = if id % 2 == 0 { "Low;Med;High" } else { "" };
+                add_test_param(id, 0, protocol::CRSF_TYPE_SELECT, "Param", 1, 2, opt);
+            }
+        }
+
+        let engine = get_config_engine();
+        assert_eq!(engine.params_len, 255, "Must successfully allocate all 255 parameters");
+        assert_eq!(engine.params[0].id, 1);
+        assert_eq!(engine.params[254].id, 255);
+
+        let mut buf = [0u8; 24];
+        assert_eq!(engine.params[0].name(&engine.string_pool), "Param");
+        // Param 2 (even) has options
+        assert_eq!(engine.params[1].current_option_str(&engine.string_pool, &mut buf), "Med");
+        assert_eq!(engine.params[1].option_str_for_val(&engine.string_pool, 2, &mut buf), "High");
+    }
+
+    #[test]
+    fn test_device_role_strings() {
+        assert_eq!(protocol::device_role_str(CRSF_ADDRESS_CRSF_TRANSMITTER), "TX");
+        assert_eq!(protocol::device_role_str(protocol::CRSF_ADDRESS_CRSF_RECEIVER), "RX");
+        assert_eq!(protocol::device_role_str(protocol::CRSF_ADDRESS_FLIGHT_CONTROLLER), "FC");
+        assert_eq!(protocol::device_role_str(0x55), "DEV");
+    }
+
+    #[test]
+    fn test_device_disconnect_auto_pruning() {
+        reset_state();
+        set_millis(1000);
+        start_config();
+
+        let tx_info: [u8; 27] = [
+            0xC8, 0x19, 0x29, 0xEA, 0xEE, 0x52, 0x4D, 0x20, 0x52, 0x50, 0x32, 0x00,
+            0x45, 0x4C, 0x52, 0x53, 0x00, 0x00, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00,
+            0x15, 0x00, 0x0D,
+        ];
+        let rx_info: [u8; 36] = [
+            0xC8, 0x22, 0x29, 0xEA, 0xEC, 0x52, 0x4D, 0x20, 0x52, 0x50, 0x34, 0x54,
+            0x44, 0x2D, 0x4D, 0x20, 0x32, 0x34, 0x30, 0x30, 0x00, 0x45, 0x4C, 0x52,
+            0x53, 0x00, 0x00, 0x00, 0x00, 0x00, 0x04, 0x00, 0x80, 0x0B, 0x00, 0x76,
+        ];
+
+        // Discover both devices at t = 1000
+        uart::mock::push_rx_bytes(&tx_info);
+        uart::mock::push_rx_bytes(&rx_info);
+        poll_telemetry(1000);
+
+        let engine = get_config_engine();
+        assert_eq!(engine.devices_len, 2);
+        assert_eq!(engine.devices[0].address, 0xEE);
+        assert_eq!(engine.devices[1].address, 0xEC);
+
+        // At t = 2000, TX responds, RX is silent
+        uart::mock::push_rx_bytes(&tx_info);
+        poll_telemetry(2000);
+        assert_eq!(get_config_engine().devices_len, 2);
+
+        // At t = 3000, TX responds, RX is silent
+        uart::mock::push_rx_bytes(&tx_info);
+        poll_telemetry(3000);
+        assert_eq!(get_config_engine().devices_len, 2);
+
+        // At t = 4000, TX responds, RX is silent (RX not seen for 3000ms: 4000 - 1000 = 3000)
+        uart::mock::push_rx_bytes(&tx_info);
+        poll_telemetry(4000);
+        assert_eq!(get_config_engine().devices_len, 2);
+
+        // At t = 5000 (> 3000ms since last seen at t = 1000), ping check prunes RX (0xEC)
+        poll_telemetry(5000);
+        let engine = get_config_engine();
+        assert_eq!(engine.devices_len, 1, "RX must be auto-pruned after >3000ms without response");
+        assert_eq!(engine.devices[0].address, 0xEE, "Remaining device must be TX module");
+
+        // Reconnect RX at t = 6000
+        uart::mock::push_rx_bytes(&rx_info);
+        poll_telemetry(6000);
+        let engine = get_config_engine();
+        assert_eq!(engine.devices_len, 2, "RX re-added seamlessly upon reconnection");
     }
 }
+

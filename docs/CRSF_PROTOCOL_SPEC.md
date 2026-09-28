@@ -26,15 +26,23 @@ All serial communication over USART2 (`PD5` TX / `PA15` RX) adheres strictly to 
 | **`Payload`**   | Variable | Payload data specific to the frame type (`Frame Len - 2` bytes). |
 | **`CRC8`**      | 1 byte | CRC-8 DVB-S2 checksum over `[Frame Type]` and `[Payload]`. |
 
-### Device Addresses
+### Device Addresses & Frame Sync
 
 | Identifier | Value | Description |
 | :--- | :---: | :--- |
+| `CRSF_SYNC_BYTE` | `0xC8` | Serial frame sync byte for telemetry and response frames from module to handset (at `frame[0]`) |
 | `CRSF_ADDRESS_BROADCAST` | `0x00` | Universal broadcast target address |
 | `CRSF_ADDRESS_RADIO_TRANSMITTER` | `0xEA` | Handset / Radio Transmitter (FS-i6X) |
 | `CRSF_ADDRESS_CRSF_TRANSMITTER` | `0xEE` | External RF transmitter module (ExpressLRS / TBS Crossfire) |
 | `CRSF_ADDRESS_CRSF_RECEIVER` | `0xEC` | Over-the-air RC receiver |
 | `CRSF_ADDRESS_FLIGHT_CONTROLLER` | `0xC8` | Flight controller (Betaflight / INAV) |
+
+> [!NOTE]
+> **Distinguishing `CRSF_SYNC_BYTE` vs `CRSF_ADDRESS_FLIGHT_CONTROLLER` (`0xC8`)**:
+> Although both share the value `0xC8`, they are indexed and interpreted differently within a packet:
+> - **Wire Byte 0 (`frame[0]`)**: Operates as the physical frame delimiter / sync header (`CRSF_SYNC_BYTE`) for all telemetry and extended response frames arriving from the external module over USART2 RX.
+> - **Extended Frame Headers (`frame[3]` / `payload[0]` and `frame[4]` / `payload[1]`)**: In extended frames (`0x28`, `0x29`, `0x2B`, `0x2C`, `0x2D`), `frame[3]` is the Destination Address and `frame[4]` is the Origin Address. A packet from or to a flight controller contains `0xC8` (`CRSF_ADDRESS_FLIGHT_CONTROLLER`) at `frame[4]` or `frame[3]`, whereas local module frames arrive with `frame[4] = 0xEE` and receiver frames with `frame[4] = 0xEC`, all starting with `frame[0] = 0xC8`.
+> - **Standard Telemetry Frames (`0x14`, `0x08`, `0x02`, `0x0B`)**: Start with `frame[0] = 0xC8` (`CRSF_SYNC_BYTE`), followed by length (`frame[1]`), type (`frame[2]`), and sensor payload directly at `frame[3..]` without destination or origin addresses.
 
 ### Checksum Calculation (`CRC8-DVB`)
 - **Polynomial**: `0xD5` ($x^8 + x^7 + x^6 + x^4 + x^2 + 1$)
@@ -63,78 +71,75 @@ To eliminate data loss and guarantee high-speed stability:
 3. **High NVIC Priority (`0x40`)**: IRQ 28 is unmasked with priority `0x40` (higher than TIM16/EXTI at `0x80` and USB at `0xC0`), guaranteeing preemption of any blocking loop tasks.
 4. **Hardware ORE Auto-Recovery**: The ISR inspects and clears `USART_ISR_ORE` on every entry.
 5. **Inter-Byte Silence Resynchronization**: If an electrical glitch or wire disconnect interrupts a packet mid-frame, `poll_telemetry()` tracks `LAST_RX_BYTE_MS`. If $\ge 3\text{ ms}$ elapses with an incomplete frame, `RX_LEN` automatically resets to 0 to resynchronize for the next frame.
-6. **Dynamic Wire Routing**: Extended parameter frames dynamically route byte 0 (`out_frame[0] = target;`) to match the target device (`0xEE` transmitter, `0xEC` receiver, or `0xC8` flight controller), and the handset accepts incoming frames starting with `CRSF_ADDRESS_CRSF_RECEIVER` (`0xEC`).
+6. **TBS-Compliant Wire Framing**: All serial frames emitted by the handset start with `CRSF_SYNC_BYTE` (`0xC8`) on the wire per the TBS CRSF specification. In extended frames (`0x28`, `0x2C`, `0x2D`), byte 3 contains the target device address (`0xEE` transmitter, `0xEC` receiver, or `0xC8` flight controller), and byte 4 contains the handset origin address (`0xEA`).
 
 ---
 
 ## 2. Configuration State Machine Lifecycle
 
-The bare-metal configurator engine transitions through five states without dynamic heap allocation:
+The bare-metal configurator engine transitions through states without dynamic heap allocation, supporting TBS-Agent style multi-device auto-discovery, subfolder navigation, and modal option editing:
 
 ```mermaid
 stateDiagram-v2
     [*] --> Idle
     Idle --> Discovering : start_config() / Enter Menu
-    Discovering --> LoadingParam : Recv 0x29 (Device Info)
+    Discovering --> Discovering : Broadcast Ping (1Hz) / Recv 0x29 (Register Device)
+    Discovering --> LoadingParam : select_device(idx) [OK]
     LoadingParam --> LoadingParam : Recv 0x2B (Next param_id or chunk)
     LoadingParam --> Ready : All parameters loaded
-    Ready --> Ready : cycle_param() / trigger_command()
+    Ready --> Ready : Drill folder / Modal Edit / [ESC] Up
+    Ready --> Discovering : return_to_device_list() ([ESC] at root)
 ```
 
 ---
 
 ## 3. Step-by-Step Handshake Walkthrough
 
-### Step 1: Module Discovery (`0x28` Device Ping)
+### Step 1: Bus Discovery (`0x28` Broadcast Ping)
 
 When entering `9. Protocol Setup` -> `[Configure Module]`, `crsf::start_config()` is called:
 
-1. **Engine State**: Transitions to `ElrsConfigState::Discovering`.
+1. **Engine State**: Transitions to `ElrsConfigState::Discovering`, resetting `devices_len = 0`.
 2. **Packet Built on Wire (`build_ping_frame`)**:
    ```text
-   Byte 0: 0xEE  (Dest: External TX Module)
+   Byte 0: 0xC8  (Sync: CRSF_SYNC_BYTE per TBS spec)
    Byte 1: 0x04  (Len: 4 bytes follow)
    Byte 2: 0x28  (Type: CRSF_FRAMETYPE_DEVICE_PING)
    Byte 3: 0x00  (Payload[0]: Target = Broadcast)
    Byte 4: 0xEA  (Payload[1]: Origin = Radio Transmitter)
-   Byte 5: CRC   (crc8 over [0x28, 0x00, 0xEA] -> 0x8C)
+   Byte 5: CRC   (crc8 over [0x28, 0x00, 0xEA] -> 0x54)
    ```
    **Total Size**: 6 bytes.
-3. **Transmission & Retry**: Transmitted over USART2. If no response arrives, `elrs_tick()` re-transmits every **300 ms**.
+3. **Multi-Device Registration & Dynamic Pruning**: All online devices responding with `0x29 Device Info` (local transmitter module `0xEE`, remote receiver `0xEC`, flight controller `0xC8`) are deduplicated and registered into `CONFIG_ENGINE.devices` (up to 4 devices). Devices that stop responding to 1 Hz pings for > 3000 ms (3 missed pings) are automatically pruned from the active list.
+4. **Pacing**: `elrs_tick()` re-broadcasts the discovery ping every **1000 ms** (1 Hz), ensuring newly bound receivers or powered devices are discovered or pruned dynamically.
 
 ---
 
-### Step 2: Module Response (`0x29` Device Info)
+### Step 2: Device Selection (TBS-Agent Style Picker)
 
-The external module responds with frame type `0x29` addressed to `0xEA`:
-
-```text
-[0xEA] [Len] [0x29] [0xEA] [0xEE] [Device Name\0] [Serial: 4B] [HW ID: 4B] [FW ID: 4B] [Param Count: 1B] [Param Ver: 1B] [CRC]
-```
-
-#### Parsing Breakdown in `handle_device_info_frame`:
-1. `payload[0]` (`0xEA`): Destination match confirmation.
-2. `payload[1]` (`0xEE`): Module physical address &rarr; cached as `CONFIG_ENGINE.device_id`.
-3. `payload[2..]`: Reads null-terminated ASCII string &rarr; copied to `CONFIG_ENGINE.device_name` (e.g. `"ExpressLRS 2.4G"`).
-4. **Parameter Count Offset Math**:
-   ```text
-   param_count_offset = offset_after_null + 4 (Serial) + 4 (Hardware ID) + 4 (Firmware ID);
-   param_count = payload[param_count_offset];
-   ```
-5. **State Transition**: Sets `CONFIG_ENGINE.param_count`. Transitions immediately to `ElrsConfigState::LoadingParam(1)` and requests Parameter 1.
+Instead of hardcoding or locking onto the local TX module, the handset renders a **Device Selection Screen** (`CRSF DEVICES`):
+- Lists all discovered devices with their physical role tags: `[TX]`, `[RX]`, `[FC]`.
+- Pilot navigates with `[UP]` / `[DOWN]`.
+- Pressing `[OK]` calls `crsf::select_device(idx)`:
+  - Sets `CONFIG_ENGINE.device_id` to the target address (`0xEE` or `0xEC`).
+  - Sets `CONFIG_ENGINE.param_count` from the device's announcement.
+  - Transitions to `ElrsConfigState::LoadingParam(1)`.
+  - Dispatches `0x2C Parameter Read` for Param 1 Chunk 0 immediately.
+- While configuring, broadcasts from other bus devices are safely ignored.
+- Pressing `[ESC]` from root parameter view calls `crsf::return_to_device_list()`, returning smoothly to the device picker.
 
 ---
 
 ### Step 3: Parameter Tree Loading (`0x2C` Read & `0x2B` Entry)
 
-Parameters are loaded sequentially from ID `1` up to `param_count` (cached up to `MAX_PARAMS = 16` to respect Cortex-M0 SRAM):
+Parameters are loaded sequentially from ID `1` up to `param_count` (cached up to `MAX_PARAMS = 24` to respect Cortex-M0 SRAM):
 
 #### A. Request Frame (`0x2C` Parameter Read)
 ```text
-Byte 0: 0xEE         (Dest: Module)
+Byte 0: 0xC8         (Sync: CRSF_SYNC_BYTE per TBS spec)
 Byte 1: 0x06         (Len: 6)
 Byte 2: 0x2C         (Type: CRSF_FRAMETYPE_PARAMETER_READ)
-Byte 3: 0xEE         (Dest)
+Byte 3: [Target]     (Dest: 0xEE for TX, 0xEC for RX, 0xC8 for FC)
 Byte 4: 0xEA         (Orig: Handset)
 Byte 5: [Param ID]   (Parameter index: 1..N)
 Byte 6: [Chunk]      (Chunk index: 0 for start of param)
@@ -144,29 +149,52 @@ Byte 7: CRC          (crc8 over bytes 2..6)
 
 #### B. Response Frame (`0x2B` Parameter Settings Entry)
 ```text
-[0xEA] [Len] [0x2B] [0xEA] [0xEE] [Param ID] [Chunks Remain] [Chunk Payload...] [CRC]
+[0xC8 (Sync)] [Len] [0x2B] [0xEA] [Orig] [Param ID] [Chunks Remain] [Chunk Payload...] [CRC]
 ```
 
-#### C. Chunk Reassembly & Payload Structure:
-Parameters exceeding the CRSF MTU (~56 bytes) are split across multiple frames. The handset accumulates chunk payloads into a 96-byte contiguous buffer (`CHUNK_BUF`) until `Chunks Remain == 0`:
+#### C. Chunk Reassembly, Sequencing & Payload Structure:
+Parameters exceeding the CRSF MTU (~56 bytes) are split across multiple frames. The handset validates chunk sequence order using `expect_chunks_remain` and accumulates chunk payloads into a 320-byte contiguous buffer (`CHUNK_BUF`) until `Chunks Remain == 0`:
 
 1. `Parent ID` (1 byte, `0x00` = root)
 2. `Type` (1 byte):
    - `0x09`: **`CRSF_TYPE_SELECT`** (Selection list, e.g. Packet Rate, Power)
+   - `0x0B`: **`CRSF_TYPE_FOLDER`** (Subfolder grouping, e.g. `VTX Admin >`, `Wi-Fi Options >`)
    - `0x0D`: **`CRSF_TYPE_COMMAND`** (Action command, e.g. `[Bind]`, `[Wi-Fi Mode]`)
 3. `Name` (Null-terminated ASCII string, e.g. `"Packet Rate\0"`)
 4. Data field (dependent on `Type`):
    - **For `SELECT` (0x09)**:
-     - Semicolon-delimited options string (e.g. `"50Hz;100Hz;250Hz;500Hz\0"`).
+     - Semicolon-delimited options string (stored up to 160 bytes, e.g. `"50Hz(-115dBm);100Hz Full(-112dBm);150Hz(-112dBm);250Hz(-108dBm);..."`).
      - Followed by 1 byte: Current selection value index (0-indexed).
+   - **For `FOLDER` (0x0B)**:
+     - Defines a submenu node. Children specify `parent = folder_id`.
    - **For `COMMAND` (0x0D)**:
      - Followed by 1 byte: Command Status (`0` = Ready, `1` = Start, `2` = In Progress, `3` = Confirmation Needed, etc.).
 
-#### D. Chunk Advancement & State Machine Progression:
-- If `Chunks Remain > 0`: Appends chunk to `CHUNK_BUF`, increments `current_chunk`, and sends `0x2C` requesting `chunk + 1`.
-- If `Chunks Remain == 0`: Parses the reassembled `CHUNK_BUF`.
-  - If in `ElrsConfigState::LoadingParam(id)`: advances to `next_id = param_id + 1` until `param_count` or `MAX_PARAMS (16)` is reached, then enters `ElrsConfigState::Ready`.
-  - If already in `ElrsConfigState::Ready` (e.g. during command execution or option change): updates the cached parameter and **remains in `Ready`**, preserving the active UI display.
+#### D. Immediate Query Dispatch, Timeout Recovery & State Machine Progression:
+- **Immediate Query Dispatch**: To achieve maximum wire loading performance matching native TBS-Agent and ELRS Lua implementations, sequential requests and multi-chunk queries are transmitted immediately upon ingestion of the preceding chunk or parameter frame without artificial delays.
+- **Chunk Sequencing**: Incoming chunks must match `expect_chunks_remain`. Stale or duplicate chunks from re-transmissions are safely discarded.
+- **Timeout and Retries**: If no response arrives within **500 ms** (for local TX `0xEE`) or **1000 ms** (for remote receiver `0xEC`), `elrs_tick()` retries the request up to **4 times**. If retries are exhausted, the engine safely advances to `id + 1` immediately to prevent UI lockup.
+- **Completion**: When `Chunks Remain == 0`:
+  - Parses and stores the reassembled parameter.
+  - If in `ElrsConfigState::LoadingParam(id)`: immediately requests `next_id = param_id + 1` until `param_count` or `MAX_PARAMS (24)` is reached, then enters `ElrsConfigState::Ready`.
+  - If already in `ElrsConfigState::Ready`: updates the cached parameter and **remains in `Ready`**, preserving active UI display.
+
+---
+
+### Step 4: Hierarchical Folder Navigation & In-Place Modal Editing
+
+#### A. Folder Navigation
+- The UI filters parameters by `current_folder` (default `0` = root).
+- Folder items render with a trailing chevron (`>`).
+- Pressing `[OK]` on a `FOLDER` item sets `current_folder = folder.id`, immediately presenting child parameters.
+- Pressing `[ESC]` ascends to the parent folder via `crsf::get_parent_folder(current_folder)`. Pressing `[ESC]` at root returns to the Device Picker.
+
+#### B. Modal In-Place Parameter Editing
+- Pressing `[OK]` on a `SELECT` parameter enters **Edit Mode** (`ctrl.editing = true`).
+- The option displays with interactive brackets (`< 250Hz >`).
+- `[UP]` / `[DOWN]` cycles the tentative value locally without sending serial traffic.
+- Pressing `[OK]` commits the selection: transmits a `0x2D Param Write` frame to the module and exits edit mode.
+- Pressing `[ESC]` cancels the edit without sending changes.
 
 ---
 
@@ -178,10 +206,10 @@ When the user selects an option parameter and presses **`[OK]`**:
    $$\text{new\_value} = (\text{current\_value} + 1) \pmod{\text{max\_value} + 1}$$
 2. **Wire Frame (`build_param_write_frame`)**:
    ```text
-   Byte 0: 0xEE         (Dest: Module)
+   Byte 0: 0xC8         (Sync: CRSF_SYNC_BYTE per TBS spec)
    Byte 1: 0x06         (Len: 6)
    Byte 2: 0x2D         (Type: CRSF_FRAMETYPE_PARAMETER_WRITE)
-   Byte 3: 0xEE         (Dest)
+   Byte 3: [Target]     (Dest: 0xEE for TX, 0xEC for RX, 0xC8 for FC)
    Byte 4: 0xEA         (Orig: Handset)
    Byte 5: [Param ID]   (Target parameter ID)
    Byte 6: [New Value]  (New selection index)
@@ -281,11 +309,14 @@ cargo test-host
    - Injects the exact 27-byte capture from an ExpressLRS receiver:
      `0xC8 0x19 0x29 0xEA 0xEE 0x52 0x4D 0x20 0x52 0x50 0x32 0x00 0x45 0x4C 0x52 0x53 0x00 0x00 0x00 0x00 0x00 0x04 0x00 0x00 0x15 0x00 0x0D`
    - Validates device name `"RM RP2"`, serial `"ELRS"`, firmware ID `4`, parameter count `21`, and transition to `LoadingParam(1)`.
-   - Validates outbound response matches specification: `[0xEE, 0x06, 0x2C, 0xEE, 0xEA, 0x01, 0x00, 0x86]`.
+   - Validates outbound response matches specification: `[0xC8, 0x06, 0x2C, 0xEE, 0xEA, 0x01, 0x00, 0x86]`.
 2. **Dynamic Target Addressing (`test_dynamic_target_addressing`)**:
-   - Verifies wire destination byte 0 dynamically matches `target` for `0xEE`, `0xEC`, and `0xC8`.
+   - Verifies wire destination byte 0 is always `CRSF_SYNC_BYTE` (`0xC8`) and payload byte 3 dynamically matches `target` for `0xEE`, `0xEC`, and `0xC8`.
 3. **Receiver Address Filter Acceptance (`test_rx_accepts_receiver_address_0xec`)**:
    - Verifies incoming frames addressed to `0xEC` (`CRSF_ADDRESS_CRSF_RECEIVER`) are ingested into `RX_BUF` rather than rejected.
 4. **Inter-Byte Timeout Resynchronization (`test_inter_byte_timeout_resync`)**:
    - Verifies truncated partial frames hold during short pauses (<3 ms) and reset cleanly after $\ge 3\text{ ms}$ of bus silence, allowing the next valid frame to parse with 100% fidelity.
+
+For full architectural details on dual-target execution, mock serial FIFOs, and deterministic timeout simulation, see the **[Testing Methodology & Verification Guide](TESTING.md)**.
+
 

@@ -28,36 +28,69 @@ Feature release implementing EdgeTX/OpenTX-parity flight countdown and stopwatch
 - **Wing/Tail Differential Mixing ([`src/mixer.rs`](src/mixer.rs))**:
   - Enabled active differential throw scaling using the `template_diff` parameter.
 
-## [0.17.0-rc.1] - 2026-09-26
+## [0.17.0] - 2026-09-28
 
 ### Summary
-Major protocol and architecture release delivering full TBS Crossfire Protocol Rev 08 and ExpressLRS parameter synchronization specification adherence, FlySky standard channel conversion (988–2012 µs), dynamic physical wire routing, hardware interrupt-driven USART2 RX with a 128-byte lock-free ring buffer to eliminate high-speed baud overruns, framing inter-byte resynchronization timeouts, and a dual-target host test harness (`cargo test-host`) with 36 automated unit tests.
+Major protocol and architecture release delivering full TBS Crossfire Protocol Rev 08 and ExpressLRS parameter synchronization specification adherence, FlySky standard channel conversion (988–2012 µs), dynamic physical wire routing with `0xC8` wire sync framing, full TBS-Agent style multi-device discovery with dynamic disconnect pruning, Unified 255-Parameter Pool with 3.5 KB static string pool, hidden parameter suppression, LCD text overlap and clipping fixes, subfolder hierarchy navigation, modal in-place parameter editing, immediate high-speed query dispatch, hardware interrupt-driven USART2 RX with a 128-byte lock-free ring buffer, framing inter-byte resynchronization timeouts, and a dual-target host test harness (`cargo test-host`) with 48 automated unit tests.
 
 ### Added
+- **Unified 255-Parameter Pool ([`src/crsf/mod.rs`](src/crsf/mod.rs))**:
+  - Expanded parameter capacity from 24 to the full protocol ceiling of **255 parameters** using an ultra-compact 12-byte descriptor table and a centralized 3.5 KB static string pool (`STRING_POOL`). Fully accommodates complex flight controllers (80+ parameters) and multi-channel PWM receivers (35+ parameters) while leaving $> 6.5\text{ KB}$ of free SRAM stack headroom.
+- **CRSF / ExpressLRS Hidden Parameter Flag Support ([`src/crsf/mod.rs`](src/crsf/mod.rs))**:
+  - Obeyed bit 7 (`0x80`) of the parameter type byte (`is_hidden()`) to filter out internal/unintended receiver configuration fields (such as internal UIDs) from folder navigation views.
+- **128×64 LCD Parameter Layout & Overlap Bugfix ([`src/ui/menu/screens/elrs.rs`](src/ui/menu/screens/elrs.rs))**:
+  - Dynamically calculated maximum name widths based on value length, right-aligned values ending cleanly at $x = 124$, eliminated the off-screen clipping bug, and cleanly stripped parenthetical sensitivity suffixes (e.g. `250Hz(-108dBm)` $\to$ `250Hz`) when line space is constrained.
+- **Immediate High-Speed Query Dispatch ([`src/crsf/mod.rs`](src/crsf/mod.rs))**:
+  - Outbound sequential parameter queries and multi-chunk requests are dispatched immediately upon receipt and validation of preceding chunks/parameters, eliminating artificial pacing delays and matching native TBS-Agent and ELRS Lua wire performance.
+- **Dynamic Device List Auto-Pruning ([`src/crsf/mod.rs`](src/crsf/mod.rs), [`src/ui/menu/screens/elrs.rs`](src/ui/menu/screens/elrs.rs))**:
+  - Implemented automatic heartbeat tracking for all discovered devices. Devices not responding to 1 Hz pings for > 3000 ms (3 missed pings) are pruned from the `CRSF DEVICES` list, with list bounds and UI cursor selection safely clamped.
 - **Hardware Interrupt-Driven USART2 RX Subsystem ([`src/crsf/uart.rs`](src/crsf/uart.rs))**:
   - **Atomic Lock-Free Ring Buffer**: Implemented 128-byte `RX_RING` with volatile pointer synchronization, safely decoupling high-speed 420,000 baud byte ingestion from the main loop and eliminating `USART_ISR_ORE` hardware overruns during long operations (e.g. LCD flushing).
   - **NVIC Priority Configuration**: Unmasks IRQ 28 in the NVIC with high priority (`0x40`) when CRSF mode is enabled, and masks it when disabled.
   - **Hardware ORE Auto-Clearing**: ISR detects and clears `USART_ISR_ORE` to prevent receiver lockups.
 - **Dual-Target Host Unit Test Harness ([`.cargo/config.toml`](.cargo/config.toml), [`Cargo.toml`](Cargo.toml))**:
   - Established `cargo test-host` alias targeting `x86_64-unknown-linux-gnu` with `#![cfg_attr(not(test), no_std)]` in `src/lib.rs`.
-  - Added 36 host unit tests across `crsf`, `mixer`, `trim`, and `curve` modules with zero hardware dependencies.
-- **Comprehensive CRSF Protocol Documentation ([`docs/CRSF_PROTOCOL_SPEC.md`](docs/CRSF_PROTOCOL_SPEC.md))**:
+  - Expanded host unit test suite to 48 passing tests covering 255-parameter pooling, hidden flag filtering, device pruning, and framing validation with zero hardware dependencies.
+- **TBS-Agent Style Multi-Device Discovery & Device Picker ([`src/crsf/mod.rs`](src/crsf/mod.rs), [`src/ui/menu/screens/elrs.rs`](src/ui/menu/screens/elrs.rs))**:
+  - Broadcasts 1 Hz discovery pings and registers all responding bus devices (transmitters `0xEE`, receivers `0xEC`, flight controllers `0xC8`) into a deduplicated table (`DiscoveredDevice`).
+  - Presents an interactive `CRSF DEVICES` screen with role tags (`[TX]`, `[RX]`, `[FC]`), allowing pilots to configure either the transmitter module or over-the-air receiver directly.
+- **Hierarchical Subfolder Tree Navigation ([`src/crsf/mod.rs`](src/crsf/mod.rs), [`src/ui/menu/screens/elrs.rs`](src/ui/menu/screens/elrs.rs))**:
+  - Filters parameters by `parent` ID, rendering folder items (`CRSF_TYPE_FOLDER`) with trailing chevron (`>`).
+  - Pressing `[OK]` drills down into subfolders; pressing `[ESC]` ascends to the parent folder or returns to the Device Picker at root level.
+- **Modal In-Place Parameter Option Editing ([`src/crsf/mod.rs`](src/crsf/mod.rs), [`src/ui/menu/screens/elrs.rs`](src/ui/menu/screens/elrs.rs))**:
+  - Pressing `[OK]` on a `SELECT` parameter enters Edit Mode, displaying the tentative value with `< Option >` brackets.
+  - `[UP]` / `[DOWN]` cycles options locally without transmitting premature serial packets; pressing `[OK]` commits and transmits `0x2D Param Write` frame; `[ESC]` cancels without changes.
+- **Comprehensive CRSF Protocol Documentation ([`docs/CRSF_PROTOCOL_SPEC.md`](docs/CRSF_PROTOCOL_SPEC.md), [`docs/CRSF_ELRS_GUIDE.md`](docs/CRSF_ELRS_GUIDE.md))**:
   - Detailed byte-level framing breakdown, wire timing diagrams, CRC-8 DVB-S2 poly formulas, parameter state machine transitions, command action lifecycle, and manual verification walkthrough.
 
 ### Changed
 - **FlySky Standard Microsecond Channel Conversion ([`src/crsf/protocol.rs`](src/crsf/protocol.rs))**:
   - Replaced magic numbers and aligned CRSF 11-bit scaling to standard FlySky microsecond boundaries: `988 µs` (172 counts), `1500 µs` (992 counts), and `2012 µs` (1811 counts).
   - Applied global constants across mixer, trim, and protocol modules.
+- **TBS CRSF Wire Framing Specification Adherence ([`src/crsf/protocol.rs`](src/crsf/protocol.rs))**:
+  - Aligned all outbound parameter read, parameter write, and command frames to begin with wire sync byte `0xC8` (`CRSF_SYNC_BYTE`) per TBS CRSF specification rather than the target address, resolving over-the-air receiver parameter loading.
 - **Dynamic Wire Destination Addressing ([`src/crsf/protocol.rs`](src/crsf/protocol.rs))**:
-  - Changed `build_param_ext_frame()` to dynamically assign wire byte 0 (`out_frame[0] = target;`), properly routing frames to transmitter modules (`0xEE`), receivers (`0xEC`), or flight controllers (`0xC8`).
+  - Changed `build_param_ext_frame()` to dynamically assign payload destination byte (`out_frame[3] = target;`), properly routing frames to transmitter modules (`0xEE`), receivers (`0xEC`), or flight controllers (`0xC8`).
 
 ### Fixed
+- **CRSF Target Device ID Isolation & Remote Receiver Hijack Prevention ([`src/crsf/mod.rs`](src/crsf/mod.rs))**:
+  - Filtered `handle_device_info_frame()` and `handle_param_entry_frame()` to strictly match `CONFIG_ENGINE.device_id` (`0xEE`). Previously, when a bound remote receiver (`0xEC`, e.g. `RM RP4TD-M 2400`) broadcast `DEVICE_INFO` over the air, `CONFIG_ENGINE.device_id` was overwritten mid-handshake from `0xEE` to `0xEC` and `param_count` was overwritten from 21 to 11. This caused subsequent chunk requests to be sent over the air to `0xEC` instead of the local TX module, causing parameter 1 to stall and fail with `"No parameters found"`.
+- **Multi-Frame Parameter Accumulator & Option Buffer Expansion ([`src/crsf/mod.rs`](src/crsf/mod.rs))**:
+  - Expanded `CHUNK_BUF` from 96 bytes to 320 bytes to safely reassemble full 4-chunk parameter streams (e.g. ExpressLRS `"Packet Rate"` with 10 options).
+  - Expanded `Parameter.options` and parsing buffers from 48 bytes to 160 bytes so long option lists are not truncated.
+  - Increased `MAX_PARAMS` from 16 to 24 to fully accommodate modules with 21 parameters (such as RadioMaster RP2).
+- **Over-The-Air Chunk Sequencing and Duplicate Filtering ([`src/crsf/mod.rs`](src/crsf/mod.rs))**:
+  - Added `expect_chunks_remain` sequence checking in `handle_param_entry_frame()`, safely discarding duplicate or out-of-order chunks from RF re-transmissions without corrupting the chunk accumulator buffer.
+- **Parameter Read Timeout and Retry Recovery ([`src/crsf/mod.rs`](src/crsf/mod.rs))**:
+  - Implemented timeout tracking (500 ms for local TX `0xEE`, 1000 ms for remote receivers `0xEC`) with up to 4 retries before automatically advancing to the next parameter, preventing the handset from locking up indefinitely on `"loading parameter 01 of 11"`.
+- **UI Menu Button Debounce on Configuration Launch ([`src/ui/menu/screens/setup.rs`](src/ui/menu/screens/setup.rs), [`src/ui/menu/screens/elrs.rs`](src/ui/menu/screens/elrs.rs))**:
+  - Set `ctrl.waiting_release = true` when triggering `[Configure Module]` and retry clicks to prevent 700 µs loop repeat invocations while the physical `[OK]` button is held down.
 - **CRSF Receiver Wire Filter Acceptance ([`src/crsf/mod.rs`](src/crsf/mod.rs))**:
   - Added `CRSF_ADDRESS_CRSF_RECEIVER` (`0xEC`) to the frame start address filter in `poll_telemetry()`.
 - **Parser Inter-Byte Framing Timeout ([`src/crsf/mod.rs`](src/crsf/mod.rs))**:
   - Added `LAST_RX_BYTE_MS` tracking. If $\ge 3\text{ ms}$ of bus silence elapses with an incomplete frame in `RX_BUF`, `RX_LEN` automatically resets to 0 to prevent parser desynchronization.
 - **RadioMaster RP2 Receiver Device Info Ingestion ([`src/crsf/mod.rs`](src/crsf/mod.rs))**:
-  - Verified and regression-tested real-world 27-byte capture from RadioMaster RP2 ExpressLRS receiver (`0xC8 0x19 0x29 0xEA 0xEE 52 4D 20 52 50 32 ... 15 00 0D`), ensuring proper parsing of `"RM RP2"`, 21 parameters, and generation of the outbound parameter read response `[0xEE, 0x06, 0x2C, 0xEE, 0xEA, 0x01, 0x00, 0x86]`.
+  - Verified and regression-tested real-world 27-byte capture from RadioMaster RP2 ExpressLRS receiver (`0xC8 0x19 0x29 0xEA 0xEE 52 4D 20 52 50 32 ... 15 00 0D`), ensuring proper parsing of `"RM RP2"`, 21 parameters, and generation of the outbound parameter read response.
 
 ---
 
