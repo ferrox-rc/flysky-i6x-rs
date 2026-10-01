@@ -216,8 +216,8 @@ pub fn update_rx_setup(
     let active_idx = storage.radio.active_model as usize;
     let proto = storage.models[active_idx].rf_protocol;
     // 0: AFHDS 2A -> 5 items (0: Proto, 1: [Bind Receiver], 2: Servo Hz, 3: RX Out, 4: Serial)
-    // 1: CRSF -> 3 items (0: Proto, 1: Baud, 2: [Configure Module])
-    let item_count = if proto == 0 { 5 } else { 3 };
+    // 1: CRSF -> 4 items (0: Proto, 1: Baud, 2: Duplex, 3: [Configure Module])
+    let item_count = if proto == 0 { 5 } else { 4 };
 
     if keys.cancel {
         if ctrl.editing {
@@ -260,6 +260,24 @@ pub fn update_rx_setup(
                     ctrl.editing = true;
                     buzzer.click();
                 }
+                (1, 2) => {
+                    // CRSF: Toggle Duplex mode (Full / Half)
+                    buzzer.click();
+                    storage.models[active_idx].crsf_half_duplex =
+                        if storage.models[active_idx].crsf_half_duplex == 0 { 1 } else { 0 };
+                    storage::save_storage(storage);
+                }
+                (1, 3) => {
+                    // CRSF: Enter Configurator
+                    ctrl.state = MenuState::ElrsSetup;
+                    ctrl.return_state = MenuState::RxSetup;
+                    ctrl.selected_item = 0;
+                    ctrl.scroll_offset = 0;
+                    ctrl.waiting_release = true;
+                    crate::crsf::start_config();
+                    buzzer.click();
+                    return;
+                }
                 (0, 2) => {
                     // AFHDS 2A: Cycle Servo Hz
                     buzzer.click();
@@ -280,17 +298,6 @@ pub fn update_rx_setup(
                         storage.models[active_idx].rx_serial_proto,
                     );
                     storage::save_storage(storage);
-                }
-                (1, 2) => {
-                    // CRSF: Enter Configurator
-                    ctrl.state = MenuState::ElrsSetup;
-                    ctrl.return_state = MenuState::RxSetup;
-                    ctrl.selected_item = 0;
-                    ctrl.scroll_offset = 0;
-                    ctrl.waiting_release = true;
-                    crate::crsf::start_config();
-                    buzzer.click();
-                    return;
                 }
                 (0, 3) => {
                     // AFHDS 2A: Toggle RX Out (PWM/PPM)
@@ -331,16 +338,16 @@ pub fn update_rx_setup(
                 }
             }
             1 => {
-                // Baud Rate (CRSF only): 0 = 420k, 1 = 416.6k, 2 = 115.2k, 3 = 921.6k
+                // Baud Rate (CRSF only): 0 = 420k, 1 = 416.6k, 2 = 115.2k, 3 = 921.6k, 4 = 1.875M
                 if keys.up {
                     storage.models[active_idx].crsf_baud = if storage.models[active_idx].crsf_baud > 0 {
                         storage.models[active_idx].crsf_baud - 1
                     } else {
-                        3
+                        4
                     };
                     buzzer.play_tone(2200, 30);
                 } else if keys.down {
-                    storage.models[active_idx].crsf_baud = (storage.models[active_idx].crsf_baud + 1) % 4;
+                    storage.models[active_idx].crsf_baud = (storage.models[active_idx].crsf_baud + 1) % 5;
                     buzzer.play_tone(2200, 30);
                 }
             }
@@ -412,10 +419,11 @@ pub fn update_rx_setup(
         };
         widgets::draw_footer(lcd, footer);
     } else {
-        // CRSF Display
+        // CRSF Display (4 items: Proto, Baud, Duplex, Configure Module)
         let sel_proto = ctrl.selected_item == 0;
         let sel_baud = ctrl.selected_item == 1;
-        let sel_cfg = ctrl.selected_item == 2;
+        let sel_duplex = ctrl.selected_item == 2;
+        let sel_cfg = ctrl.selected_item == 3;
 
         let proto_val = if ctrl.editing && sel_proto { "[CRSF]" } else { "CRSF" };
         widgets::draw_list_row_right(lcd, 0, sel_proto, "Proto:", Some(proto_val));
@@ -429,14 +437,25 @@ pub fn update_rx_setup(
             (2, true) => "[115.2k (Low)]",
             (3, false) => "921.6k (Fast)",
             (3, true) => "[921.6k (Fast)]",
+            (4, false) => "1.875M (Max)",
+            (4, true) => "[1.875M (Max)]",
             _ => "420k (ELRS)",
         };
         widgets::draw_list_row_right(lcd, 1, sel_baud, "Baud:", Some(baud_val));
 
-        widgets::draw_list_row_right(lcd, 2, sel_cfg, "[Configure Module]", None);
+        let duplex_val = if storage.models[active_idx].crsf_half_duplex == 0 {
+            "Full (2W)"
+        } else {
+            "Half (1W)"
+        };
+        widgets::draw_list_row_right(lcd, 2, sel_duplex, "Duplex:", Some(duplex_val));
+
+        widgets::draw_list_row_right(lcd, 3, sel_cfg, "[Configure Module]", None);
 
         let footer = if ctrl.editing {
             "[OK] Save   [UP/DN] Change"
+        } else if sel_duplex {
+            "[OK] Toggle Mode  [ESC] Exit"
         } else if sel_cfg {
             "[OK] Open Config  [ESC] Exit"
         } else {
