@@ -295,6 +295,7 @@ pub fn draw_icon_row<F>(
 }
 
 /// Render a single list item row within a 4-slot view with highlight.
+/// If `value_x <= 0`, the value string is automatically right-aligned against the row right edge.
 pub fn draw_list_row(
     lcd: &mut St7567,
     slot: usize,
@@ -313,8 +314,24 @@ pub fn draw_list_row(
 
     Text::new(label, Point::new(4, y + 7), style).draw(lcd).ok();
     if let Some(val) = value {
-        Text::new(val, Point::new(value_x, y + 7), style).draw(lcd).ok();
+        let vx = if value_x <= 0 {
+            124 - (val.len() as i32 * 6)
+        } else {
+            value_x
+        };
+        Text::new(val, Point::new(vx, y + 7), style).draw(lcd).ok();
     }
+}
+
+/// Render a single list item row within a 4-slot view with highlight, right-aligning the value.
+pub fn draw_list_row_right(
+    lcd: &mut St7567,
+    slot: usize,
+    is_selected: bool,
+    label: &str,
+    value: Option<&str>,
+) {
+    draw_list_row(lcd, slot, is_selected, label, value, 0);
 }
 
 /// Draw a framed bar gauge meter with an inner filled level.
@@ -329,5 +346,21 @@ pub fn draw_bar_gauge(
         let inner_p_y = box_rect.top_left.y + 1;
         let inner_h = box_rect.size.height.saturating_sub(2);
         lcd.fill_rect(inner_p_x, inner_p_y, fill_width, inner_h, true);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_draw_list_row_right_alignment() {
+        let mut lcd = St7567::new();
+        // Render unselected row with right-aligned value
+        draw_list_row_right(&mut lcd, 0, false, "Thr Trim:", Some("IDLE"));
+        // Render selected row with right-aligned value
+        draw_list_row_right(&mut lcd, 1, true, "Beeper:", Some("ENABLED"));
+        // Render action row with None value
+        draw_list_row_right(&mut lcd, 2, false, "[Configure Module]", None);
     }
 }

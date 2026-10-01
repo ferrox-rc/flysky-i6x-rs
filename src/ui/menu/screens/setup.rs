@@ -1,11 +1,5 @@
 //! Radio settings and Protocol configuration screens.
 
-use embedded_graphics::{
-    mono_font::{ascii::FONT_6X10, MonoTextStyle},
-    pixelcolor::BinaryColor,
-    prelude::*,
-    text::Text,
-};
 
 use crate::buzzer::Buzzer;
 use crate::display::St7567;
@@ -148,15 +142,15 @@ pub fn update_radio_setup(
                     2 => "LINEAR",
                     _ => "OFF (Lock)",
                 };
-                widgets::draw_list_row(lcd, slot, is_sel, "Thr Trim:", Some(val_str), 62);
+                widgets::draw_list_row_right(lcd, slot, is_sel, "Thr Trim:", Some(val_str));
             }
             1 => {
                 let beeper_str = if storage.radio.audio_enabled != 0 { "ENABLED" } else { "MUTED" };
-                widgets::draw_list_row(lcd, slot, is_sel, "Beeper:", Some(beeper_str), 62);
+                widgets::draw_list_row_right(lcd, slot, is_sel, "Beeper:", Some(beeper_str));
             }
             2 => {
                 let tone_str = if storage.radio.tone_style != 0 { "RICH" } else { "SIMPLE" };
-                widgets::draw_list_row(lcd, slot, is_sel, "Tones:", Some(tone_str), 62);
+                widgets::draw_list_row_right(lcd, slot, is_sel, "Tones:", Some(tone_str));
             }
             3 => {
                 let timer_str = match storage.radio.backlight_timeout {
@@ -165,23 +159,23 @@ pub fn update_radio_setup(
                     3 => "60 SEC",
                     _ => "ALWAYS ON",
                 };
-                widgets::draw_list_row(lcd, slot, is_sel, "BL Timer:", Some(timer_str), 62);
+                widgets::draw_list_row_right(lcd, slot, is_sel, "BL Timer:", Some(timer_str));
             }
             4 => {
                 let mut b_buf = [0u8; 4];
                 let pct = (storage.radio.backlight_brightness * 10).min(100);
                 let b_str = format_pct_3(pct, &mut b_buf);
-                widgets::draw_list_row(lcd, slot, is_sel, "BL Level:", Some(b_str), 62);
+                widgets::draw_list_row_right(lcd, slot, is_sel, "BL Level:", Some(b_str));
             }
             5 => {
                 let mut c_buf = [0u8; 2];
                 let c_str = format_u8_2(storage.radio.lcd_contrast, &mut c_buf);
-                widgets::draw_list_row(lcd, slot, is_sel, "Contrast:", Some(c_str), 62);
+                widgets::draw_list_row_right(lcd, slot, is_sel, "Contrast:", Some(c_str));
             }
             6 => {
                 let mut v_buf = [0u8; 4];
                 let v_str = format_deci_volt(storage.radio.vbat_warn_deci, &mut v_buf);
-                widgets::draw_list_row(lcd, slot, is_sel, "Bat Warn:", Some(v_str), 62);
+                widgets::draw_list_row_right(lcd, slot, is_sel, "Bat Warn:", Some(v_str));
             }
             7 => {
                 let usb_str = match storage.radio.usb_mode {
@@ -190,19 +184,19 @@ pub fn update_radio_setup(
                     3 => "COMPOSITE",
                     _ => "OFF",
                 };
-                widgets::draw_list_row(lcd, slot, is_sel, "USB Mode:", Some(usb_str), 62);
+                widgets::draw_list_row_right(lcd, slot, is_sel, "USB Mode:", Some(usb_str));
             }
             8 => {
                 let pwr_str = if storage.radio.ext_module_pwr == 0 { "HIGH (N)" } else { "LOW (P)" };
-                widgets::draw_list_row(lcd, slot, is_sel, "PC13 Pwr:", Some(pwr_str), 62);
+                widgets::draw_list_row_right(lcd, slot, is_sel, "PC13 Pwr:", Some(pwr_str));
             }
             9 => {
                 let sw_str = if storage.radio.ext_switches != 0 { "PC12+PC15" } else { "OFF" };
-                widgets::draw_list_row(lcd, slot, is_sel, "Ext Sw:", Some(sw_str), 62);
+                widgets::draw_list_row_right(lcd, slot, is_sel, "Ext Sw:", Some(sw_str));
             }
             10 => {
                 let adc_str = if storage.radio.ext_adc != 0 { "AD12-AD15" } else { "OFF" };
-                widgets::draw_list_row(lcd, slot, is_sel, "P7 Header:", Some(adc_str), 62);
+                widgets::draw_list_row_right(lcd, slot, is_sel, "P7 Header:", Some(adc_str));
             }
             _ => {}
         }
@@ -377,7 +371,7 @@ pub fn update_rx_setup(
             match idx {
                 0 => {
                     let val_str = if ctrl.editing && is_sel { "[AFHDS 2A]" } else { "AFHDS 2A" };
-                    widgets::draw_list_row(lcd, slot, is_sel, "Proto:", Some(val_str), 56);
+                    widgets::draw_list_row_right(lcd, slot, is_sel, "Proto:", Some(val_str));
                 }
                 1 => {
                     let mut rx_buf = [b'0'; 8];
@@ -388,20 +382,20 @@ pub fn update_rx_setup(
                     bind_buf[7..15].copy_from_slice(rx_str.as_bytes());
                     bind_buf[15] = b']';
                     let bind_str = ascii_as_str(&bind_buf[..16]);
-                    widgets::draw_list_row(lcd, slot, is_sel, bind_str, None, 0);
+                    widgets::draw_list_row_right(lcd, slot, is_sel, bind_str, None);
                 }
                 2 => {
                     let mut hz_buf = [0u8; 8];
                     let hz_str = format_servo_hz(storage.models[active_idx].servo_rate_hz, &mut hz_buf);
-                    widgets::draw_list_row(lcd, slot, is_sel, "Servo Hz:", Some(hz_str), 62);
+                    widgets::draw_list_row_right(lcd, slot, is_sel, "Servo Hz:", Some(hz_str));
                 }
                 3 => {
                     let out_str = if storage.models[active_idx].rx_out_mode == 0 { "PWM" } else { "PPM" };
-                    widgets::draw_list_row(lcd, slot, is_sel, "RX Out:", Some(out_str), 62);
+                    widgets::draw_list_row_right(lcd, slot, is_sel, "RX Out:", Some(out_str));
                 }
                 4 => {
                     let serial_str = if storage.models[active_idx].rx_serial_proto == 0 { "i-BUS" } else { "S.BUS" };
-                    widgets::draw_list_row(lcd, slot, is_sel, "Serial:", Some(serial_str), 62);
+                    widgets::draw_list_row_right(lcd, slot, is_sel, "Serial:", Some(serial_str));
                 }
                 _ => {}
             }
@@ -419,51 +413,27 @@ pub fn update_rx_setup(
         widgets::draw_footer(lcd, footer);
     } else {
         // CRSF Display
-        let text_style = MonoTextStyle::new(&FONT_6X10, BinaryColor::On);
-        let mut line_buf = [b' '; 26];
-
         let sel_proto = ctrl.selected_item == 0;
         let sel_baud = ctrl.selected_item == 1;
         let sel_cfg = ctrl.selected_item == 2;
 
-        let p_arrow = if sel_proto { b'>' } else { b' ' };
-        let b_arrow = if sel_baud { b'>' } else { b' ' };
-        let c_arrow = if sel_cfg { b'>' } else { b' ' };
-
         let proto_val = if ctrl.editing && sel_proto { "[CRSF]" } else { "CRSF" };
-        line_buf[0] = p_arrow;
-        line_buf[1..8].copy_from_slice(b"Proto: ");
-        let pv_bytes = proto_val.as_bytes();
-        line_buf[8..8 + pv_bytes.len()].copy_from_slice(pv_bytes);
-        let p_str = ascii_as_str(&line_buf[..8 + pv_bytes.len()]);
-        Text::new(p_str, Point::new(2, 22), text_style).draw(lcd).ok();
+        widgets::draw_list_row_right(lcd, 0, sel_proto, "Proto:", Some(proto_val));
 
-        let baud_val = match storage.models[active_idx].crsf_baud {
-            0 => "420k (ELRS)",
-            1 => "416.6k (TBS)",
-            2 => "115.2k (Low)",
-            3 => "921.6k (Fast)",
+        let baud_val = match (storage.models[active_idx].crsf_baud, ctrl.editing && sel_baud) {
+            (0, false) => "420k (ELRS)",
+            (0, true) => "[420k (ELRS)]",
+            (1, false) => "416.6k (TBS)",
+            (1, true) => "[416.6k (TBS)]",
+            (2, false) => "115.2k (Low)",
+            (2, true) => "[115.2k (Low)]",
+            (3, false) => "921.6k (Fast)",
+            (3, true) => "[921.6k (Fast)]",
             _ => "420k (ELRS)",
         };
-        line_buf[0] = b_arrow;
-        line_buf[1..7].copy_from_slice(b"Baud: ");
-        let bv_bytes = baud_val.as_bytes();
-        let b_start = if ctrl.editing && sel_baud {
-            line_buf[7] = b'[';
-            line_buf[8..8 + bv_bytes.len()].copy_from_slice(bv_bytes);
-            line_buf[8 + bv_bytes.len()] = b']';
-            9 + bv_bytes.len()
-        } else {
-            line_buf[7..7 + bv_bytes.len()].copy_from_slice(bv_bytes);
-            7 + bv_bytes.len()
-        };
-        let full_b_str = ascii_as_str(&line_buf[..b_start]);
-        Text::new(full_b_str, Point::new(2, 32), text_style).draw(lcd).ok();
+        widgets::draw_list_row_right(lcd, 1, sel_baud, "Baud:", Some(baud_val));
 
-        line_buf[0] = c_arrow;
-        line_buf[1..19].copy_from_slice(b"[Configure Module]");
-        let full_c_str = ascii_as_str(&line_buf[..19]);
-        Text::new(full_c_str, Point::new(2, 42), text_style).draw(lcd).ok();
+        widgets::draw_list_row_right(lcd, 2, sel_cfg, "[Configure Module]", None);
 
         let footer = if ctrl.editing {
             "[OK] Save   [UP/DN] Change"
