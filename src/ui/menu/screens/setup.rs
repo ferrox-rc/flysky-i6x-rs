@@ -1,6 +1,5 @@
 //! Radio settings and Protocol configuration screens.
 
-
 use crate::buzzer::Buzzer;
 use crate::display::St7567;
 use crate::menu::format::{
@@ -45,7 +44,11 @@ pub fn update_radio_setup(
                 storage::save_radio_config(storage);
             }
             1 => {
-                storage.radio.audio_enabled = if storage.radio.audio_enabled == 0 { 1 } else { 0 };
+                storage.radio.audio_enabled = if storage.radio.audio_enabled == 0 {
+                    1
+                } else {
+                    0
+                };
                 buzzer.enabled = storage.radio.audio_enabled != 0;
                 if buzzer.enabled {
                     buzzer.click();
@@ -105,13 +108,21 @@ pub fn update_radio_setup(
             }
             8 => {
                 buzzer.click();
-                storage.radio.ext_module_pwr = if storage.radio.ext_module_pwr == 0 { 1 } else { 0 };
+                storage.radio.ext_module_pwr = if storage.radio.ext_module_pwr == 0 {
+                    1
+                } else {
+                    0
+                };
                 crate::crsf::set_power_polarity(storage.radio.ext_module_pwr == 0);
                 storage::save_radio_config(storage);
             }
             9 => {
                 buzzer.click();
-                storage.radio.ext_switches = if storage.radio.ext_switches == 0 { 1 } else { 0 };
+                storage.radio.ext_switches = if storage.radio.ext_switches == 0 {
+                    1
+                } else {
+                    0
+                };
                 crate::input::set_ext_switches_enabled(storage.radio.ext_switches != 0);
                 storage::save_radio_config(storage);
             }
@@ -145,11 +156,19 @@ pub fn update_radio_setup(
                 widgets::draw_list_row_right(lcd, slot, is_sel, "Thr Trim:", Some(val_str));
             }
             1 => {
-                let beeper_str = if storage.radio.audio_enabled != 0 { "ENABLED" } else { "MUTED" };
+                let beeper_str = if storage.radio.audio_enabled != 0 {
+                    "ENABLED"
+                } else {
+                    "MUTED"
+                };
                 widgets::draw_list_row_right(lcd, slot, is_sel, "Beeper:", Some(beeper_str));
             }
             2 => {
-                let tone_str = if storage.radio.tone_style != 0 { "RICH" } else { "SIMPLE" };
+                let tone_str = if storage.radio.tone_style != 0 {
+                    "RICH"
+                } else {
+                    "SIMPLE"
+                };
                 widgets::draw_list_row_right(lcd, slot, is_sel, "Tones:", Some(tone_str));
             }
             3 => {
@@ -187,15 +206,27 @@ pub fn update_radio_setup(
                 widgets::draw_list_row_right(lcd, slot, is_sel, "USB Mode:", Some(usb_str));
             }
             8 => {
-                let pwr_str = if storage.radio.ext_module_pwr == 0 { "HIGH (N)" } else { "LOW (P)" };
+                let pwr_str = if storage.radio.ext_module_pwr == 0 {
+                    "HIGH (N)"
+                } else {
+                    "LOW (P)"
+                };
                 widgets::draw_list_row_right(lcd, slot, is_sel, "PC13 Pwr:", Some(pwr_str));
             }
             9 => {
-                let sw_str = if storage.radio.ext_switches != 0 { "PC12+PC15" } else { "OFF" };
+                let sw_str = if storage.radio.ext_switches != 0 {
+                    "PC12+PC15"
+                } else {
+                    "OFF"
+                };
                 widgets::draw_list_row_right(lcd, slot, is_sel, "Ext Sw:", Some(sw_str));
             }
             10 => {
-                let adc_str = if storage.radio.ext_adc != 0 { "AD12-AD15" } else { "OFF" };
+                let adc_str = if storage.radio.ext_adc != 0 {
+                    "AD12-AD15"
+                } else {
+                    "OFF"
+                };
                 widgets::draw_list_row_right(lcd, slot, is_sel, "P7 Header:", Some(adc_str));
             }
             _ => {}
@@ -264,7 +295,11 @@ pub fn update_rx_setup(
                     // CRSF: Toggle Duplex mode (Full / Half)
                     buzzer.click();
                     storage.models[active_idx].crsf_half_duplex =
-                        if storage.models[active_idx].crsf_half_duplex == 0 { 1 } else { 0 };
+                        if storage.models[active_idx].crsf_half_duplex == 0 {
+                            1
+                        } else {
+                            0
+                        };
                     storage::save_storage(storage);
                 }
                 (1, 3) => {
@@ -281,17 +316,18 @@ pub fn update_rx_setup(
                 (0, 2) => {
                     // AFHDS 2A: Cycle Servo Hz
                     buzzer.click();
-                    storage.models[active_idx].servo_rate_hz = match storage.models[active_idx].servo_rate_hz {
-                        50 => 60,
-                        60 => 100,
-                        100 => 150,
-                        150 => 200,
-                        200 => 250,
-                        250 => 300,
-                        300 => 350,
-                        350 => 400,
-                        _ => 50,
-                    };
+                    storage.models[active_idx].servo_rate_hz =
+                        match storage.models[active_idx].servo_rate_hz {
+                            50 => 60,
+                            60 => 100,
+                            100 => 150,
+                            150 => 200,
+                            200 => 250,
+                            250 => 300,
+                            300 => 350,
+                            350 => 400,
+                            _ => 50,
+                        };
                     crate::rf::set_rx_settings(
                         storage.models[active_idx].servo_rate_hz,
                         storage.models[active_idx].rx_out_mode,
@@ -303,7 +339,11 @@ pub fn update_rx_setup(
                     // AFHDS 2A: Toggle RX Out (PWM/PPM)
                     buzzer.click();
                     storage.models[active_idx].rx_out_mode =
-                        if storage.models[active_idx].rx_out_mode == 0 { 1 } else { 0 };
+                        if storage.models[active_idx].rx_out_mode == 0 {
+                            1
+                        } else {
+                            0
+                        };
                     crate::rf::set_rx_settings(
                         storage.models[active_idx].servo_rate_hz,
                         storage.models[active_idx].rx_out_mode,
@@ -315,7 +355,11 @@ pub fn update_rx_setup(
                     // AFHDS 2A: Toggle Serial Proto (i-BUS/S.BUS)
                     buzzer.click();
                     storage.models[active_idx].rx_serial_proto =
-                        if storage.models[active_idx].rx_serial_proto == 0 { 1 } else { 0 };
+                        if storage.models[active_idx].rx_serial_proto == 0 {
+                            1
+                        } else {
+                            0
+                        };
                     crate::rf::set_rx_settings(
                         storage.models[active_idx].servo_rate_hz,
                         storage.models[active_idx].rx_out_mode,
@@ -340,14 +384,16 @@ pub fn update_rx_setup(
             1 => {
                 // Baud Rate (CRSF only): 0 = 420k, 1 = 416.6k, 2 = 115.2k, 3 = 921.6k, 4 = 1.875M
                 if keys.up {
-                    storage.models[active_idx].crsf_baud = (storage.models[active_idx].crsf_baud + 1) % 5;
+                    storage.models[active_idx].crsf_baud =
+                        (storage.models[active_idx].crsf_baud + 1) % 5;
                     buzzer.play_tone(2200, 30);
                 } else if keys.down {
-                    storage.models[active_idx].crsf_baud = if storage.models[active_idx].crsf_baud > 0 {
-                        storage.models[active_idx].crsf_baud - 1
-                    } else {
-                        4
-                    };
+                    storage.models[active_idx].crsf_baud =
+                        if storage.models[active_idx].crsf_baud > 0 {
+                            storage.models[active_idx].crsf_baud - 1
+                        } else {
+                            4
+                        };
                     buzzer.play_tone(2200, 30);
                 }
             }
@@ -377,7 +423,11 @@ pub fn update_rx_setup(
 
             match idx {
                 0 => {
-                    let val_str = if ctrl.editing && is_sel { "[AFHDS 2A]" } else { "AFHDS 2A" };
+                    let val_str = if ctrl.editing && is_sel {
+                        "[AFHDS 2A]"
+                    } else {
+                        "AFHDS 2A"
+                    };
                     widgets::draw_list_row_right(lcd, slot, is_sel, "Proto:", Some(val_str));
                 }
                 1 => {
@@ -393,15 +443,24 @@ pub fn update_rx_setup(
                 }
                 2 => {
                     let mut hz_buf = [0u8; 8];
-                    let hz_str = format_servo_hz(storage.models[active_idx].servo_rate_hz, &mut hz_buf);
+                    let hz_str =
+                        format_servo_hz(storage.models[active_idx].servo_rate_hz, &mut hz_buf);
                     widgets::draw_list_row_right(lcd, slot, is_sel, "Servo Hz:", Some(hz_str));
                 }
                 3 => {
-                    let out_str = if storage.models[active_idx].rx_out_mode == 0 { "PWM" } else { "PPM" };
+                    let out_str = if storage.models[active_idx].rx_out_mode == 0 {
+                        "PWM"
+                    } else {
+                        "PPM"
+                    };
                     widgets::draw_list_row_right(lcd, slot, is_sel, "RX Out:", Some(out_str));
                 }
                 4 => {
-                    let serial_str = if storage.models[active_idx].rx_serial_proto == 0 { "i-BUS" } else { "S.BUS" };
+                    let serial_str = if storage.models[active_idx].rx_serial_proto == 0 {
+                        "i-BUS"
+                    } else {
+                        "S.BUS"
+                    };
                     widgets::draw_list_row_right(lcd, slot, is_sel, "Serial:", Some(serial_str));
                 }
                 _ => {}
@@ -425,21 +484,28 @@ pub fn update_rx_setup(
         let sel_duplex = ctrl.selected_item == 2;
         let sel_cfg = ctrl.selected_item == 3;
 
-        let proto_val = if ctrl.editing && sel_proto { "[CRSF]" } else { "CRSF" };
+        let proto_val = if ctrl.editing && sel_proto {
+            "[CRSF]"
+        } else {
+            "CRSF"
+        };
         widgets::draw_list_row_right(lcd, 0, sel_proto, "Proto:", Some(proto_val));
 
-        let baud_val = match (storage.models[active_idx].crsf_baud, ctrl.editing && sel_baud) {
-            (0, false) => "420k (ELRS)",
-            (0, true) => "[420k (ELRS)]",
+        let baud_val = match (
+            storage.models[active_idx].crsf_baud,
+            ctrl.editing && sel_baud,
+        ) {
+            (0, false) => "115.2k (Low)",
+            (0, true) => "[115.2k (Low)]",
             (1, false) => "416.6k (TBS)",
             (1, true) => "[416.6k (TBS)]",
-            (2, false) => "115.2k (Low)",
-            (2, true) => "[115.2k (Low)]",
+            (2, false) => "420k (ELRS)",
+            (2, true) => "[420k (ELRS)]",
             (3, false) => "921.6k (Fast)",
             (3, true) => "[921.6k (Fast)]",
             (4, false) => "1.875M (Max)",
             (4, true) => "[1.875M (Max)]",
-            _ => "420k (ELRS)",
+            _ => "416.6k (TBS)",
         };
         widgets::draw_list_row_right(lcd, 1, sel_baud, "Baud:", Some(baud_val));
 

@@ -3834,9 +3834,9 @@ mod tests {
     #[test]
     fn test_crsf_baud_and_half_duplex_configuration() {
         // Test BRR calculation for 1.875M baud (index 4)
-        assert_eq!(uart::get_brr_for_baud(0), 114); // 420k
+        assert_eq!(uart::get_brr_for_baud(0), 417); // 115.2k
         assert_eq!(uart::get_brr_for_baud(1), 115); // 416.6k
-        assert_eq!(uart::get_brr_for_baud(2), 417); // 115.2k
+        assert_eq!(uart::get_brr_for_baud(2), 114); // 420k
         assert_eq!(uart::get_brr_for_baud(3), 52);  // 921.6k
         assert_eq!(uart::get_brr_for_baud(4), 26);  // 1.875M
 
@@ -3846,16 +3846,16 @@ mod tests {
         assert!(uart::is_half_duplex());
 
         // Test disabling CRSF resets state
-        set_enabled(false, 0, false);
+        set_enabled(false, 2, false);
         assert!(!is_enabled());
         assert!(!uart::is_half_duplex());
 
         // Test enabling CRSF with full-duplex standard baud
-        set_enabled(true, 0, false);
+        set_enabled(true, 2, false);
         assert!(is_enabled());
         assert!(!uart::is_half_duplex());
 
-        set_enabled(false, 0, false);
+        set_enabled(false, 2, false);
     }
 }
 
