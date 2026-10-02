@@ -6,9 +6,8 @@ This document tracks the phased implementation, historical milestones, and ongoi
 
 ## Current Firmware Footprint
 
-- **Application Flash ROM**: **~110.3 KB** (`.text` 93,340 B + `.rodata` 8,844 B + `.data` 7,924 B + `.vector_table` 192 B = 110,300 B total) used out of **120 KB** partition (**>9.7 KB / 8.1% free headroom**).
-- **Static RAM**: **~8.9 KB** (`.data` 7,924 B + `.bss` 1,008 B = 8,932 B total) out of **16 KB** available (**>44% SRAM free** with **>7.0 KB** guaranteed stack safety margin).
-- **Non-Volatile Storage**: **8,192 bytes** (Pages 60–63) managed as an append-only log with automatic wear levelling.
+- **Firmware Footprint (v0.20.0)**: **~110.5 KB Flash ROM** (leaving ~9.5 KB / ~7.9% headroom out of 120 KB partition) and **~8.9 KB static RAM** (leaving >7.0 KB stack safety margin in 16 KB SRAM).
+- **Authoritative Budget & Breakdown**: For exact section sizes (`.text`, `.rodata`, `.data`, `.bss`), partition layouts, and stack guarantees, see [ARCHITECTURE.md (Memory Footprint)](ARCHITECTURE.md#4-memory-footprint).
 
 ---
 

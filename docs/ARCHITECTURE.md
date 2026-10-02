@@ -56,7 +56,7 @@ flowchart TD
 - **Highest Peripheral Priority (`USART2` CRSF / ELRS RX)**: IRQ 28 assigned priority `0x40`. At 420,000 baud, 1 byte arrives every 23.8 µs. With no hardware FIFO on the STM32F072 USART2, this priority ensures the ISR preempts main thread execution (e.g. LCD flushing) to buffer incoming bytes into a 128-byte atomic ring buffer with zero overrun errors (`USART_ISR_ORE`).
 - **High Priority (RF Transmission)**: `TIM16` fires strictly every **3.850 ms** (259.74 Hz). It pulls the latest pre-computed channel microsecond pulses from the lock-free SPSC triple buffer (`CHANNEL_BUFFER`) with zero critical sections, zero interrupt latency, and zero data races, initiating A7105 SPI transmission. Priority = `0x80`.
 - **Medium Priority (Radio Event)**: `EXTI2_3` fires on A7105 GIO2 line transitions (packet transmission complete or downlink telemetry packet received). Priority = `0x80`.
-- **Autonomous DMA**: `DMA1_CH1` transfers all 11 ADC channels directly into circular SRAM buffers with zero CPU intervention.
+- **Autonomous DMA**: `DMA1_CH1` transfers all 11 stock ADC channels (or 15 channels when P7 header expansion is enabled) directly into circular SRAM buffers with zero CPU intervention.
 - **Hardware Timers**: `TIM1` generates non-blocking audio frequencies on `PA8`; `TIM3` generates 1 kHz PWM brightness control on `PC9`.
 - **Low Priority (USB Physical Layer)**: The USB interrupt is assigned priority `0xC0`. Because RF interrupts have higher priority (`0x80`), USB transactions or host bus stalls can never preempt or delay an over-the-air packet.
 - **Background / Main Loop**: Decoupled control loop architecture; the real-time flight control pipeline (ADC sampling, lightweight 4-sample filtering with dynamic deadband bypass, matrix mixer, D/R & expo, throttle curves) executes in under 30 µs at multi-kHz pass rates, updating the lock-free SPSC triple buffer for RF transmission, while ST7567 LCD frame rendering (including 5-page flight dashboard and 3-slot icon menu with scrollbar) is throttled to a smooth 30 Hz (~33 ms).
@@ -150,7 +150,7 @@ In `flysky-i6x-rs`, reset recovery is treated as a safety-critical state machine
 
 ## 3. Channel Latency & Data Freshness
 
-1. **Continuous ADC Scan**: All 11 channels (4 sticks, 4 switches, 2 pots, battery) are digitized continuously by ADC1 via DMA in **0.23 ms** (252 cycles * 11 / 12 MHz).
+1. **Continuous ADC Scan**: All 11 stock channels (4 sticks, 4 switches, 2 pots, battery)—or 15 channels when P7 expansion is active—are digitized continuously by ADC1 via DMA in **0.23 ms** (252 cycles * 11 / 12 MHz).
 2. **Double-Buffered Channels**: The flight loop updates `PENDING_CHANNELS` within critical sections (`cortex_m::interrupt::free`).
 3. **Guaranteed Fresh Packets**: Because the decoupled flight control loop runs at kHz rates while the RF transmitter transmits at ~260 Hz, **every over-the-air packet carries fresh, up-to-date stick data** with end-to-end latency under **2.0 ms**.
 
@@ -158,13 +158,24 @@ In `flysky-i6x-rs`, reset recovery is treated as a safety-critical state machine
 
 ## 4. Memory Footprint
  
-Measured on release builds (`thumbv6m-none-eabi`, opt-level = "z", LTO = "fat"):
-- **Application Flash Partition (`memory.x`)**: **120 KB** (`0x0800_0000 .. 0x0801_DFFF`, Pages 0–59) allocated for firmware code.
-- **Firmware Binary**: **~89.4 KB** (.text 89,432 bytes + .data 1,876 bytes = 91.3 KB flash total).
-- **Free Program Space**: **~30.8 KB** (~25.7% free headroom) remaining within the 120 KB partition for future expansions.
-- **Non-Volatile Storage (Flash Pages 60–63)**: **8 KB** (`0x0801_E000 .. 0x0802_0000`, 4 × 2048-byte pages) managed as a log-structured append-only storage engine via `sequential-storage`. Writes complete in **~2.8 ms** with zero page erases on routine updates, wear-levelled across all 4 pages.
-- **SRAM (16 KB total)**: **~3.0 KB** static allocation (`.data` 1,876 bytes + `.bss` 1,128 bytes) + 1024-byte LCD framebuffer + 1024-byte USB Packet Memory Area (PMA). **Over 81% of SRAM remains free**, with **> 6.3 KB** guaranteed stack margin preventing any stack-on-static collision.
-- **Zero Heap & In-Place Loading**: Entirely static allocation; no dynamic heap allocations, no `alloc` crate, and zero pass-by-value stack instantiation for model storage structures.
+Measured on release builds (`thumbv6m-none-eabi`, opt-level = "z", LTO = "fat", v0.20.0):
+- **Flash ROM Partition (`memory.x`)**: **120 KB** (`0x0800_0000 .. 0x0801_DFFF`, Pages 0–59) allocated for firmware execution.
+  - **Firmware Binary**: **~110.5 KB** (110,552 bytes Flash total):
+    - `.text`: 93,440 bytes (code execution)
+    - `.rodata`: 8,996 bytes (constants, font tables, CRSF parameter metadata)
+    - `.data`: 7,924 bytes (initialized variables in Flash copied to SRAM at reset)
+    - `.vector_table`: 192 bytes (Cortex-M0 interrupt vector table at `0x0800_0000`)
+  - **Free Program Space**: **~9.5 KB** (9,448 bytes / ~7.9% headroom) remaining within the 120 KB partition for future expansions.
+- **Non-Volatile Storage Partition (Flash Pages 60–63)**: **8 KB** (`0x0801_E000 .. 0x0802_0000`, 4 × 2048-byte pages, 8,192 bytes total) managed as a log-structured append-only storage engine via `sequential-storage`. Writes complete in **~2.8 ms** with zero page erases on routine updates, wear-levelled across all 4 pages.
+- **SRAM Memory Budget (16 KB total, `0x2000_0000 .. 0x2000_3FFF`)**:
+  - **Static Allocation**: **~8.9 KB** (8,940 bytes total static RAM):
+    - `.data`: 7,924 bytes (`0x2000_0000 .. 0x2000_1EF4`)
+    - `.bss`: 1,016 bytes (`0x2000_1EF4 .. 0x2000_22EC`)
+  - **Dedicated Peripherals**:
+    - **LCD Framebuffer**: 1,024 bytes (128 × 64 monochrome buffer in static memory).
+    - **USB Packet Memory Area (PMA)**: 1,024 bytes of dedicated USB SRAM located at `0x4000_6000` (outside main SRAM).
+  - **Stack Safety Margin**: **> 7.0 KB** guaranteed unallocated stack safety margin (stack grows downward from `0x2000_4000`), completely eliminating any risk of stack collision with static variables.
+- **Zero Dynamic Heap Allocations**: Entirely static allocation; zero dynamic heap (`no_std`), zero `alloc` crate, zero memory leaks, and deterministic bounded execution throughout. Model storage loading employs zero-alloc in-place reads (`load_storage_into`).
 
 ---
 

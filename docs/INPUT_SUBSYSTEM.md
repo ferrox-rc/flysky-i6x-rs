@@ -6,7 +6,7 @@ Documentation for analog stick sampling, gimbal potentiometer geometry, switch d
 
 ## 1. ADC Channel Mapping (Mode 2)
 
-The autonomous ADC1 scanner digitizes 11 channels continuously into SRAM via DMA1 Channel 1:
+The autonomous ADC1 scanner digitizes 11 stock analog channels continuously into SRAM via DMA1 Channel 1 (expandable to 15 channels when P7 header expansion is enabled; see [HARDWARE_REFERENCE.md](HARDWARE_REFERENCE.md#9-hardware-extension-suite-sesf-switches--p7-header-adc)):
 
 | DMA Ch | MCU Pin | Function | Direction / Scaling |
 | :--- | :--- | :--- | :--- |
@@ -21,6 +21,8 @@ The autonomous ADC1 scanner digitizes 11 channels continuously into SRAM via DMA
 | **8** | `PB0` | **Switch SC** (3-Position) | UP (1000 µs) / MID (1500 µs) / DOWN (2000 µs) |
 | **9** | `PB1` | **Switch SD** (2-Position) | UP (1000 µs) / DOWN (2000 µs) |
 | **10** | `PC0` | **Battery Voltage Sense** | Resistor divider formula: `(raw * 100) / 421 + 20` |
+
+When P7 Header ADC is active (`Radio Setup -> P7 Header: AD12-AD15`), channels **11..14** (`PC2..PC5`) are appended to the DMA scan buffer as auxiliary analog inputs `VRC`, `VRD`, `VRE`, and `VRF`.
 
 ---
 

@@ -163,9 +163,9 @@ The hardware override for forcing the microcontroller into permanent ROM DFU boo
 
 ## 7. Analog Inputs & ADC1 Channel Map
 
-The FlySky FS-i6X uses a single 12-bit ADC peripheral (**ADC1**) paired with **DMA1 Channel 1** operating in circular mode to continuously scan 11 analog channels into SRAM without CPU intervention.
+The FlySky FS-i6X uses a single 12-bit ADC peripheral (**ADC1**) paired with **DMA1 Channel 1** operating in circular mode to continuously scan 11 analog channels (or 15 analog channels when P7 header expansion is enabled) into SRAM without CPU intervention.
 
-### Verified 11-Channel Mapping
+### Verified 11-Channel Mapping (Stock)
 
 | ADC Ch | MCU Pin | Function / Axis | Physical Input | Normal Expected Range | Notes |
 | :--- | :--- | :--- | :--- | :--- | :--- |
@@ -239,7 +239,7 @@ The 4-pin round rear port (and internal expansion header) connects to the MCU's 
 | **Signal TX** | `PD5` | `USART2_TX` (AF0) | Asynchronous serial output to external module |
 | **Signal RX** | `PA15` | `USART2_RX` (AF1) | Serial telemetry downlink from external module |
 | **Module Power**| `PC13` | Power Switch GPIO | Configurable polarity (Default High / Active Low supported in Radio Setup) |
-| **Baud Rate** | Selectable | 8N1 | 420k (ELRS), 416.6k (TBS), 115.2k (Low), 921.6k (Fast) |
+| **Baud Rate** | Selectable | 8N1 | 115.2k (Low), 416.6k (TBS), 420k (ELRS), 921.6k (Fast), 1.875M (Max) |
 
 ---
 

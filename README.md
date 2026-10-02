@@ -14,7 +14,7 @@ The FS-i6X open-source journey was pioneered by the remarkable work of the [Open
 - **Zero-Heap, Deterministic Memory:** Fully static allocation with bare-metal `no_std`, eliminating dynamic allocation overhead, allocator stalls, and heap fragmentation.
 - **Lock-Free Concurrency & Watchdog Recovery:** Deterministic priority-driven interrupt scheduling (`TIM16` 260 Hz packet sync, `EXTI2` RF ready) paired with lock-free atomic double-buffering. 2.0s independent hardware watchdog (`pac::IWDG`) with LSI clock isolation, debug halt freezing, bounded sync, and <2 ms in-flight warm reset recovery that bypasses startup interlocks to prevent lockouts.
 - **Strict Scope:** Dedicated support for the built-in hardware (A7105 AFHDS2A + i-BUS), 4-axis gimbals, switches, trims, 20-model storage, 14-channel matrix mixer, and a 128×64 monochrome UI.
-- **Lightweight Footprint:** **~110.3 KB Flash ROM** (leaving >9.7 KB / 8.1% headroom out of the 120 KB partition) and **~8.9 KB static RAM** + 1 KB LCD framebuffer + 1 KB USB PMA (leaving >44% SRAM free with >7.0 KB stack safety margin).
+- **Lightweight Footprint:** **~110.5 KB Flash ROM** (leaving ~9.5 KB / ~7.9% headroom out of the 120 KB partition) and **~8.9 KB static RAM** + 1 KB LCD framebuffer + 1 KB USB PMA (leaving >7.0 KB stack safety margin). See [ARCHITECTURE.md](docs/ARCHITECTURE.md#4-memory-footprint) for the complete memory budget.
 
 ---
 
@@ -38,7 +38,7 @@ The FS-i6X open-source journey was pioneered by the remarkable work of the [Open
 | | Strobe (RD / E) | `PD7` | 6800-series latch strobe (High -> Low pulse) |
 | | Backlight (Stock) | `PF3` | **Active HIGH** (drives NPN transistor base) |
 | | Backlight (Modded)| `PC9` | `TIM3_CH4` PWM dimming mod (pioneered by OpenI6X) |
-| **Analog Inputs** | 12-bit ADC1 via DMA | 11 Channels scanned | Continuous circular DMA1 Ch1 buffer |
+| **Analog Inputs** | 12-bit ADC1 via DMA | 11 Channels (15 with P7) | Continuous circular DMA1 Ch1 buffer |
 | | Sticks (RH, RV, LV, LH) | `PA0`, `PA1`, `PA2`, `PA3` | Channels 0 (Roll), 1 (Pitch), 2 (Thr), 3 (Yaw) |
 | | Potentiometers (VRA, VRB)| `PA6`, `PA7` | Channels 6 (VR1 / Left), 7 (VR2 / Right) |
 | | Switches (SA, SB, SC, SD)| `PA4`, `PA5`, `PB0`, `PB1` | Channels 4 (2-pos), 5 (3-pos), 8 (3-pos), 9 (2-pos) |
@@ -145,8 +145,8 @@ Comprehensive technical documentation is maintained in the [`docs/`](docs/) dire
 - **[User Guide & Operations Manual](docs/USER_GUIDE.md)**: Complete operator guide covering flight dashboard, menu navigation, 20-model setup, throttle curves, calibration, and binding.
 - **[System Architecture & Timing Model](docs/ARCHITECTURE.md)**: 48 MHz clock tree, real-time concurrency model, TIM16 260 Hz packet loop, Catmull-Rom curve math, and zero-heap memory layout.
 - **[AFHDS 2A Protocol & A7105 RF Driver](docs/RF_PROTOCOL.md)**: SPI1 hardware driver, 16-channel FHSS hopping table, 38-byte packet structure, Model Match, and one-way/two-way receiver binding.
-- **[Flight Inputs & Digital Trims](docs/INPUT_SUBSYSTEM.md)**: 11-channel continuous ADC DMA scanner, MMA jitter filtering, physical gimbal geometry, 4-axis digital trims, and TIM1 hardware PWM buzzer driver.
-- **[Flight Control & 14-Channel Mixing](docs/MIXER.md)**: 4-stage pipeline, integer cubic expo, Delta/V-Tail/Flaperon templates, auxiliary channel remapping, and EdgeTX freeform matrix mixing.
+- **[Flight Inputs & Digital Trims](docs/INPUT_SUBSYSTEM.md)**: 11/15-channel continuous ADC DMA scanner, MMA jitter filtering, physical gimbal geometry, 4-axis digital trims, and TIM1 hardware PWM buzzer driver.
+- **[Flight Control & 18-Channel Mixing](docs/MIXER.md)**: 4-stage pipeline, integer cubic expo, Delta/V-Tail/Flaperon templates, auxiliary channel remapping, and EdgeTX freeform matrix mixing.
 - **[Stick Calibration & Flash Persistence](docs/CALIBRATION_AND_STORAGE.md)**: 2-step interactive calibration wizard, tolerance margin calculation, and 4-page append-only sequential storage engine across Pages 60–63.
 - **[USB Subsystem & Simulator Manual](docs/USB_SUBSYSTEM.md)**: Hardware Full-Speed USB driver, 100 Hz HID Gamepad descriptor (8 axes, 16 buttons), CDC-ACM telemetry/CLI, and silent RF standby.
 - **[CRSF / ExpressLRS Subsystem Guide](docs/CRSF_ELRS_GUIDE.md)**: Native CRSF/ELRS driver, USART2 setup (`PD5`/`PA15`), `PC13` module power control, on-radio parameter configurator, and live link diagnostics.
@@ -162,7 +162,7 @@ Comprehensive technical documentation is maintained in the [`docs/`](docs/) dire
 
 | Action | Control | Notes |
 | :--- | :--- | :--- |
-| **Cycle Flight Pages** | **`[UP]` / `[DOWN]` or Tap `[BIND]`** | Steps through Page 1/4 (Gimbals & Timer), Page 2/4 (14-CH Monitor), Page 3/4 (Model Dashboard), and Page 4/4 (Telemetry Dashboard) |
+| **Cycle Flight Pages** | **`[UP]` / `[DOWN]` or Tap `[BIND]`** | Steps through Page 1/5 (Gimbals & Timer), Page 2/5 (CH 1..10 Monitor), Page 3/5 (CH 11..18 Monitor), Page 4/5 (Model Dashboard), and Page 5/5 (Telemetry Sensors) |
 | **Reset Flight Timer** | **Hold `[CANCEL]` (>= 1.0s)** | Displays centered HUD progress bar on flight screen; resets timer with chime on 1.0s completion |
 | **Open Settings Menu** | **Hold `OK` for 1.2s** | Opens 13 submenus: Model Select, Model Setup, D/R & Expo, Thr Curve, Wing/Mixer, Aux Channels, Ch Reverse, Radio Setup, Protocol Setup, Monitors, Calib, Diag, & Info |
 | **Rapid Menu / Value Scroll** | **Hold `UP` or `DOWN`** | Auto-repeats every 70 ms after 300 ms hold across all menus, character editing, and curve points |

@@ -44,7 +44,7 @@ Selectable in `9. Protocol Setup` -> `Duplex:`:
 
 ## 2. Flight Dashboard: Native CRSF Link Diagnostics
 
-When `rf_protocol` is set to `1` (`CRSF / ELRS`), Page 4/4 of the flight dashboard transitions from the AFHDS 2A packet counter into a real-time link diagnostics screen:
+When `rf_protocol` is set to `1` (`CRSF / ELRS`), Page 5/5 of the flight dashboard transitions from the AFHDS 2A packet counter into a real-time link diagnostics screen:
 
 ```
 +---------------------------------------------------------------+
@@ -55,7 +55,7 @@ When `rf_protocol` is set to `1` (`CRSF / ELRS`), Page 4/4 of the flight dashboa
 | SNR:  +12dB           | BAT:  16.4V                           |
 | ANT:  1 (Active)      | CAP:  450mAh                          |
 +---------------------------------------------------------------+
-| P4/4           CRSF LINK DIAGNOSTICS                          |
+| P5/5           CRSF LINK DIAGNOSTICS                          |
 +---------------------------------------------------------------+
 ```
 

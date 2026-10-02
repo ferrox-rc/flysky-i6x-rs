@@ -34,7 +34,7 @@ To achieve **instant, sub-millisecond local feedback** with zero hardware requir
         Profile: #![no_std]                          Profile: std enabled
         Peripheral Driver: Hardware MMIO             Peripheral Driver: Mock FIFO
         Hardware: Cortex-M0 (STM32F072)              Harness: Built-in Rust Test Runner
-        Binary: flysky-i6x.bin (Flash)               Speed: 74 tests in 0.01s
+        Binary: flysky-i6x.bin (Flash)               Speed: 88 tests in 0.01s
 ```
 
 1. **`src/lib.rs` Entry Point**: Configured with `#![cfg_attr(not(test), no_std)]`. When compiling firmware binaries, the codebase compiles strictly as `#![no_std]`. When running tests on the host, standard library support (`std`) is conditionally enabled for test assertion macros, vector allocations, and test runners.
@@ -240,14 +240,14 @@ The test suite covers core flight, calculation, and protocol components:
 Every contribution, bug fix, or feature branch must pass the **Dual Verification Requirement** before merging into `dev` or `main`:
 
 ```bash
-# 1. Run all host unit tests (must pass 36/36 tests with 0 failures)
+# 1. Run all host unit tests (must pass 88/88 tests with 0 failures)
 cargo test-host
 
 # 2. Compile bare-metal firmware (must produce 0 warnings and 0 errors)
 cargo build --release --target thumbv6m-none-eabi
 
 # 3. (Optional) Check binary size and Flash budget (<120 KB partition limit)
-arm-none-eabi-size target/thumbv6m-none-eabi/release/flysky-i6x
+cargo size --release --target thumbv6m-none-eabi -- -A
 ```
 
 ### CI / CD Integration
