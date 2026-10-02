@@ -202,17 +202,16 @@ stateDiagram-v2
 
 ---
 
-## 5. SRAM Budgeting & Zero-Alloc In-Place Loading
+## 5. Zero-Alloc In-Place Storage Architecture
 
-The STM32F072VB microcontroller features **16 KB (16,384 bytes) of internal SRAM** (`0x2000_0000` .. `0x2000_4000`). Because the stack grows downward from `0x2000_4000` while static `.data` and `.bss` variables grow upward from `0x2000_0000`, strict stack budgeting is required:
+To maintain deterministic execution and prevent stack-on-static collisions, configuration persistence is engineered around zero-alloc in-place routines:
 
-### Stack vs. Static Safety Architecture
+### Stack Safety & Direct Flash Access
 - **Targeted Key Reads (`load_radio_config`)**: Routines requiring only system settings read Key 0 (128 bytes) directly from the sequential storage log without loading the 20-model array.
 - **Granular Model Profile Loading (`load_model_config`)**: Individual model slots are read directly by key (Keys 1..20) into caller-provided references.
 - **In-Place Storage Loading (`load_storage_into`)**: Rather than returning a 2,688-byte `RadioStorage` struct by value on the stack, storage routines populate caller-provided references directly (`storage: &mut RadioStorage`).
 - **Direct Receiver ID Extraction**: The AFHDS 2A driver directly loads the active model's `rx_id` from sequential storage without allocating temporary buffers.
 - **BSS Relocation**: Volatile runtime caches (such as ExpressLRS parameter cache `CONFIG_ENGINE`) are zero-initialized in `.bss` rather than occupying `.data`.
-- **Memory Margins**:
-  - Total static RAM (`.data` + `.bss`): **~3,004 bytes** (terminates at `0x2000_0bb0`).
-  - Total stack consumption during deepest boot call: **~7,200 bytes** (stack lowest point: `0x2000_23f4`).
-  - **Guaranteed safety buffer**: **> 6.3 KB of unallocated headroom**, preventing any risk of stack collision with static stick calibration structures.
+
+> [!NOTE]
+> For the comprehensive Flash partition table, SRAM allocation breakdown, and stack safety margins, see [ARCHITECTURE.md (Memory Footprint)](ARCHITECTURE.md#4-memory-footprint).

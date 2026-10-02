@@ -5,6 +5,41 @@ All notable changes to the `flysky-i6x-rs` project will be documented in this fi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.20.0] - 2026-10-02
+
+### Added
+- **Hardware Extension Suite: Auxiliary Digital Switches SE & SF ([`src/boot.rs`](src/boot.rs), [`src/storage.rs`](src/storage.rs), [`src/input.rs`](src/input.rs), [`src/mixer.rs`](src/mixer.rs), [`src/usb/hid.rs`](src/usb/hid.rs), [`src/ui/`](src/ui/))**:
+  - Configured GPIO pins `PC12` (`SE`) and `PC15` (`SF`) as digital inputs with internal pull-ups (`PUPDR = 01`) for active-LOW toggle switch mods to GND.
+  - Added non-volatile toggle `ext_switches` to `RadioConfig` (`[OFF / PC12+PC15]`), using reserved storage byte without breaking the strict 128-byte `RadioConfig` constraint.
+  - Added hardware sampling in `input::poll()` with runtime enable/disable guard (`is_ext_switches_enabled()`).
+  - Added full mixing matrix support: sources `SE` (31) and `SF` (32) mapped to -1000 (Up) / +1000 (Down); switch conditions 11..14 (`SE^`, `SEv`, `SF^`, `SFv`); dual rates switch assignment (switches 5, 6); arm switch and flight timer triggers.
+  - Mapped `SE` and `SF` to discrete buttons 11 and 12 in the 16-button USB HID Gamepad report descriptor.
+  - Added `Analog Diag` Page 2 visual monitor for real-time `SW:SE` and `SW:SF` logic states, bars, and enablement status.
+  - Added dynamic 6-switch display (`SA`..`SF`) on the main flight gimbals dashboard when auxiliary switches are enabled, retaining the 4-switch layout when disabled.
+  - Added SE/SF assignment options in auxiliary channel mapper (`CH5`..`CH18`).
+- **Hardware Extension Suite: P7 Header ADC Inputs AD12..AD15 / VRC..VRF ([`src/adc.rs`](src/adc.rs), [`src/storage.rs`](src/storage.rs), [`src/input.rs`](src/input.rs), [`src/mixer.rs`](src/mixer.rs), [`src/calib.rs`](src/calib.rs), [`src/ui/`](src/ui/))**:
+  - Configured GPIO pins `PC2` (`AD12`), `PC3` (`AD13`), `PC4` (`AD14`), and `PC5` (`AD15`) in Analog Mode (`MODER = 11`, `PUPDR = 00`) for auxiliary potentiometers, sliders, or 3-position switches via resistor ladders.
+  - Implemented 15-channel autonomous DMA1 ADC circular scanning (`ADC1_CHSELR = 0xF7FF`) with runtime switching between 11 standard channels (`0x07FF`) and 15 channels (`0xF7FF`).
+  - Added non-volatile toggle `ext_adc` (`[OFF / AD12-AD15]`) and 4-axis calibration storage `ext_pots: [ChannelCalib; 4]` to `RadioConfig`, preserving the strict 128-byte layout.
+  - Added normalized -1000..+1000 scaling in `input::poll()` for `VRC`..`VRF` (neutral 0 when disabled).
+  - Added mixer sources `Vrc` (33), `Vrd` (34), `Vre` (35), and `Vrf` (36) available in auxiliary channel mapping (`CH5`..`CH18`) and matrix mixer lines.
+  - Integrated 4 external analog channels into the interactive Calibration Wizard (`calib.rs`), dynamically capturing min/center/max when moved >= 400 ADC counts.
+  - Added `Analog Diag` Page 3/4 `EXT ANALOG (P7)` with live bar gauges, raw 0..4095 counts, and enablement indicator.
+  - Added `P7 Header: [OFF / AD12-AD15]` toggle option to global Radio Setup.
+- **Single-Wire Half-Duplex CRSF (`HDSEL`) ([`src/crsf/uart.rs`](src/crsf/uart.rs), [`src/storage.rs`](src/storage.rs), [`src/ui/menu/screens/setup.rs`](src/ui/menu/screens/setup.rs), [`docs/CRSF_ELRS_GUIDE.md`](docs/CRSF_ELRS_GUIDE.md))**:
+  - Implemented single-wire bidirectional serial over `PD5` via STM32 hardware `HDSEL` (`USART2_CR3` bit 3) with open-drain output and internal pull-up.
+  - Implemented TX self-echo suppression in the `USART2` interrupt handler to automatically discard local transmitted bytes before routing incoming telemetry frames to `RX_RING`.
+  - Added per-model `Duplex: Full (2W) / Half (1W)` selection in **Protocol Setup**, persisted in `ModelConfig.crsf_half_duplex` without altering the 128-byte model struct size.
+- **1.875M High-Speed Baud Rate for CRSF ([`src/crsf/uart.rs`](src/crsf/uart.rs), [`src/ui/menu/screens/setup.rs`](src/ui/menu/screens/setup.rs))**:
+  - Added `1.875M (Max)` (`1,875,000 bps`, divisor $\text{BRR} = 26$, 1.5% timing margin on 48 MHz MCU clock) for ultra-low latency telemetry and high-rate packet modes on compatible ExpressLRS modules and backpacks.
+  - Harmonized ascending baud rate index sequence across storage, UART divisor, and UI: `115.2k (Low)`, `416.6k (TBS)`, `420k (ELRS)`, `921.6k (Fast)`, `1.875M (Max)`.
+- **UI Right-Alignment & Navigation Enhancements ([`src/ui/widgets.rs`](src/ui/widgets.rs), [`src/ui/menu/screens/setup.rs`](src/ui/menu/screens/setup.rs))**:
+  - Right-aligned parameter items across **Radio Setup** and **Protocol Setup** (AFHDS 2A and CRSF) with symmetrical 2px inner margin (`draw_list_row_right`).
+  - Standardized inverted selection highlights and row layout in CRSF protocol view.
+  - Corrected `[UP]` / `[DOWN]` navigation direction when editing CRSF baud rates to increment/decrement naturally.
+- **Standalone Architecture Roadmap**:
+  - Extracted Phase roadmap from `README.md` to standalone [`docs/ROADMAP.md`](docs/ROADMAP.md) for concise, consumable project documentation.
+
 ## [0.19.1] - 2026-10-01
 
 ### Added

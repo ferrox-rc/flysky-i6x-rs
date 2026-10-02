@@ -96,7 +96,7 @@ impl FlightPipeline {
         let mut just_disarmed = false;
         let is_armed = mixer::eval_arm_switch(active_model.arm_switch, &state.switches);
         if active_model.arm_switch > 0
-            && active_model.arm_switch <= 10
+            && active_model.arm_switch <= 14
             && is_armed != self.prev_armed
         {
             if is_armed {
@@ -129,7 +129,14 @@ impl FlightPipeline {
             state.sticks.pitch,
             thr_curved,
             state.sticks.yaw,
-            &[state.pots.vr1, state.pots.vr2],
+            &[
+                state.pots.vr1,
+                state.pots.vr2,
+                state.pots.vr3,
+                state.pots.vr4,
+                state.pots.vr5,
+                state.pots.vr6,
+            ],
             &state.switches,
             active_model,
             trims,
@@ -142,14 +149,18 @@ impl FlightPipeline {
 
         if is_crsf {
             let crsf_active = !sim_mode;
-            crsf::set_enabled(crsf_active, active_model.crsf_baud);
+            crsf::set_enabled(
+                crsf_active,
+                active_model.crsf_baud,
+                active_model.crsf_half_duplex != 0,
+            );
             if crsf_active {
                 crsf::update_channels(now, &rf_chs);
                 crsf::poll_telemetry(now);
             }
             rf::set_silenced(true);
         } else {
-            crsf::set_enabled(false, 0);
+            crsf::set_enabled(false, 0, false);
             rf::set_silenced(sim_mode);
             if !sim_mode {
                 rf::set_channels(&rf_chs);
@@ -430,7 +441,7 @@ impl BackgroundIdleManager {
         }
 
         // Arm Switch transitions: auto-reset upon Arming, unlatch upon Disarming
-        if model.arm_switch > 0 && model.arm_switch <= 10 {
+        if model.arm_switch > 0 && model.arm_switch <= 14 {
             if flight.just_armed {
                 self.timer_remaining_secs = model.timer_secs;
                 self.timer_elapsed_secs = 0;
@@ -475,7 +486,7 @@ impl BackgroundIdleManager {
         }
 
         // Evaluate timer trigger condition
-        let is_armed_or_unassigned = if model.arm_switch > 0 && model.arm_switch <= 10 {
+        let is_armed_or_unassigned = if model.arm_switch > 0 && model.arm_switch <= 14 {
             flight.is_armed
         } else {
             true
@@ -831,7 +842,7 @@ fn main() -> ! {
     watchdog::start();
 
     // 7. Initialize ADC1 + DMA1 autonomous continuous scanner
-    adc::init();
+    adc::init(storage.radio.ext_adc != 0);
     watchdog::feed();
     {
         let now = time::millis();

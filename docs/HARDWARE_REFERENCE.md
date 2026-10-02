@@ -163,9 +163,9 @@ The hardware override for forcing the microcontroller into permanent ROM DFU boo
 
 ## 7. Analog Inputs & ADC1 Channel Map
 
-The FlySky FS-i6X uses a single 12-bit ADC peripheral (**ADC1**) paired with **DMA1 Channel 1** operating in circular mode to continuously scan 11 analog channels into SRAM without CPU intervention.
+The FlySky FS-i6X uses a single 12-bit ADC peripheral (**ADC1**) paired with **DMA1 Channel 1** operating in circular mode to continuously scan 11 analog channels (or 15 analog channels when P7 header expansion is enabled) into SRAM without CPU intervention.
 
-### Verified 11-Channel Mapping
+### Verified 11-Channel Mapping (Stock)
 
 | ADC Ch | MCU Pin | Function / Axis | Physical Input | Normal Expected Range | Notes |
 | :--- | :--- | :--- | :--- | :--- | :--- |
@@ -239,5 +239,25 @@ The 4-pin round rear port (and internal expansion header) connects to the MCU's 
 | **Signal TX** | `PD5` | `USART2_TX` (AF0) | Asynchronous serial output to external module |
 | **Signal RX** | `PA15` | `USART2_RX` (AF1) | Serial telemetry downlink from external module |
 | **Module Power**| `PC13` | Power Switch GPIO | Configurable polarity (Default High / Active Low supported in Radio Setup) |
-| **Baud Rate** | Selectable | 8N1 | 420k (ELRS), 416.6k (TBS), 115.2k (Low), 921.6k (Fast) |
+| **Baud Rate** | Selectable | 8N1 | 115.2k (Low), 416.6k (TBS), 420k (ELRS), 921.6k (Fast), 1.875M (Max) |
+
+---
+
+## 9. Hardware Extension Suite (SE/SF Switches & P7 Header ADC)
+
+The FlySky FS-i6X mainboard exposes solder pads and an unpopulated header used for radio modding:
+
+### Auxiliary Digital Switches SE & SF (`PC12`, `PC15`)
+- **Switch SE**: Connected to microcontroller pad **`PC12`**. Standard 5V-tolerant GPIO configured as digital input with internal pull-up (`PUPDR = 01`). Wired to an SPST or SPDT toggle switch to GND (active LOW).
+- **Switch SF**: Connected to microcontroller pad **`PC15`**. Free GPIO (normally shared with optional LSE crystal, not used in this architecture) configured with internal pull-up (`PUPDR = 01`). Wired to an SPST or SPDT toggle switch to GND (active LOW).
+- **USB Mapping**: In 16-button USB Gamepad mode, `SE` and `SF` map cleanly to buttons 11 and 12.
+
+### Auxiliary Analog Inputs AD12–AD15 (`PC2`–`PC5` on Header P7)
+- **Header P7**: Unpopulated 2.0mm/2.54mm header pads exposing Port C analog pins:
+  - **`PC2` (`ADC_IN12`)**: Auxiliary Analog Channel `VRC` (Potentiometer / Slider 3)
+  - **`PC3` (`ADC_IN13`)**: Auxiliary Analog Channel `VRD` (Potentiometer / Slider 4)
+  - **`PC4` (`ADC_IN14`)**: Auxiliary Analog Channel `VRE` (Potentiometer / 6-pos switch)
+  - **`PC5` (`ADC_IN15`)**: Auxiliary Analog Channel `VRF` (Potentiometer / external telemetry)
+- **Autonomous DMA Scanning**: Enabling 15-channel scanning (`ADC1_CHSELR = 0xF7FF`) samples all 4 auxiliary analog pins through DMA1 Channel 1 with 0% CPU overhead.
+- **Safety**: Inputs remain disabled by default in `Radio Setup` to eliminate noise from floating unpopulated pins on stock transmitters.
 

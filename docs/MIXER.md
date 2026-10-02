@@ -80,6 +80,8 @@ In the **Dual Rate / Expo** menu, the pilot selects an assigned hardware switch:
 - `SB`: 3-position switch (UP = High Rate, MID/DOWN = Low Rate).
 - `SC`: 3-position switch (UP = High Rate, MID/DOWN = Low Rate).
 - `SD`: 2-position switch (UP = High Rate, DOWN = Low Rate).
+- `SE`: 2-position switch (UP = High Rate, DOWN = Low Rate, active-LOW mod).
+- `SF`: 2-position switch (UP = High Rate, DOWN = Low Rate, active-LOW mod).
 
 Independent High and Low rates (30%..100%) and Expo (-100%..+100%) can be configured per channel (Roll, Pitch, and Yaw).
 
@@ -141,6 +143,12 @@ All 14 auxiliary channels (CH5 through CH18) can be independently assigned to an
 | **8** | `SB`   | 3-position toggle switch | UP: 1000 µs / MID: 1500 µs / DN: 2000 µs |
 | **9** | `SC`   | 3-position toggle switch | UP: 1000 µs / MID: 1500 µs / DN: 2000 µs |
 | **10**| `SD`   | 2-position toggle switch | UP: 1000 µs / DN: 2000 µs |
+| **31**| `SE`   | Auxiliary toggle switch (`PC12`) | UP: 1000 µs / DN: 2000 µs |
+| **32**| `SF`   | Auxiliary toggle switch (`PC15`) | UP: 1000 µs / DN: 2000 µs |
+| **33**| `VRC`  | Auxiliary analog pot/slider (`PC2` on P7) | 1000..2000 µs |
+| **34**| `VRD`  | Auxiliary analog pot/slider (`PC3` on P7) | 1000..2000 µs |
+| **35**| `VRE`  | Auxiliary analog pot/slider (`PC4` on P7) | 1000..2000 µs |
+| **36**| `VRF`  | Auxiliary analog pot/slider (`PC5` on P7) | 1000..2000 µs |
 
 ### Factory Default Auxiliary Mapping
 - `CH5`: **SA** (Arming switch / Flight mode)
@@ -163,10 +171,10 @@ Each mix line comprises a compact 6-byte struct stored in Flash memory:
 ```rust
 pub struct MixLine {
     pub target_ch: u8,   // 0: Disabled, 1..18: Target Channel (CH1..CH18)
-    pub source: u8,      // 0: None, 1..4: AETR, 5..6: VRA/VRB, 7..10: SA..SD, 11: MAX, 12..29: CH1..CH18, 30: ThrUnipolar
+    pub source: u8,      // 0: None, 1..4: AETR, 5..6: VRA/VRB, 7..10: SA..SD, 11: MAX, 12..29: CH1..CH18, 30: Thr+, 31..32: SE/SF, 33..36: VRC..VRF
     pub weight: i8,      // -100% .. +100% (gain / authority)
     pub offset: i8,      // -100% .. +100% (center shift)
-    pub switch: u8,      // 0: Always ON, 1..10: Physical switch position condition
+    pub switch: u8,      // 0: Always ON, 1..10: SA..SD conditions, 11..14: SE/SF conditions
     pub mode: u8,        // 0: ADD (+), 1: MULTIPLY (*), 2: REPLACE (:=)
 }
 ```
@@ -193,6 +201,8 @@ A mix line can be gated by a hardware switch:
 - `SB^`, `SB-`, `SBv`: Active when switch `SB` is UP, MID, or DOWN.
 - `SC^`, `SC-`, `SCv`: Active when switch `SC` is UP, MID, or DOWN.
 - `SD^`, `SDv`: Active when switch `SD` is UP or DOWN.
+- `SE^`, `SEv`: Active when auxiliary switch `SE` is UP or DOWN (active-LOW mod).
+- `SF^`, `SFv`: Active when auxiliary switch `SF` is UP or DOWN (active-LOW mod).
 
 ---
 
@@ -237,9 +247,9 @@ Here are proven mixer setups used by RC pilots:
 
 ---
 
-## 7. Storage & Flash Memory Budget
+## 7. Model Profile Storage Layout
 
-All Phase 10 flight mixer parameters are stored directly inside each 128-byte [`ModelConfig`](../src/storage.rs) structure in the append-only sequential storage log (Keys 1..20 across Flash Pages 60–63 at `0x0801_E000`):
+Flight mixer parameters are stored directly inside each 128-byte [`ModelConfig`](../src/storage.rs) structure in the append-only sequential storage log (Keys 1..20 across Flash Pages 60–63 at `0x0801_E000`):
 
 | Parameter | Type | Bytes | Offset in Model Profile |
 | :--- | :--- | :--- | :--- |
@@ -255,4 +265,6 @@ All Phase 10 flight mixer parameters are stored directly inside each 128-byte [`
 | `_reserved` | `[u8; 14]` | 14 | Offset 114..128 |
 
 Total `ModelConfig` size: **exactly 128 bytes** (100% backward and forward compatible, 0 migration loss).
-Total firmware binary size: **52.9 KB** / 128 KB (~58% Flash headroom remaining).
+
+> [!NOTE]
+> For total firmware binary footprint, Flash partition boundaries, and SRAM budgeting, see [ARCHITECTURE.md (Memory Footprint)](ARCHITECTURE.md#4-memory-footprint).

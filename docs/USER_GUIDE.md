@@ -216,7 +216,7 @@ Hold **`[OK]` for 1.2 seconds** from any flight screen to open the Settings Menu
 - **Field 1: Model Type**:
   - Press **`[OK]`** to cycle between `AIRPLANE`, `GLIDER`, `HELI`, `QUAD`, and `GENERAL` (boats, rovers, surface models, robotics). Throttle interlock safety checks are automatically adapted based on model type.
 - **Field 2: Arm Switch (`Arm Sw:`)**:
-  - Assign any physical switch and position condition as the model's arming switch: **`NONE`**, **`SA^`**, **`SAv`**, **`SB^`**, **`SB-`**, **`SBv`**, **`SC^`**, **`SC-`**, **`SCv`**, **`SD^`**, or **`SDv`**.
+  - Assign any physical switch and position condition as the model's arming switch: **`NONE`**, **`SA^`**, **`SAv`**, **`SB^`**, **`SB-`**, **`SBv`**, **`SC^`**, **`SC-`**, **`SCv`**, **`SD^`**, **`SDv`**, and modded **`SE^`**, **`SEv`**, **`SF^`**, **`SFv`**.
   - **Switch Auto-Detection**: Simply toggle the desired physical switch while editing to auto-detect and select it.
   - **Flight Safety & Acoustic Feedback**: Arming plays a rising tone chirp; disarming plays a falling tone chirp.
   - **Timer Integration**: Disarming pauses and unlatches the flight timer so the pilot can inspect total flight duration. Re-arming for the next flight automatically resets the timer back to its configured duration!
@@ -228,7 +228,7 @@ Hold **`[OK]` for 1.2 seconds** from any flight screen to open the Settings Menu
     - **`THs (RUN)`**: Throttle Switch mode—runs only while throttle stick $> 5\%$ ($> -900$), pauses when brought back to idle.
     - **`THt (LTCH)`**: Throttle Trigger / Latched mode—starts counting when throttle stick first exceeds 5%, and continues running non-stop throughout zero-throttle glides or multirotor descents.
     - **`ALWAYS ON`**: Continuous timer whenever the radio is powered on.
-    - **Switch Conditions (`SA^` through `SDv`)**: Runs while the specified switch condition is active.
+    - **Switch Conditions (`SA^` through `SDv`, plus `SE^..SFv`)**: Runs while the specified switch condition is active.
   - **Switch Auto-Detection**: Flipping any physical switch while editing `T-Trig` automatically sets that switch as the trigger.
 - **Field 5: Model Copy / Duplicate (`Copy -> Mxx`)**:
   - Select a target model slot (`M01`..`M20`) and press **`[OK]`** to clone the current model's name, trims, curves, mixer lines, and protocol settings for safe experimentation.
@@ -239,7 +239,7 @@ Hold **`[OK]` for 1.2 seconds** from any flight screen to open the Settings Menu
 
 ### Submenu 3: Dual Rate & Expo (`DUAL RATE/EXPO`)
 Configures stick throw authority and center sensitivity for primary controls:
-- **Switch**: Select physical hardware switch (`None`, `SA`, `SB`, `SC`, `SD`) to toggle between High Rates (UP) and Low Rates (MID/DOWN).
+- **Switch**: Select physical hardware switch (`None`, `SA`, `SB`, `SC`, `SD`, `SE`, `SF`) to toggle between High Rates (UP) and Low Rates (MID/DOWN).
 - **Channel**: Select axis to adjust (`Roll`, `Pitch`, `Yaw`).
 - **Hi Rate / Lo Rate**: Adjust throw authority (30%..100% in 5% steps).
 - **Hi Expo / Lo Expo**: Adjust center sensitivity (-100%..+100% in 5% steps). Positive expo softens stick sensitivity around center for smooth flight.
@@ -276,23 +276,23 @@ Interactive curve engine with real-time on-screen curve visualization (49 x 37 p
 ### Submenu 5: Wing & Tail Mixer (`WING/MIXER`)
 - **Wing Template**: Cycle between `NORMAL`, `ELEVON/DELTA` (flying wings/jets: mixes Pitch & Roll on CH1/CH2), `V-TAIL` (gliders: mixes Pitch & Yaw on CH2/CH4), and `FLAPERON` (dual ailerons on CH1 & CH6 with flap input).
 - **Freeform Mix Lines (`M1` .. `M8`)**: Press **`[OK]`** to edit any mix line:
-  - **Target**: Output channel (`CH1`..`CH14` or `Disabled`).
-  - **Source**: Control source (`Roll`, `Pitch`, `Thr`, `Yaw`, `VRA`, `VRB`, `SA..SD`, `MAX`, `CH1..CH14`).
+  - **Target**: Output channel (`CH1`..`CH18` or `Disabled`).
+  - **Source**: Control source (`Roll`, `Pitch`, `Thr`, `Yaw`, `VRA`, `VRB`, `SA..SD`, `SE`, `SF`, `VRC..VRF`, `MAX`, `CH1..CH18`, `Thr+`).
   - **Weight / Offset**: Percentage scaling (-100%..+100%).
-  - **Switch**: Activation condition (`ON`, `SA^`, `SAv`, `SB^`, `SB-`, `SBv`, `SC^`, `SC-`, `SCv`, `SD^`, `SDv`).
+  - **Switch**: Activation condition (`ON`, `SA^`, `SAv`, `SB^`, `SB-`, `SBv`, `SC^`, `SC-`, `SCv`, `SD^`, `SDv`, `SE^`, `SEv`, `SF^`, `SFv`).
   - **Mode**: Multiplex method (`ADD (+)`, `MULT (*)`, `REPL (:=)`).
 
 ### Submenu 6: Auxiliary Channels (`AUX CHANNELS`)
-Assigns physical controls (switches `SA..SD`, pots `VRA/VRB`, sticks, or `None`) to channels `CH5` through `CH14`.
+Assigns physical controls (switches `SA..SD`, pots `VRA/VRB`, modded `SE/SF` and `VRC..VRF`, sticks, or `None`) to channels `CH5` through `CH18`.
 
 ### Submenu 7: Channel Reverse (`CH REVERSE`)
-- Lists all 14 channels (CH1:ROL, CH2:PIT, CH3:THR, CH4:YAW, SwA..SwD, VR1, VR2).
+- Lists all 18 channels (CH1:ROL, CH2:PIT, CH3:THR, CH4:YAW, SwA..SwD, VR1, VR2, CH11..CH18).
 - Press **`[OK]`** to toggle between **`NOR`** (Normal) and **`REV`** (Reversed).
 - Calculations use hardware-standard inversion: `pulse = 3000 - pulse`.
 - Automatically saved to non-volatile Flash upon exit.
 
 ### Submenu 8: Radio Setup (`RADIO SETUP`)
-The Radio Setup menu features a scrollable 4-item viewport with 9px row heights and automatic vertical scrolling across 9 system-level configuration parameters:
+The Radio Setup menu features a scrollable 4-item viewport with 9px row heights and automatic vertical scrolling across 11 system-level configuration parameters:
 - **`Thr Trim:`**: Toggle between `OFF (Lock)`, `IDLE`, and `LINEAR`.
 - **`Beeper:`**: Toggle audio sound between `ENABLED` and `MUTED`.
 - **`Tones:`**: Select audio notification style between **`RICH`** (melodic multi-tone chime sequences) and **`SIMPLE`** (classic single-tone buzzer beeps). Toggling gives an immediate live audio preview!
@@ -306,6 +306,8 @@ The Radio Setup menu features a scrollable 4-item viewport with 9px row heights 
   - **`SERIAL`**: Virtual COM Port (CDC-ACM) at 115200 baud streaming live JSON telemetry while maintaining normal RF transmission.
   - **`COMPOSITE`**: Simultaneous HID Gamepad + CDC-ACM Virtual COM Port.
 - **`PC13 Pwr:`**: Configures external module power polarity on `PC13`: `HIGH (N)` (default active-HIGH for N-channel MOSFET switches) or `LOW (P)` (active-LOW for P-channel MOSFET switches).
+- **`Ext Sw:`**: Toggles auxiliary hardware switches SE and SF on pins `PC12` and `PC15` (`OFF` or `PC12+PC15`).
+- **`P7 Header:`**: Toggles autonomous 15-channel ADC scanning for auxiliary inputs AD12..AD15 on Header P7 (`OFF` or `AD12-AD15`).
 
 ### Submenu 9: Protocol Setup (`PROTOCOL SETUP`)
 Universal RF protocol and receiver configuration, saved per-model:
@@ -315,17 +317,15 @@ Universal RF protocol and receiver configuration, saved per-model:
     > **Servo Safety Warning**: Standard analog servos (e.g. SG90, MG90S) **MUST** be driven at 50 Hz. Feeding higher frequencies to analog servos can cause severe jitter, excessive heating, and motor burnout. Only select rates above 50 Hz when all connected servos are high-speed digital servos rated for higher frame rates.
   - `RX Out:`: Receiver output signal format: **`PWM`** (individual servo pin outputs) or **`PPM`** (composite Pulse Position Modulation stream on CH1).
   - `Serial:`: Receiver serial bus protocol: **`i-BUS`** (`0xDE`, FlySky proprietary bidirectional serial protocol) or **`S.BUS`** (`0xDD`, Futaba/FrSky inverted serial stream for flight controllers). Transmitted immediately over the air to reconfigure the receiver hardware dynamically.
-- **`Proto: CRSF`**: Drives external Crossfire, ExpressLRS, or compatible CRSF transmitter modules connected to the rear expansion bay (`PD5` TX, `PA15` RX) with hardware power control on `PC13`. Pressing **`[OK]`** cycles selection through Protocol, Baud Rate, and Configure Module:
-  - `Baud: 420k (ELRS)`: Default recommended speed for ExpressLRS.
-  - `Baud: 416.6k (TBS)`: Standard TBS Crossfire module rate.
-  - `Baud: 115.2k (Low)`: Low-speed compatibility / diagnostic rate.
-  - `Baud: 921.6k (Fast)`: High-throughput ExpressLRS rate.
+- **`Proto: CRSF`**: Drives external Crossfire, ExpressLRS, or compatible CRSF transmitter modules connected to the rear expansion bay (`PD5` TX, `PA15` RX) with hardware power control on `PC13`. Pressing **`[OK]`** cycles selection through Protocol, Baud Rate, Duplex mode, and Configure Module:
+  - `Baud:` Selectable baud rate: `115.2k (Low)`, `416.6k (TBS)`, `420k (ELRS)` (default), `921.6k (Fast)`, and `1.875M (Max)`.
+  - `Duplex:` Serial wiring topology: `Full (2W)` (standard 2-wire `PD5` TX / `PA15` RX) or `Half (1W)` (bidirectional single-wire half-duplex over `PD5` with hardware self-echo suppression).
   - `[Configure Module]`: Opens the native TBS-Agent style configurator screen to discover devices, navigate subfolders, and configure settings.
   - *For complete wiring pinouts, power polarity settings, live telemetry dashboard metrics, and the configurator guide, see the dedicated [CRSF Subsystem Guide](CRSF_ELRS_GUIDE.md).*
 
 ### Submenu 10: Channel Monitor (`CHANNEL MONITOR`)
-- Displays live pulse widths (1000..2000 µs) across all 14 channels with 40-pixel horizontal graphic bar indicators and exact microsecond numbers.
-- Press **`[UP]`** / **`[DOWN]`** to toggle between Page 1 (CH1..CH7) and Page 2 (CH8..CH14).
+- Displays live pulse widths (1000..2000 µs) across all 18 channels with 40-pixel horizontal graphic bar indicators and exact microsecond numbers.
+- Press **`[UP]`** / **`[DOWN]`** to toggle between Page 1 (CH1..CH6), Page 2 (CH7..CH12), and Page 3 (CH13..CH18).
 
 ### Submenu 11: Stick Calibration (`STICK CALIB`)
 Launches the interactive 2-step calibration wizard (see Section 5 below).
@@ -334,7 +334,9 @@ Launches the interactive 2-step calibration wizard (see Section 5 below).
 - Multi-page graphic diagnostics screen matching the `CHANNEL MONITOR` layout with 40-pixel graphic fill bars and exact 4-digit raw decimal ADC counts (0..4095):
   - **Page 1 (`ANALOG (1-6)`)**: Stick gimbals & switches: `RH:AIL`, `RV:ELE`, `LV:THR`, `LH:RUD`, `SW:SA`, `SW:SB`.
   - **Page 2 (`ANALOG (7-11)`)**: Rotary pots, switches, & battery: `POT:V1`, `POT:V2`, `SW:SC`, `SW:SD`, `VBAT`.
-- Press **`[UP]`** / **`[DOWN]`** to switch between Page 1 and Page 2.
+  - **Page 3 (`EXT SWITCHES (SE/SF)`)**: Modded auxiliary toggle switches SE (`PC12`) and SF (`PC15`) showing live digital high/low state and configuration status.
+  - **Page 4 (`EXT ANALOG (P7)`)**: Auxiliary analog channels `VRC:AD12`, `VRD:AD13`, `VRE:AD14`, and `VRF:AD15` on Header P7 with fill bars and raw ADC counts.
+- Press **`[UP]`** / **`[DOWN]`** to cycle through the diagnostic pages.
 - Press **`[CANCEL]` (`[ESC]`)** to return to the Main Menu.
 
 ### Submenu 13: System Information (`SYSTEM INFO`)

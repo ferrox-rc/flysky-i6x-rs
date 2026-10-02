@@ -57,7 +57,10 @@ pub struct RadioConfig {
     pub servo_rate_hz: u16,        // 66..68 (50..400 Hz, default 50 Hz for analog servo safety)
     pub rx_out_mode: u8,           // 68 (0: PWM, 1: PPM, default 0)
     pub rx_serial_proto: u8,       // 69 (0: i-BUS, 1: S.BUS, default 0)
-    pub _reserved: [u8; 58],       // 70..128
+    pub ext_switches: u8,          // 70 (0: Disabled, 1: Enabled / PC12+PC15)
+    pub ext_adc: u8,               // 71 (0: Disabled, 1: Enabled / Header P7 AD12-AD15)
+    pub ext_pots: [ChannelCalib; 4], // 72..104 (32 bytes: VRC, VRD, VRE, VRF)
+    pub _reserved: [u8; 24],       // 104..128
 }
 
 impl RadioConfig {
@@ -112,7 +115,31 @@ impl RadioConfig {
             servo_rate_hz: 50,
             rx_out_mode: 0,
             rx_serial_proto: 0,
-            _reserved: [0; 58],
+            ext_switches: 0,
+            ext_adc: 0,
+            ext_pots: [
+                ChannelCalib::new(
+                    crate::adc::ADC_MIN,
+                    crate::adc::ADC_CENTER,
+                    crate::adc::ADC_MAX,
+                ), // VRC (PC2)
+                ChannelCalib::new(
+                    crate::adc::ADC_MIN,
+                    crate::adc::ADC_CENTER,
+                    crate::adc::ADC_MAX,
+                ), // VRD (PC3)
+                ChannelCalib::new(
+                    crate::adc::ADC_MIN,
+                    crate::adc::ADC_CENTER,
+                    crate::adc::ADC_MAX,
+                ), // VRE (PC4)
+                ChannelCalib::new(
+                    crate::adc::ADC_MIN,
+                    crate::adc::ADC_CENTER,
+                    crate::adc::ADC_MAX,
+                ), // VRF (PC5)
+            ],
+            _reserved: [0; 24],
         }
     }
 }
@@ -171,12 +198,12 @@ pub struct ModelConfig {
     pub failsafe_mode: u8, // 118: 0: Hold last, 1: Custom pulses
     pub failsafe_timeout: u8, // 119: 10..50 (1.0s..5.0s)
     pub rf_protocol: u8,  // 120: 0: AFHDS 2A, 1: CRSF / ELRS
-    pub crsf_baud: u8,    // 121: 0: 420k, 1: 416.6k, 2: 115.2k, 3: 921.6k
+    pub crsf_baud: u8,    // 121: 0: 115.2k, 1: 416.6k, 2: 420k, 3: 921.6k, 4: 1.875M
     pub arm_switch: u8, // 122: 0: None, 1: SA^, 2: SAv, 3: SB^, 4: SB-, 5: SBv, 6: SC^, 7: SC-, 8: SCv, 9: SD^, 10: SDv
     pub rx_out_mode: u8, // 123: 0: PWM, 1: PPM (default 0)
     pub servo_rate_hz: u16, // 124..126: 50..400 Hz (default 50 Hz)
     pub rx_serial_proto: u8, // 126: 0: i-BUS, 1: S.BUS (default 0)
-    pub _reserved: [u8; 1], // 127..128: 1 reserved byte
+    pub crsf_half_duplex: u8, // 127: 0: Full-Duplex (2-Wire), 1: Half-Duplex (1-Wire)
 }
 
 impl ModelConfig {
@@ -213,12 +240,12 @@ impl ModelConfig {
             failsafe_mode: 0,
             failsafe_timeout: 20,
             rf_protocol: 0,
-            crsf_baud: 0,
+            crsf_baud: 2,
             arm_switch: 0,
             servo_rate_hz: 50,
             rx_out_mode: 0,
             rx_serial_proto: 0,
-            _reserved: [0; 1],
+            crsf_half_duplex: 0,
         }
     }
 }
@@ -301,6 +328,9 @@ impl RadioStorage {
         if self.radio.rx_serial_proto > 1 {
             self.radio.rx_serial_proto = 0;
         }
+        if self.radio.ext_switches > 1 {
+            self.radio.ext_switches = 0;
+        }
 
         for stick in self.radio.sticks.iter_mut() {
             if stick.min >= stick.center
@@ -319,13 +349,26 @@ impl RadioStorage {
                 pot.max = crate::adc::ADC_MAX;
             }
         }
+        if self.radio.ext_adc > 1 {
+            self.radio.ext_adc = 0;
+        }
+        for pot in self.radio.ext_pots.iter_mut() {
+            if pot.min >= pot.center || pot.center >= pot.max || pot.max > crate::adc::ADC_MAX {
+                pot.min = crate::adc::ADC_MIN;
+                pot.center = crate::adc::ADC_CENTER;
+                pot.max = crate::adc::ADC_MAX;
+            }
+        }
 
         for (idx, m) in self.models.iter_mut().enumerate() {
             if m.rf_protocol > 1 {
                 m.rf_protocol = 0;
             }
-            if m.crsf_baud > 3 {
-                m.crsf_baud = 0;
+            if m.crsf_baud > 4 {
+                m.crsf_baud = 2;
+            }
+            if m.crsf_half_duplex > 1 {
+                m.crsf_half_duplex = 0;
             }
             for axis in 0..3 {
                 if m.dr_high[axis] < 30 || m.dr_high[axis] > 100 {
@@ -341,7 +384,7 @@ impl RadioStorage {
                     m.expo_low[axis] = 0;
                 }
             }
-            if m.dr_switch > 4 {
+            if m.dr_switch > 6 {
                 m.dr_switch = 0;
             }
             if m.wing_tail_mix > 3 {
@@ -358,12 +401,12 @@ impl RadioStorage {
                 m.aux_channels = [7, 8, 5, 6, 9, 10, 0, 0, 0, 0, 0, 0, 0, 0];
             }
             for src in m.aux_channels.iter_mut() {
-                if *src > 30 {
+                if *src > 36 {
                     *src = 0;
                 }
             }
             for mix in m.mixes.iter_mut() {
-                if mix.target_ch > 18 || mix.source > 30 || mix.mode > 2 || mix.switch > 10 {
+                if mix.target_ch > 18 || mix.source > 36 || mix.mode > 2 || mix.switch > 14 {
                     *mix = MixLine::disabled();
                 }
             }
@@ -371,10 +414,10 @@ impl RadioStorage {
                 m.thr_curve_pts = 5;
                 m.thr_curve = [0, 25, 50, 75, 100, 0, 0, 0, 0];
             }
-            if m.arm_switch > 10 {
+            if m.arm_switch > 14 {
                 m.arm_switch = 0;
             }
-            if m.timer_source > 13 {
+            if m.timer_source > 17 {
                 m.timer_source = 0;
             }
             if m.timer_secs > 3600 {
@@ -1022,6 +1065,8 @@ mod tests {
         storage.radio.servo_rate_hz = 65535;
         storage.radio.rx_out_mode = 255;
         storage.radio.rx_serial_proto = 255;
+        storage.radio.ext_switches = 255;
+        storage.radio.ext_adc = 255;
 
         for m in storage.models.iter_mut() {
             m.arm_switch = 255;
@@ -1029,6 +1074,7 @@ mod tests {
             m.timer_secs = 65535;
             m.rf_protocol = 255;
             m.crsf_baud = 255;
+            m.crsf_half_duplex = 255;
             m.dr_switch = 255;
             m.wing_tail_mix = 255;
             m.failsafe_thr = 65535;
@@ -1052,18 +1098,22 @@ mod tests {
         assert_eq!(storage.radio.servo_rate_hz, 50);
         assert_eq!(storage.radio.rx_out_mode, 0);
         assert_eq!(storage.radio.rx_serial_proto, 0);
+        assert_eq!(storage.radio.ext_switches, 0);
+        assert_eq!(storage.radio.ext_adc, 0);
+        assert_eq!(storage.radio.ext_pots[0].center, crate::adc::ADC_CENTER);
 
         for (idx, m) in storage.models.iter().enumerate() {
-            assert!(m.arm_switch <= 10, "arm_switch must be sanitized <= 10");
+            assert!(m.arm_switch <= 14, "arm_switch must be sanitized <= 14");
             assert_eq!(m.arm_switch, 0);
-            assert!(m.timer_source <= 13, "timer_source must be sanitized <= 13");
+            assert!(m.timer_source <= 17, "timer_source must be sanitized <= 17");
             assert_eq!(m.timer_source, 0);
             assert_eq!(m.timer_secs, 0);
             assert_eq!(m.servo_rate_hz, 50);
             assert_eq!(m.rx_out_mode, 0);
             assert_eq!(m.rx_serial_proto, 0);
             assert_eq!(m.rf_protocol, 0);
-            assert_eq!(m.crsf_baud, 0);
+            assert_eq!(m.crsf_baud, 2);
+            assert_eq!(m.crsf_half_duplex, 0);
             assert_eq!(m.dr_switch, 0);
             assert_eq!(m.wing_tail_mix, 0);
             assert_eq!(m.failsafe_thr, 1000);
