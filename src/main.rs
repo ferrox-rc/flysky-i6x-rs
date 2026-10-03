@@ -222,6 +222,7 @@ struct BackgroundIdleManager {
     inactivity_beep_timer: u32,
     last_display_ms: u32,
     menu_was_active: bool,
+    rx_id_dirty: bool,
 }
 
 impl BackgroundIdleManager {
@@ -257,6 +258,7 @@ impl BackgroundIdleManager {
             inactivity_beep_timer: 0,
             last_display_ms: 0,
             menu_was_active: false,
+            rx_id_dirty: false,
         }
     }
 
@@ -409,10 +411,13 @@ impl BackgroundIdleManager {
                 && storage.active_model().rx_id != new_rx_id
             {
                 storage.active_model_mut().rx_id = new_rx_id;
-                if !pipeline.prev_armed {
-                    storage::save_active_model(storage);
-                    buzzer.play_tone_pattern(2400, 70, 50, 2);
-                }
+                self.rx_id_dirty = true;
+            }
+        }
+        if self.rx_id_dirty && !pipeline.prev_armed {
+            if storage::save_active_model(storage) {
+                self.rx_id_dirty = false;
+                buzzer.play_tone_pattern(2400, 70, 50, 2);
             }
         }
 
