@@ -414,11 +414,9 @@ impl BackgroundIdleManager {
                 self.rx_id_dirty = true;
             }
         }
-        if self.rx_id_dirty && !pipeline.prev_armed {
-            if storage::save_active_model(storage) {
-                self.rx_id_dirty = false;
-                buzzer.play_tone_pattern(2400, 70, 50, 2);
-            }
+        if self.rx_id_dirty && !pipeline.prev_armed && storage::save_active_model(storage) {
+            self.rx_id_dirty = false;
+            buzzer.play_tone_pattern(2400, 70, 50, 2);
         }
 
         // 7. Long-press OK (1.2s) from flight dashboard opens Settings Menu
