@@ -57,6 +57,7 @@ struct FlightSnapshot {
 struct FlightPipeline {
     prev_armed: bool,
     prev_active_model: u8,
+    telem_reading_idx: u8,
 }
 
 impl FlightPipeline {
@@ -66,6 +67,7 @@ impl FlightPipeline {
         Self {
             prev_armed,
             prev_active_model: storage.radio.active_model,
+            telem_reading_idx: 1,
         }
     }
 
@@ -178,7 +180,7 @@ impl FlightPipeline {
                 packets_received: 0,
             }
         } else {
-            rf::get_telemetry()
+            rf::get_telemetry_local(&mut self.telem_reading_idx)
         };
         let is_binding = !is_crsf && rf::is_binding();
 
