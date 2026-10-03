@@ -7,10 +7,10 @@ pub mod a7105;
 pub mod afhds2a;
 pub mod spi;
 
-use crate::mixer::CHANNEL_CENTER_US;
+use crate::mixer::SAFE_IDLE_CHANNELS;
 use afhds2a::{Afhds2a, TelemetryData, NUM_CHANNELS};
 use core::cell::UnsafeCell;
-use core::sync::atomic::{AtomicBool, AtomicU8, Ordering};
+use core::sync::atomic::{AtomicBool, AtomicU16, AtomicU8, Ordering};
 use stm32f0xx_hal::pac::interrupt;
 
 struct RfDriverCell(UnsafeCell<Option<Afhds2a>>);
@@ -79,6 +79,28 @@ impl<T: Copy> TripleBuffer<T> {
         self.published.store(0x80 | write_idx, Ordering::Release);
     }
 
+    /// Read the latest available data using an external/thread-local reading index.
+    /// Eliminates shared reader state race conditions when the consumer can be preempted by the writer.
+    #[inline(always)]
+    pub fn read_local(&self, local_reading_idx: &mut u8) -> T {
+        let published_val = self.published.load(Ordering::Acquire);
+        let read_idx = if (published_val & 0x80) != 0 {
+            let idx = published_val & 0x03;
+            self.published.store(idx, Ordering::Relaxed);
+            *local_reading_idx = idx;
+            self.reading_idx.store(idx, Ordering::Release);
+            idx
+        } else {
+            *local_reading_idx
+        };
+
+        // Safety: `read_idx` is distinct from writer target slot.
+        unsafe {
+            let buf_ptr = self.buffers.get();
+            (*buf_ptr)[read_idx as usize]
+        }
+    }
+
     /// Read the latest available data.
     /// Called by the consumer (single reader, e.g. ISR).
     #[inline(always)]
@@ -105,9 +127,11 @@ impl<T: Copy> TripleBuffer<T> {
 }
 
 static CHANNEL_BUFFER: TripleBuffer<[u16; NUM_CHANNELS]> =
-    TripleBuffer::new([CHANNEL_CENTER_US; NUM_CHANNELS]);
+    TripleBuffer::new(SAFE_IDLE_CHANNELS);
 static TELEMETRY_BUFFER: TripleBuffer<TelemetryData> = TripleBuffer::new(TelemetryData::new());
 static RF_SILENCED: AtomicBool = AtomicBool::new(false);
+static PUBLISHED: AtomicBool = AtomicBool::new(false);
+static HEARTBEAT: AtomicU16 = AtomicU16::new(0);
 
 /// Initialize RF subsystem: SPI1, A7105 transceiver, and AFHDS 2A stack.
 /// Returns true if A7105 responded and passed silicon verification (0x9E).
@@ -159,9 +183,15 @@ pub fn is_silenced() -> bool {
 
 /// Update channel outputs (CH1..CH18) in microseconds (988..2012 µs).
 /// Completely lock-free triple-buffered write: zero critical sections, zero interrupt latency.
+/// Updates the heartbeat counter and flags that valid channel data has been published.
 #[inline(always)]
 pub fn set_channels(channels: &[u16; NUM_CHANNELS]) {
     CHANNEL_BUFFER.write(channels);
+    HEARTBEAT.store(
+        HEARTBEAT.load(Ordering::Relaxed).wrapping_add(1),
+        Ordering::Relaxed,
+    );
+    PUBLISHED.store(true, Ordering::Release);
 }
 
 #[inline]
@@ -225,6 +255,13 @@ pub fn get_rx_id() -> u32 {
     with_driver(|d| d.rx_id).unwrap_or(0xFFFF_FFFF)
 }
 
+/// Get latest downlink telemetry from the receiver using a local reader index.
+/// Lock-free atomic read: zero critical sections, completely decoupled from concurrent EXTI2_3 events.
+#[inline(always)]
+pub fn get_telemetry_local(local_idx: &mut u8) -> TelemetryData {
+    TELEMETRY_BUFFER.read_local(local_idx)
+}
+
 /// Get latest downlink telemetry from the receiver.
 /// Lock-free atomic read: zero critical sections.
 #[inline(always)]
@@ -239,6 +276,30 @@ fn TIM16() {
 
     if RF_SILENCED.load(Ordering::Relaxed) {
         return;
+    }
+
+    // First-publish gate: Do not transmit RF frames until channels have been published at least once.
+    if !PUBLISHED.load(Ordering::Acquire) {
+        return;
+    }
+
+    // Staleness check: Monitor main-loop heartbeat.
+    // At 3.85 ms timer interval, 30 ticks without heartbeat update is ~115.5 ms.
+    // If the main flight pipeline hangs, stop transmitting to allow receiver failsafe to engage.
+    static mut LAST_HEARTBEAT: u16 = 0;
+    static mut STALE_TICKS: u8 = 0;
+
+    let hb = HEARTBEAT.load(Ordering::Relaxed);
+    unsafe {
+        if hb == LAST_HEARTBEAT {
+            STALE_TICKS = STALE_TICKS.saturating_add(1);
+            if STALE_TICKS >= 30 {
+                return;
+            }
+        } else {
+            LAST_HEARTBEAT = hb;
+            STALE_TICKS = 0;
+        }
     }
 
     let driver = unsafe { &mut *RF_DRIVER.0.get() };
@@ -266,5 +327,32 @@ fn EXTI2_3() {
                 TELEMETRY_BUFFER.write(&d.telemetry);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_triple_buffer_read_local_decoupled() {
+        let buffer = TripleBuffer::new(10u32);
+        let mut local_idx = 1u8;
+
+        // Initial read returns initial value
+        assert_eq!(buffer.read_local(&mut local_idx), 10);
+
+        // Write new item
+        buffer.write(&42);
+        // read_local picks up published value and updates local_idx
+        assert_eq!(buffer.read_local(&mut local_idx), 42);
+
+        // Consecutive reads without new writes return the current value without re-consuming
+        assert_eq!(buffer.read_local(&mut local_idx), 42);
+
+        // Multiple writes advance slot
+        buffer.write(&100);
+        buffer.write(&200);
+        assert_eq!(buffer.read_local(&mut local_idx), 200);
     }
 }

@@ -1,8 +1,41 @@
 #![no_std]
 #![no_main]
 
-use panic_halt as _;
 use stm32f0xx_hal as _;
+
+// Panic loop guard placed in .uninit section so RAM value survives warm resets
+#[link_section = ".uninit"]
+static mut PANIC_COUNT: u32 = 0;
+
+const PANIC_MAGIC: u32 = 0x5041_4E00; // 'PAN\0'
+const PANIC_MAX_CONSECUTIVE: u32 = 3;
+
+#[panic_handler]
+fn panic(_info: &core::panic::PanicInfo) -> ! {
+    // Disable interrupts to prevent ISR execution during fault handling
+    cortex_m::interrupt::disable();
+
+    unsafe {
+        let val = core::ptr::read_volatile(core::ptr::addr_of!(PANIC_COUNT));
+        let count = if (val & 0xFFFF_FF00) == PANIC_MAGIC {
+            val & 0xFF
+        } else {
+            0
+        };
+
+        if count < PANIC_MAX_CONSECUTIVE {
+            core::ptr::write_volatile(core::ptr::addr_of_mut!(PANIC_COUNT), PANIC_MAGIC | (count + 1));
+            // Trigger rapid Cortex-M0 warm reset (<20ms recovery vs 2.0s watchdog)
+            cortex_m::peripheral::SCB::sys_reset();
+        }
+
+        // Exceeded consecutive panic threshold: deterministic crash loop detected.
+        // Halt and wait for hardware watchdog or power cycle rather than thrashing in an infinite loop.
+        loop {
+            cortex_m::asm::wfi();
+        }
+    }
+}
 
 use cortex_m_rt::entry;
 use embedded_graphics::{
@@ -20,27 +53,7 @@ pub use ui::menu;
 
 use display::St7567;
 
-/// Pre-flight safe idle channel pulses (failsafe throttle and switches up/disarmed)
-const SAFE_IDLE_CHANNELS: [u16; mixer::NUM_CHANNELS] = [
-    mixer::CHANNEL_CENTER_US, // CH1 Roll / Aileron
-    mixer::CHANNEL_CENTER_US, // CH2 Pitch / Elevator
-    mixer::CHANNEL_MIN_US,    // CH3 Throttle
-    mixer::CHANNEL_CENTER_US, // CH4 Yaw / Rudder
-    mixer::CHANNEL_MIN_US,    // CH5 Aux 1 (SA)
-    mixer::CHANNEL_MIN_US,    // CH6 Aux 2 (SB)
-    mixer::CHANNEL_CENTER_US, // CH7 Pot VRA
-    mixer::CHANNEL_CENTER_US, // CH8 Pot VRB
-    mixer::CHANNEL_MIN_US,    // CH9 Aux 3 (SC)
-    mixer::CHANNEL_MIN_US,    // CH10 Aux 4 (SD)
-    mixer::CHANNEL_CENTER_US, // CH11 Extra 1
-    mixer::CHANNEL_CENTER_US, // CH12 Extra 2
-    mixer::CHANNEL_CENTER_US, // CH13 Extra 3
-    mixer::CHANNEL_CENTER_US, // CH14 Extra 4
-    mixer::CHANNEL_CENTER_US, // CH15 Extra 5
-    mixer::CHANNEL_CENTER_US, // CH16 Extra 6
-    mixer::CHANNEL_CENTER_US, // CH17 Extra 7
-    mixer::CHANNEL_CENTER_US, // CH18 Extra 8
-];
+pub use mixer::SAFE_IDLE_CHANNELS;
 
 /// High-rate flight pipeline state and outputs.
 struct FlightSnapshot {
@@ -57,6 +70,7 @@ struct FlightSnapshot {
 struct FlightPipeline {
     prev_armed: bool,
     prev_active_model: u8,
+    telem_reading_idx: u8,
 }
 
 impl FlightPipeline {
@@ -66,6 +80,7 @@ impl FlightPipeline {
         Self {
             prev_armed,
             prev_active_model: storage.radio.active_model,
+            telem_reading_idx: 1,
         }
     }
 
@@ -178,7 +193,7 @@ impl FlightPipeline {
                 packets_received: 0,
             }
         } else {
-            rf::get_telemetry()
+            rf::get_telemetry_local(&mut self.telem_reading_idx)
         };
         let is_binding = !is_crsf && rf::is_binding();
 
@@ -222,6 +237,9 @@ struct BackgroundIdleManager {
     inactivity_beep_timer: u32,
     last_display_ms: u32,
     menu_was_active: bool,
+    rx_id_dirty: bool,
+    trim_dirty: bool,
+    trim_save_cooldown_ms: u16,
 }
 
 impl BackgroundIdleManager {
@@ -257,6 +275,9 @@ impl BackgroundIdleManager {
             inactivity_beep_timer: 0,
             last_display_ms: 0,
             menu_was_active: false,
+            rx_id_dirty: false,
+            trim_dirty: false,
+            trim_save_cooldown_ms: 0,
         }
     }
 
@@ -409,14 +430,40 @@ impl BackgroundIdleManager {
                 && storage.active_model().rx_id != new_rx_id
             {
                 storage.active_model_mut().rx_id = new_rx_id;
-                if !pipeline.prev_armed {
-                    storage::save_active_model(storage);
-                    buzzer.play_tone_pattern(2400, 70, 50, 2);
-                }
+                self.rx_id_dirty = true;
             }
         }
+        if self.rx_id_dirty && !pipeline.prev_armed && storage::save_active_model(storage) {
+            self.rx_id_dirty = false;
+            buzzer.play_tone_pattern(2400, 70, 50, 2);
+        }
 
-        // 7. Long-press OK (1.2s) from flight dashboard opens Settings Menu
+        // 7. Debounced auto-save of active model trims to Flash (inhibit while armed)
+        let active_trims = [
+            trims.values.roll,
+            trims.values.pitch,
+            trims.values.throttle,
+            trims.values.yaw,
+        ];
+        if storage.active_model().trims != active_trims {
+            storage.active_model_mut().trims = active_trims;
+            self.trim_dirty = true;
+            self.trim_save_cooldown_ms = 2000;
+        }
+
+        if self.trim_save_cooldown_ms > 0 {
+            self.trim_save_cooldown_ms = self.trim_save_cooldown_ms.saturating_sub(dt_ms);
+        }
+
+        if self.trim_dirty
+            && self.trim_save_cooldown_ms == 0
+            && !pipeline.prev_armed
+            && storage::save_active_model(storage)
+        {
+            self.trim_dirty = false;
+        }
+
+        // 8. Long-press OK (1.2s) from flight dashboard opens Settings Menu
         if !menu_active {
             if (keys & (1 << 10)) != 0 {
                 self.ok_hold_ms = self.ok_hold_ms.saturating_add(dt_ms);
@@ -958,6 +1005,16 @@ fn main() -> ! {
             last_tick_ms = now;
             buzzer.tick(dt_ms);
             trims.update(keys, dt_ms, &mut buzzer);
+
+            // Once the transmitter has been running steadily in the flight loop for >5 seconds,
+            // clear the consecutive panic count.
+            if now > 5000 {
+                unsafe {
+                    if core::ptr::read_volatile(core::ptr::addr_of!(PANIC_COUNT)) != 0 {
+                        core::ptr::write_volatile(core::ptr::addr_of_mut!(PANIC_COUNT), 0);
+                    }
+                }
+            }
         }
 
         let menu_active = menu_controller.is_active() || calib_wizard.is_active();

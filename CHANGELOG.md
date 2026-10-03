@@ -5,6 +5,31 @@ All notable changes to the `flysky-i6x-rs` project will be documented in this fi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.20.1] - 2026-10-03
+
+### Fixed
+- **RF Transmission Gating & Staleness Failsafe ([`src/rf/mod.rs`](src/rf/mod.rs), [`src/mixer.rs`](src/mixer.rs))**:
+  - Gated over-the-air packet transmission until the flight pipeline has published its first calculated channel frame (`has_published`), preventing transmission of uninitialized zero-state channels on startup.
+  - Implemented an atomic staleness watchdog counter (~115 ms / 30 consecutive ticks); if the flight loop stalls or fails to publish fresh frames, the RF engine automatically transitions to pre-configured failsafe channel pulses (`PACKET_FAILSAFE`).
+- **Warm Software Reset Panic Recovery ([`src/chip/mod.rs`](src/chip/mod.rs))**:
+  - Replaced infinite loop `panic_halt` with a rapid Cortex-M0 warm software reset (`AIRCR.SYSRESETREQ`), returning control to the flight loop in $<2\text{ ms}$ under DO-178C principles.
+  - Added a battery-backed crash counter in RTC backup register `RTC->BKP0R` to guard against boot-loops (trips to diagnostic halt after 3 consecutive panics within 10 seconds).
+- **In-Flight Flash Write Protection & Safe RX ID Persistence ([`src/main.rs`](src/main.rs))**:
+  - Strictly inhibited Flash writes while armed (`!pipeline.prev_armed`) to eliminate SPI bus contention, flash programming latency spikes, and CPU jitter during flight.
+  - Deferred over-the-air bound `rx_id` persistence to the background loop outside interrupt context.
+- **Lock-Free Triple Buffer Local Reader Preemption Safety ([`src/rf/mod.rs`](src/rf/mod.rs), [`src/main.rs`](src/main.rs))**:
+  - Added `TripleBuffer::read_local()` maintaining a decoupled caller-owned local reader index, preventing preemption races between high-rate flight loop sampling and background tasks.
+
+### Added
+- **Dynamic Channel Monitor Naming ([`src/ui/menu/screens/channels.rs`](src/ui/menu/screens/channels.rs), [`src/ui/menu/mod.rs`](src/ui/menu/mod.rs))**:
+  - Channels in the Channel Monitor now display dynamic labels formatting the channel number and colon prefix (e.g. `1:AIL`, `2:L.ELV`, `6:R.AIL`, `10:SD`, `18:None`).
+  - Channels 1..4 dynamically reflect the active model's wing/tail mixer (`Normal`, `Elevon`, `V-Tail`, `Flaperon`).
+  - Channel 6 dynamically displays `6:R.AIL` when Flaperon mixing is active.
+  - Channels 5..18 format with assigned auxiliary channel short source names from `SOURCE_NAMES`.
+- **Non-Volatile Debounced Trim Auto-Save ([`src/main.rs`](src/main.rs))**:
+  - Trim changes are automatically tracked and debounced with a 2000 ms cooldown timer in `BackgroundIdleManager::tick`.
+  - Automatically appends updated trim values to the active model in Flash once the aircraft is verified disarmed (`!pipeline.prev_armed`).
+
 ## [0.20.0] - 2026-10-02
 
 ### Added
