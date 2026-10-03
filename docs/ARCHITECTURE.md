@@ -145,14 +145,16 @@ In `flysky-i6x-rs`, reset recovery is treated as a safety-critical state machine
 - **Non-Blocking Acoustic Pilot Alert**: The standard multi-note startup melodic chime is replaced with an urgent, non-blocking 3-beep alarm pattern (`buzzer.play_tone_pattern(2600, 60, 40, 3)`). This alerts the pilot through acoustic feedback that a reset occurred while consuming zero CPU wait cycles.
 - **Pre-Flight Safety Check Bypass**: When `was_watchdog_reset` is true, the pre-flight safety check loop is bypassed entirely. The runtime immediately instantiates the `FlightPipeline` and enters the 100 Hz flight loop.
 - **Sub-2 Millisecond Recovery**: Total elapsed time from reset vector execution to the first active, calibrated over-the-air RF packet is measured at **$< 2.0\text{ ms}$**—well within the typical 50–100 ms receiver failsafe timeout window, preventing any loss of aircraft altitude or attitude control.
+- **Panic Fast Warm Reset with Boot-Loop Guard**: Instead of halting in an infinite dead loop (`panic_halt`) during rare firmware panics, the panic handler triggers a warm Cortex-M0 software reset (`SCB->AIRCR = VECTKEY | SYSRESETREQ`). A crash counter maintained in battery-backed RTC backup register `RTC->BKP0R` protects against recurring boot-loops; if 3 consecutive unhandled panics occur without achieving 10 seconds of stable flight loop runtime, the firmware latches into a fail-safe diagnostic halt with audio alert.
 
 ---
 
 ## 3. Channel Latency & Data Freshness
 
 1. **Continuous ADC Scan**: All 11 stock channels (4 sticks, 4 switches, 2 pots, battery)—or 15 channels when P7 expansion is active—are digitized continuously by ADC1 via DMA in **0.23 ms** (252 cycles * 11 / 12 MHz).
-2. **Double-Buffered Channels**: The flight loop updates `PENDING_CHANNELS` within critical sections (`cortex_m::interrupt::free`).
-3. **Guaranteed Fresh Packets**: Because the decoupled flight control loop runs at kHz rates while the RF transmitter transmits at ~260 Hz, **every over-the-air packet carries fresh, up-to-date stick data** with end-to-end latency under **2.0 ms**.
+2. **Lock-Free Triple-Buffered Channels & Independent Local Reader**: The flight loop updates `CHANNEL_BUFFER` via an atomic SPSC lock-free triple buffer (`read_idx`, `write_idx`, `clean_idx`). To prevent preemption races where multiple readers or preemptive ISRs share state, `read_local()` maintains private local reader indices (`local_read_idx`), guaranteeing thread-safe, non-blocking snapshot reads.
+3. **RF Transmission Gating & Staleness Failsafe**: The A7105 radio transmission timer (`TIM16`) gates packet generation until the flight pipeline has published its first fully calculated channel frame (`has_published`), preventing the transmission of uninitialized zero-state channels on boot. Furthermore, if the flight pipeline halts or fails to publish fresh frames for > 30 consecutive ticks (~115 ms), the RF engine automatically transitions to pre-configured failsafe channel pulses (`PACKET_FAILSAFE`).
+4. **Guaranteed Fresh Packets**: Because the decoupled flight control loop runs at kHz rates while the RF transmitter transmits at ~260 Hz, **every over-the-air packet carries fresh, up-to-date stick data** with end-to-end latency under **2.0 ms**.
 
 ---
 

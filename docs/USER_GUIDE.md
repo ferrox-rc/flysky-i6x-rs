@@ -179,6 +179,9 @@ Configurable in `Radio Setup`:
 3. **`LINEAR` (Electric Aircraft)**:
    - Throttle trim shifts the entire 1000..2000 µs range symmetrically.
 
+### Non-Volatile Trim Auto-Save
+All trim adjustments are debounced (2000 ms) and automatically saved to the active model profile in Flash when the model is disarmed (`!pipeline.prev_armed`). Flight trim changes made while airborne are safely retained without requiring manual navigation into the Settings Menu. Flash writes are strictly inhibited while armed to protect flight control determinism.
+
 ---
 
 ## 4. Menu Navigation & Subsystem Breakdown
@@ -325,6 +328,9 @@ Universal RF protocol and receiver configuration, saved per-model:
 
 ### Submenu 10: Channel Monitor (`CHANNEL MONITOR`)
 - Displays live pulse widths (1000..2000 µs) across all 18 channels with 40-pixel horizontal graphic bar indicators and exact microsecond numbers.
+- **Dynamic Channel Naming**: Labels dynamically reflect active model configuration:
+  - Channels 1..4 dynamically reflect the active model's wing/tail mixer (`1:AIL`, `2:ELE`, `3:THR`, `4:RUD` in Normal; `1:L.ELV`, `2:R.ELV` in Elevon; `2:L.VTL`, `4:R.VTL` in V-Tail; `1:L.AIL`, `6:R.AIL` in Flaperon).
+  - Channels 5..18 dynamically display their assigned auxiliary source short names (e.g. `5:SA`, `6:SB`, `7:VR1`, `10:SD`, `11:VRC`, `18:None`).
 - Press **`[UP]`** / **`[DOWN]`** to toggle between Page 1 (CH1..CH6), Page 2 (CH7..CH12), and Page 3 (CH13..CH18).
 
 ### Submenu 11: Stick Calibration (`STICK CALIB`)

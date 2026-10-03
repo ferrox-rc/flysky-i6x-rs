@@ -120,6 +120,9 @@ The underlying flash driver implements `embedded_storage::nor_flash::NorFlash` a
 - **Register Hygiene (`write_with_zero`):** Uses `write_with_zero` on `FLASH_CR` to prevent inadvertent re-assertion of the `LOCK` bit when setting `PER` (Page Erase) or `PG` (Programming).
 - **Error Flag Clearing:** Clears pending `EOP`, `WRPRTERR`, and `PGERR` flags in `FLASH_SR` before initiating erase or write commands.
 - **16-Bit Halfword Programming:** Programs data in halfword increments with hardware `BSY` polling and post-write verification.
+- **In-Flight Flash Write Protection:** To prevent SPI bus contention, flash programming latency spikes, and CPU stalls while flying, all flash persistence routines (`save_active_model`, `save_storage`) are strictly inhibited while the aircraft is armed (`!pipeline.prev_armed`).
+- **Debounced Active Model Trim Auto-Save:** Modifications to trim rockers (`roll`, `pitch`, `throttle`, `yaw`) are automatically tracked in `BackgroundIdleManager::tick`. Trim changes trigger a 2000 ms debounce timer. Once adjustments settle and the aircraft is disarmed, the updated trims are safely appended to the active model record in Flash without user intervention.
+- **Safe Receiver ID Persistence Outside ISR:** When an over-the-air bind succeeds in the RF interrupt, the captured `rx_id` is passed via a thread-safe atomic flag to the background execution loop, deferring Flash persistence until the radio is outside interrupt context and verified disarmed.
 
 ### Automatic Migration & Backward Compatibility
 The configuration loader follows an automatic multi-tier fallback:
