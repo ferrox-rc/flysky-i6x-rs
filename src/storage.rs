@@ -36,6 +36,60 @@ impl ChannelCalib {
     }
 }
 
+/// Compact calibration parameters for an auxiliary potentiometer/slider (4 bytes).
+#[repr(C)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub struct PotCalib {
+    pub min: u16,
+    pub max: u16,
+}
+
+impl PotCalib {
+    pub const fn new(min: u16, max: u16) -> Self {
+        Self { min, max }
+    }
+}
+
+/// Universal input mode for auxiliary analog channels (SA..SD, VRA..VRB, VRC..VRF).
+#[repr(u8)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Default)]
+pub enum AdcInputMode {
+    #[default]
+    Default = 0,
+    TwoPos = 1,
+    ThreePos = 2,
+    SixPos = 3,
+    Pot = 4,
+}
+
+impl AdcInputMode {
+    pub fn from_u8(val: u8) -> Self {
+        match val {
+            1 => Self::TwoPos,
+            2 => Self::ThreePos,
+            3 => Self::SixPos,
+            4 => Self::Pot,
+            _ => Self::Default,
+        }
+    }
+
+    /// Resolve effective mode for a given channel index (0..3: SA..SD, 4..5: VRA..VRB, 6..9: VRC..VRF)
+    pub fn resolve(channel_idx: usize, mode_val: u8) -> Self {
+        let mode = Self::from_u8(mode_val);
+        if mode != Self::Default {
+            return mode;
+        }
+        // Default hardware mapping:
+        match channel_idx {
+            0 => Self::TwoPos,   // SA (2-pos stock)
+            1 => Self::ThreePos, // SB (3-pos stock)
+            2 => Self::ThreePos, // SC (3-pos stock)
+            3 => Self::TwoPos,   // SD (2-pos stock)
+            _ => Self::Pot,      // VRA, VRB, VRC, VRD, VRE, VRF (Pots stock)
+        }
+    }
+}
+
 /// Persistent system/radio-level configuration (exactly 128 bytes).
 #[repr(C)]
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -51,16 +105,16 @@ pub struct RadioConfig {
     pub lcd_contrast: u8,          // 14 (15..55, default 37 / 0x25)
     pub usb_mode: u8,              // 15 (0: Off, 1: Joystick, 2: Serial, 3: Composite)
     pub sticks: [ChannelCalib; 4], // 16..48 (32 bytes: Roll, Pitch, Throttle, Yaw)
-    pub pots: [ChannelCalib; 2],   // 48..64 (16 bytes: VRA, VRB)
-    pub ext_module_pwr: u8,        // 64 (0: Active HIGH / N-type, 1: Active LOW / P-type)
-    pub tone_style: u8,            // 65 (0: Simple / Standard, 1: Rich / Melodic)
-    pub servo_rate_hz: u16,        // 66..68 (50..400 Hz, default 50 Hz for analog servo safety)
-    pub rx_out_mode: u8,           // 68 (0: PWM, 1: PPM, default 0)
-    pub rx_serial_proto: u8,       // 69 (0: i-BUS, 1: S.BUS, default 0)
-    pub ext_switches: u8,          // 70 (0: Disabled, 1: Enabled / PC12+PC15)
-    pub ext_adc: u8,               // 71 (0: Disabled, 1: Enabled / Header P7 AD12-AD15)
-    pub ext_pots: [ChannelCalib; 4], // 72..104 (32 bytes: VRC, VRD, VRE, VRF)
-    pub _reserved: [u8; 24],       // 104..128
+    pub aux_pots: [PotCalib; 10],  // 48..88 (40 bytes: SA..SD, VRA..VRB, VRC..VRF)
+    pub ext_module_pwr: u8,        // 88 (0: Active HIGH / N-type, 1: Active LOW / P-type)
+    pub tone_style: u8,            // 89 (0: Simple / Standard, 1: Rich / Melodic)
+    pub servo_rate_hz: u16,        // 90..92 (50..400 Hz, default 50 Hz for analog servo safety)
+    pub rx_out_mode: u8,           // 92 (0: PWM, 1: PPM, default 0)
+    pub rx_serial_proto: u8,       // 93 (0: i-BUS, 1: S.BUS, default 0)
+    pub ext_switches: u8,          // 94 (0: Disabled, 1: Enabled / PC12+PC15)
+    pub ext_adc: u8,               // 95 (0: Disabled, 1: Enabled / Header P7 AD12-AD15)
+    pub adc_modes: [u8; 10],       // 96..106: Input modes for the 10 auxiliary analog channels
+    pub _reserved: [u8; 22],       // 106..128 (22 bytes reserved)
 }
 
 impl RadioConfig {
@@ -98,17 +152,17 @@ impl RadioConfig {
                     crate::adc::ADC_MAX,
                 ), // Yaw (Horizontal)
             ],
-            pots: [
-                ChannelCalib::new(
-                    crate::adc::ADC_MIN,
-                    crate::adc::ADC_CENTER,
-                    crate::adc::ADC_MAX,
-                ), // VRA
-                ChannelCalib::new(
-                    crate::adc::ADC_MIN,
-                    crate::adc::ADC_CENTER,
-                    crate::adc::ADC_MAX,
-                ), // VRB
+            aux_pots: [
+                PotCalib::new(crate::adc::ADC_MIN, crate::adc::ADC_MAX), // SA
+                PotCalib::new(crate::adc::ADC_MIN, crate::adc::ADC_MAX), // SB
+                PotCalib::new(crate::adc::ADC_MIN, crate::adc::ADC_MAX), // SC
+                PotCalib::new(crate::adc::ADC_MIN, crate::adc::ADC_MAX), // SD
+                PotCalib::new(crate::adc::ADC_MIN, crate::adc::ADC_MAX), // VRA
+                PotCalib::new(crate::adc::ADC_MIN, crate::adc::ADC_MAX), // VRB
+                PotCalib::new(crate::adc::ADC_MIN, crate::adc::ADC_MAX), // VRC (PC2)
+                PotCalib::new(crate::adc::ADC_MIN, crate::adc::ADC_MAX), // VRD (PC3)
+                PotCalib::new(crate::adc::ADC_MIN, crate::adc::ADC_MAX), // VRE (PC4)
+                PotCalib::new(crate::adc::ADC_MIN, crate::adc::ADC_MAX), // VRF (PC5)
             ],
             ext_module_pwr: 0,
             tone_style: 1,
@@ -117,29 +171,26 @@ impl RadioConfig {
             rx_serial_proto: 0,
             ext_switches: 0,
             ext_adc: 0,
-            ext_pots: [
-                ChannelCalib::new(
-                    crate::adc::ADC_MIN,
-                    crate::adc::ADC_CENTER,
-                    crate::adc::ADC_MAX,
-                ), // VRC (PC2)
-                ChannelCalib::new(
-                    crate::adc::ADC_MIN,
-                    crate::adc::ADC_CENTER,
-                    crate::adc::ADC_MAX,
-                ), // VRD (PC3)
-                ChannelCalib::new(
-                    crate::adc::ADC_MIN,
-                    crate::adc::ADC_CENTER,
-                    crate::adc::ADC_MAX,
-                ), // VRE (PC4)
-                ChannelCalib::new(
-                    crate::adc::ADC_MIN,
-                    crate::adc::ADC_CENTER,
-                    crate::adc::ADC_MAX,
-                ), // VRF (PC5)
-            ],
-            _reserved: [0; 24],
+            adc_modes: [0; 10], // Default hardware modes
+            _reserved: [0; 22],
+        }
+    }
+
+    /// Get the effective AdcInputMode for an auxiliary channel (0..9: SA..SD, VRA..VRB, VRC..VRF).
+    pub fn get_adc_mode(&self, ch: usize) -> AdcInputMode {
+        if ch < 10 {
+            AdcInputMode::resolve(ch, self.adc_modes[ch])
+        } else {
+            AdcInputMode::Default
+        }
+    }
+
+    /// Get the configured raw AdcInputMode (including Default).
+    pub fn get_raw_adc_mode(&self, ch: usize) -> AdcInputMode {
+        if ch < 10 {
+            AdcInputMode::from_u8(self.adc_modes[ch])
+        } else {
+            AdcInputMode::Default
         }
     }
 }
@@ -342,21 +393,18 @@ impl RadioStorage {
                 stick.max = crate::adc::ADC_MAX;
             }
         }
-        for pot in self.radio.pots.iter_mut() {
-            if pot.min >= pot.center || pot.center >= pot.max || pot.max > crate::adc::ADC_MAX {
-                pot.min = crate::adc::ADC_MIN;
-                pot.center = crate::adc::ADC_CENTER;
-                pot.max = crate::adc::ADC_MAX;
-            }
-        }
         if self.radio.ext_adc > 1 {
             self.radio.ext_adc = 0;
         }
-        for pot in self.radio.ext_pots.iter_mut() {
-            if pot.min >= pot.center || pot.center >= pot.max || pot.max > crate::adc::ADC_MAX {
+        for pot in self.radio.aux_pots.iter_mut() {
+            if pot.min >= pot.max || pot.max > crate::adc::ADC_MAX {
                 pot.min = crate::adc::ADC_MIN;
-                pot.center = crate::adc::ADC_CENTER;
                 pot.max = crate::adc::ADC_MAX;
+            }
+        }
+        for mode in self.radio.adc_modes.iter_mut() {
+            if *mode > 4 {
+                *mode = 0; // Default
             }
         }
 
@@ -957,7 +1005,8 @@ pub fn load_storage_into(storage: &mut RadioStorage) {
             }
             let src_pots = (FLASH_LEGACY_ADDR + 44) as *const ChannelCalib;
             for i in 0..2 {
-                storage.radio.pots[i] = core::ptr::read_volatile(src_pots.add(i));
+                let p = core::ptr::read_volatile(src_pots.add(i));
+                storage.radio.aux_pots[4 + i] = PotCalib::new(p.min, p.max);
             }
             if legacy_ver == 2 {
                 storage.radio.throttle_trim =
@@ -1100,7 +1149,8 @@ mod tests {
         assert_eq!(storage.radio.rx_serial_proto, 0);
         assert_eq!(storage.radio.ext_switches, 0);
         assert_eq!(storage.radio.ext_adc, 0);
-        assert_eq!(storage.radio.ext_pots[0].center, crate::adc::ADC_CENTER);
+        assert_eq!(storage.radio.aux_pots[0].max, crate::adc::ADC_MAX);
+        assert_eq!(storage.radio.adc_modes[0], 0);
 
         for (idx, m) in storage.models.iter().enumerate() {
             assert!(m.arm_switch <= 14, "arm_switch must be sanitized <= 14");
@@ -1236,5 +1286,48 @@ mod tests {
         assert_eq!(m.aux_channels[10..14], [0, 0, 0, 0]);
         assert_eq!(m.rf_protocol, 1);
         assert_eq!(m.crsf_baud, 2);
+    }
+
+    #[test]
+    fn test_adc_input_mode_resolution() {
+        // Stock defaults (when mode == 0):
+        // 0: SA (TwoPos)
+        // 1: SB (ThreePos)
+        // 2: SC (ThreePos)
+        // 3: SD (TwoPos)
+        // 4..9: VRA..VRF (Pot)
+        assert_eq!(AdcInputMode::resolve(0, 0), AdcInputMode::TwoPos);
+        assert_eq!(AdcInputMode::resolve(1, 0), AdcInputMode::ThreePos);
+        assert_eq!(AdcInputMode::resolve(2, 0), AdcInputMode::ThreePos);
+        assert_eq!(AdcInputMode::resolve(3, 0), AdcInputMode::TwoPos);
+        for ch in 4..10 {
+            assert_eq!(AdcInputMode::resolve(ch, 0), AdcInputMode::Pot);
+        }
+
+        // Explicit overrides (1..4):
+        for ch in 0..10 {
+            assert_eq!(AdcInputMode::resolve(ch, 1), AdcInputMode::TwoPos);
+            assert_eq!(AdcInputMode::resolve(ch, 2), AdcInputMode::ThreePos);
+            assert_eq!(AdcInputMode::resolve(ch, 3), AdcInputMode::SixPos);
+            assert_eq!(AdcInputMode::resolve(ch, 4), AdcInputMode::Pot);
+            // Out of range falls back to Default logic
+            assert_eq!(AdcInputMode::resolve(ch, 5), AdcInputMode::resolve(ch, 0));
+        }
+    }
+
+    #[test]
+    fn test_pot_calib_and_radio_config_defaults() {
+        let radio = RadioConfig::default_factory();
+        assert_eq!(radio.aux_pots.len(), 10);
+        assert_eq!(radio.adc_modes.len(), 10);
+        for i in 0..10 {
+            assert_eq!(radio.aux_pots[i].min, crate::adc::ADC_MIN);
+            assert_eq!(radio.aux_pots[i].max, crate::adc::ADC_MAX);
+            assert_eq!(radio.adc_modes[i], 0);
+        }
+
+        let pot = PotCalib::new(100, 3900);
+        assert_eq!(pot.min, 100);
+        assert_eq!(pot.max, 3900);
     }
 }

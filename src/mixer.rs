@@ -240,13 +240,11 @@ pub fn evaluate_source(
         4 => cond_sticks[3] as i32, // Yaw
         5 => pots[0] as i32,        // VRA
         6 => pots[1] as i32,        // VRB
-        7 => {
-            if switches.sa == SwitchPos::Up {
-                MIXER_MIN as i32
-            } else {
-                MIXER_MAX as i32
-            }
-        }
+        7 => match switches.sa {
+            SwitchPos::Up => MIXER_MIN as i32,
+            SwitchPos::Mid => MIXER_CENTER as i32,
+            SwitchPos::Down => MIXER_MAX as i32,
+        },
         8 => match switches.sb {
             SwitchPos::Up => MIXER_MIN as i32,
             SwitchPos::Mid => MIXER_CENTER as i32,
@@ -257,13 +255,11 @@ pub fn evaluate_source(
             SwitchPos::Mid => MIXER_CENTER as i32,
             SwitchPos::Down => MIXER_MAX as i32,
         },
-        10 => {
-            if switches.sd == SwitchPos::Up {
-                MIXER_MIN as i32
-            } else {
-                MIXER_MAX as i32
-            }
-        }
+        10 => match switches.sd {
+            SwitchPos::Up => MIXER_MIN as i32,
+            SwitchPos::Mid => MIXER_CENTER as i32,
+            SwitchPos::Down => MIXER_MAX as i32,
+        },
         11 => MIXER_MAX as i32, // MAX
         12..=29 => {
             let ch_idx = (src - 12) as usize;

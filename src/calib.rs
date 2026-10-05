@@ -212,7 +212,7 @@ impl CalibWizard {
                             );
                         }
 
-                        // Pots: if moved by >= 400 counts total span, update; otherwise preserve
+                        // Pots: VRA (aux_pots[4]), VRB (aux_pots[5]) - if moved by >= 400 counts, update; otherwise preserve
                         for i in 0..2 {
                             let p_idx = 4 + i;
                             let span = self.maxs[p_idx].saturating_sub(self.mins[p_idx]);
@@ -220,15 +220,14 @@ impl CalibWizard {
                                 let center = self.centers[p_idx];
                                 let span_neg = ((center.saturating_sub(self.mins[p_idx]) as u32 * 63) / 64) as u16;
                                 let span_pos = ((self.maxs[p_idx].saturating_sub(center) as u32 * 63) / 64) as u16;
-                                storage.radio.pots[i] = ChannelCalib::new(
+                                storage.radio.aux_pots[4 + i] = storage::PotCalib::new(
                                     center.saturating_sub(span_neg),
-                                    center,
                                     center.saturating_add(span_pos),
                                 );
                             }
                         }
 
-                        // Ext Pots: if ext_adc is active, update any ext pot moved by >= 400 counts
+                        // Ext Pots: if ext_adc is active, update any ext pot (aux_pots[6..10]) moved by >= 400 counts
                         if storage.radio.ext_adc != 0 {
                             for i in 0..4 {
                                 let p_idx = 6 + i;
@@ -237,9 +236,8 @@ impl CalibWizard {
                                     let center = self.centers[p_idx];
                                     let span_neg = ((center.saturating_sub(self.mins[p_idx]) as u32 * 63) / 64) as u16;
                                     let span_pos = ((self.maxs[p_idx].saturating_sub(center) as u32 * 63) / 64) as u16;
-                                    storage.radio.ext_pots[i] = ChannelCalib::new(
+                                    storage.radio.aux_pots[6 + i] = storage::PotCalib::new(
                                         center.saturating_sub(span_neg),
-                                        center,
                                         center.saturating_add(span_pos),
                                     );
                                 }

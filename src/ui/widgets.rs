@@ -11,15 +11,21 @@ use embedded_graphics::{
 use crate::buzzer::Buzzer;
 use crate::display::St7567;
 
-pub const STYLE_TEXT_ON: MonoTextStyle<'static, BinaryColor> = MonoTextStyle::new(&FONT_6X10, BinaryColor::On);
-pub const STYLE_TEXT_INV: MonoTextStyle<'static, BinaryColor> = MonoTextStyle::new(&FONT_6X10, BinaryColor::Off);
-pub const STYLE_SMALL_ON: MonoTextStyle<'static, BinaryColor> = MonoTextStyle::new(&FONT_4X6, BinaryColor::On);
-pub const STYLE_SMALL_INV: MonoTextStyle<'static, BinaryColor> = MonoTextStyle::new(&FONT_4X6, BinaryColor::Off);
+pub const STYLE_TEXT_ON: MonoTextStyle<'static, BinaryColor> =
+    MonoTextStyle::new(&FONT_6X10, BinaryColor::On);
+pub const STYLE_TEXT_INV: MonoTextStyle<'static, BinaryColor> =
+    MonoTextStyle::new(&FONT_6X10, BinaryColor::Off);
+pub const STYLE_SMALL_ON: MonoTextStyle<'static, BinaryColor> =
+    MonoTextStyle::new(&FONT_4X6, BinaryColor::On);
+pub const STYLE_SMALL_INV: MonoTextStyle<'static, BinaryColor> =
+    MonoTextStyle::new(&FONT_4X6, BinaryColor::Off);
 
 /// Draw a standardized top header banner with title and underline divider.
 pub fn draw_header(lcd: &mut St7567, title: &str) {
     let x = ((128i32 - title.len() as i32 * 6) / 2).max(2);
-    Text::new(title, Point::new(x, 9), STYLE_TEXT_ON).draw(lcd).ok();
+    Text::new(title, Point::new(x, 9), STYLE_TEXT_ON)
+        .draw(lcd)
+        .ok();
     lcd.draw_hline(0, 11, 128, true);
 }
 
@@ -27,34 +33,54 @@ pub fn draw_header(lcd: &mut St7567, title: &str) {
 /// matching the flight pages' 8-pixel footer height and baseline at y = 62.
 pub fn draw_footer(lcd: &mut St7567, text: &str) {
     lcd.draw_hline(0, 55, 128, true);
-    Text::new(text, Point::new(2, 62), STYLE_SMALL_ON).draw(lcd).ok();
+    Text::new(text, Point::new(2, 62), STYLE_SMALL_ON)
+        .draw(lcd)
+        .ok();
 }
 
 /// Draw a standardized bottom footer with left-aligned and right-aligned text (FONT_4X6)
 /// and divider line at y = 55.
 pub fn draw_footer_split(lcd: &mut St7567, left: &str, right: &str) {
     lcd.draw_hline(0, 55, 128, true);
-    Text::new(left, Point::new(2, 62), STYLE_SMALL_ON).draw(lcd).ok();
+    Text::new(left, Point::new(2, 62), STYLE_SMALL_ON)
+        .draw(lcd)
+        .ok();
     let right_x = (126i32 - right.len() as i32 * 4).max(2);
-    Text::new(right, Point::new(right_x, 62), STYLE_SMALL_ON).draw(lcd).ok();
+    Text::new(right, Point::new(right_x, 62), STYLE_SMALL_ON)
+        .draw(lcd)
+        .ok();
 }
 
 /// Draw a standardized bottom footer with left-aligned, center-aligned, and right-aligned text (FONT_4X6)
 /// and divider line at y = 55. If center_inverted is true, draws an inverted solid background behind center text.
-pub fn draw_footer_three(lcd: &mut St7567, left: &str, center: &str, right: &str, center_inverted: bool) {
+pub fn draw_footer_three(
+    lcd: &mut St7567,
+    left: &str,
+    center: &str,
+    right: &str,
+    center_inverted: bool,
+) {
     lcd.draw_hline(0, 55, 128, true);
-    Text::new(left, Point::new(2, 62), STYLE_SMALL_ON).draw(lcd).ok();
+    Text::new(left, Point::new(2, 62), STYLE_SMALL_ON)
+        .draw(lcd)
+        .ok();
     if !center.is_empty() {
         let center_x = ((128i32 - center.len() as i32 * 4) / 2).max(2);
         if center_inverted {
             lcd.fill_rect(center_x - 2, 56, center.len() as u32 * 4 + 3, 7, true);
-            Text::new(center, Point::new(center_x, 62), STYLE_SMALL_INV).draw(lcd).ok();
+            Text::new(center, Point::new(center_x, 62), STYLE_SMALL_INV)
+                .draw(lcd)
+                .ok();
         } else {
-            Text::new(center, Point::new(center_x, 62), STYLE_SMALL_ON).draw(lcd).ok();
+            Text::new(center, Point::new(center_x, 62), STYLE_SMALL_ON)
+                .draw(lcd)
+                .ok();
         }
     }
     let right_x = (126i32 - right.len() as i32 * 4).max(2);
-    Text::new(right, Point::new(right_x, 62), STYLE_SMALL_ON).draw(lcd).ok();
+    Text::new(right, Point::new(right_x, 62), STYLE_SMALL_ON)
+        .draw(lcd)
+        .ok();
 }
 
 /// Draw a horizontal channel gauge (-1000..+1000) with center ticks, trim marker, and a sliding 3px cursor.
@@ -92,14 +118,7 @@ pub fn draw_channel_gauge(
 /// Draw a compact horizontal dual split bar for rotary pots (VRa and VRb).
 /// - Dimensions: width x 7 px. Top lane is VRa, bottom lane is VRb.
 /// - Each lane features a center tick and sliding 3px cursor (-1000..+1000).
-pub fn draw_split_pot_bar(
-    lcd: &mut St7567,
-    x: i32,
-    y: i32,
-    width: u32,
-    vr1: i16,
-    vr2: i16,
-) {
+pub fn draw_split_pot_bar(lcd: &mut St7567, x: i32, y: i32, width: u32, vr1: i16, vr2: i16) {
     if width < 8 {
         return;
     }
@@ -129,6 +148,100 @@ pub fn draw_split_pot_bar(
     // Bottom cursor: VRb (y + 4..y + 5, 3px wide)
     let c2 = min_pos + (((vr2 as i32 + 1000) * travel + 1000) / 2000);
     lcd.fill_rect(c2 - 1, y + 4, 3, 2, true);
+}
+
+/// Draw a single horizontal pot bar (width x 7 px) with center tick and sliding cursor.
+pub fn draw_single_pot_bar(lcd: &mut St7567, x: i32, y: i32, width: u32, val: i16) {
+    if width < 8 {
+        return;
+    }
+    lcd.draw_rect(x, y, width, 7, true);
+    let center_x = x + (width as i32 / 2);
+    lcd.draw_vline(center_x, y + 1, 5, true);
+
+    let min_pos = x + 2;
+    let max_pos = x + width as i32 - 3;
+    let travel = (max_pos - min_pos).max(1);
+    let c = min_pos + (((val as i32 + 1000) * travel + 1000) / 2000);
+    lcd.fill_rect(c - 1, y + 1, 3, 5, true);
+}
+
+/// Draw a single borderless pot lane with a baseline track, center tick, and sliding cursor.
+/// Height is 2..3 px, saving vertical space so lanes can be stacked without bounding box overhead.
+pub fn draw_pot_track(lcd: &mut St7567, x: i32, y: i32, width: u32, val: i16) {
+    if width < 6 {
+        return;
+    }
+    // Baseline track
+    lcd.draw_hline(x, y + 1, width, true);
+
+    // Sliding cursor (2px wide, centered on track at y..y+2)
+    let min_pos = x + 1;
+    let max_pos = x + width as i32 - 2;
+    let travel = (max_pos - min_pos).max(1);
+    let c = min_pos + (((val as i32 + 1000) * travel + 1000) / 2000);
+    lcd.fill_rect(c - 1, y, 2, 3, true);
+}
+
+/// Draw a cluster of 3 to 10 pots using borderless horizontal lanes:
+/// - 3 pots: 1 column of 3 stacked full-width tracks (y, y+3, y+6).
+/// - 4 pots: 2 columns of 2 stacked half-width tracks (Left: 2, Right: 2).
+/// - 5 pots: 2 columns (Left: 3 stacked tracks, Right: 2 stacked tracks).
+/// - 6 pots: 2 columns (Left: 3 stacked tracks, Right: 3 stacked tracks).
+/// - 7+ pots: 3 columns of stacked tracks.
+pub fn draw_multi_pot_bar(lcd: &mut St7567, x: i32, y: i32, width: u32, pots: &[i16]) {
+    let count = pots.len();
+    if count == 0 || width < 12 {
+        return;
+    }
+
+    if count == 3 {
+        // 1 column of 3 vertically stacked full-width tracks (at y, y+3, y+6)
+        draw_pot_track(lcd, x, y, width, pots[0]);
+        draw_pot_track(lcd, x, y + 3, width, pots[1]);
+        draw_pot_track(lcd, x, y + 6, width, pots[2]);
+    } else if count <= 6 {
+        // 2 columns (half-width tracks)
+        let col_gap = 2;
+        let col_w = (width.saturating_sub(col_gap) / 2).max(6);
+        let right_x = x + col_w as i32 + col_gap as i32;
+
+        let left_count = if count == 4 { 2 } else { 3 };
+        let right_count = count - left_count;
+
+        // Render left column
+        for row in 0..left_count {
+            let ry = if left_count == 2 {
+                y + 1 + (row as i32 * 4) // y+1, y+5 for 2 rows
+            } else {
+                y + (row as i32 * 3) // y, y+3, y+6 for 3 rows
+            };
+            draw_pot_track(lcd, x, ry, col_w, pots[row]);
+        }
+
+        // Render right column
+        for row in 0..right_count {
+            let ry = if right_count == 2 {
+                y + 1 + (row as i32 * 4) // y+1, y+5 for 2 rows
+            } else {
+                y + (row as i32 * 3) // y, y+3, y+6 for 3 rows
+            };
+            draw_pot_track(lcd, right_x, ry, col_w, pots[left_count + row]);
+        }
+    } else {
+        // 7..10 pots: 3 columns
+        let col_gap = 2;
+        let col_w = (width.saturating_sub(col_gap * 2) / 3).max(6);
+        let rows_per_col = (count + 2) / 3;
+
+        for (i, &val) in pots.iter().enumerate() {
+            let col = i / rows_per_col;
+            let row = i % rows_per_col;
+            let cx = x + (col as i32 * (col_w as i32 + col_gap as i32));
+            let ry = y + (row as i32 * 3);
+            draw_pot_track(lcd, cx, ry, col_w, val);
+        }
+    }
 }
 
 /// Draw a left-to-right throttle progress bar (-1000 is 0%, +1000 is 100%).
@@ -238,13 +351,7 @@ pub fn navigate_3slot_list(
 }
 
 /// Draw a vertical scrollbar on the right edge of the screen (x = 125..127).
-pub fn draw_scrollbar(
-    lcd: &mut St7567,
-    selected: usize,
-    count: usize,
-    top_y: i32,
-    height: u32,
-) {
+pub fn draw_scrollbar(lcd: &mut St7567, selected: usize, count: usize, top_y: i32, height: u32) {
     if count <= 1 {
         return;
     }
@@ -288,9 +395,13 @@ pub fn draw_icon_row<F>(
         4
     };
 
-    Text::new(label, Point::new(text_x, y + 10), text_style).draw(lcd).ok();
+    Text::new(label, Point::new(text_x, y + 10), text_style)
+        .draw(lcd)
+        .ok();
     if let Some(val) = value {
-        Text::new(val, Point::new(value_x, y + 10), text_style).draw(lcd).ok();
+        Text::new(val, Point::new(value_x, y + 10), text_style)
+            .draw(lcd)
+            .ok();
     }
 }
 
@@ -335,12 +446,14 @@ pub fn draw_list_row_right(
 }
 
 /// Draw a framed bar gauge meter with an inner filled level.
-pub fn draw_bar_gauge(
-    lcd: &mut St7567,
-    box_rect: Rectangle,
-    fill_width: u32,
-) {
-    lcd.draw_rect(box_rect.top_left.x, box_rect.top_left.y, box_rect.size.width, box_rect.size.height, true);
+pub fn draw_bar_gauge(lcd: &mut St7567, box_rect: Rectangle, fill_width: u32) {
+    lcd.draw_rect(
+        box_rect.top_left.x,
+        box_rect.top_left.y,
+        box_rect.size.width,
+        box_rect.size.height,
+        true,
+    );
     if fill_width > 0 {
         let inner_p_x = box_rect.top_left.x + 1;
         let inner_p_y = box_rect.top_left.y + 1;

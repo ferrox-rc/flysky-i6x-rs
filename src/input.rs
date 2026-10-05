@@ -119,6 +119,7 @@ pub struct InputState {
     pub pots: Pots,
     pub switches: Switches,
     pub battery_mv: u16,
+    pub aux_pots: [i16; 10],
     #[allow(dead_code)]
     pub raw: [u16; adc::NUM_CHANNELS],
 }
@@ -191,12 +192,8 @@ pub struct InputCalibration {
     pub pitch: AxisCalib,
     pub throttle: AxisCalib,
     pub yaw: AxisCalib,
-    pub vra: AxisCalib,
-    pub vrb: AxisCalib,
-    pub vrc: AxisCalib,
-    pub vrd: AxisCalib,
-    pub vre: AxisCalib,
-    pub vrf: AxisCalib,
+    pub aux: [AxisCalib; 10], // 0..3: SA..SD, 4..5: VRA..VRB, 6..9: VRC..VRF
+    pub adc_modes: [u8; 10],
     pub filtered_battery_mv: u32,
     pub ext_switches: bool,
     pub ext_adc: bool,
@@ -209,12 +206,19 @@ impl InputCalibration {
             pitch: AxisCalib::new(ADC_MIN, ADC_CENTER, ADC_MAX, true),
             throttle: AxisCalib::new(ADC_MIN, ADC_CENTER, ADC_MAX, false),
             yaw: AxisCalib::new(ADC_MIN, ADC_CENTER, ADC_MAX, false),
-            vra: AxisCalib::new(ADC_MIN, ADC_CENTER, ADC_MAX, false),
-            vrb: AxisCalib::new(ADC_MIN, ADC_CENTER, ADC_MAX, false),
-            vrc: AxisCalib::new(ADC_MIN, ADC_CENTER, ADC_MAX, false),
-            vrd: AxisCalib::new(ADC_MIN, ADC_CENTER, ADC_MAX, false),
-            vre: AxisCalib::new(ADC_MIN, ADC_CENTER, ADC_MAX, false),
-            vrf: AxisCalib::new(ADC_MIN, ADC_CENTER, ADC_MAX, false),
+            aux: [
+                AxisCalib::new(ADC_MIN, ADC_CENTER, ADC_MAX, false), // SA
+                AxisCalib::new(ADC_MIN, ADC_CENTER, ADC_MAX, false), // SB
+                AxisCalib::new(ADC_MIN, ADC_CENTER, ADC_MAX, false), // SC
+                AxisCalib::new(ADC_MIN, ADC_CENTER, ADC_MAX, false), // SD
+                AxisCalib::new(ADC_MIN, ADC_CENTER, ADC_MAX, false), // VRA
+                AxisCalib::new(ADC_MIN, ADC_CENTER, ADC_MAX, false), // VRB
+                AxisCalib::new(ADC_MIN, ADC_CENTER, ADC_MAX, false), // VRC (PC2)
+                AxisCalib::new(ADC_MIN, ADC_CENTER, ADC_MAX, false), // VRD (PC3)
+                AxisCalib::new(ADC_MIN, ADC_CENTER, ADC_MAX, false), // VRE (PC4)
+                AxisCalib::new(ADC_MIN, ADC_CENTER, ADC_MAX, false), // VRF (PC5)
+            ],
+            adc_modes: [0; 10],
             filtered_battery_mv: 0,
             ext_switches: false,
             ext_adc: false,
@@ -235,6 +239,7 @@ pub fn apply_calibration(config: &crate::storage::RadioConfig) {
 
     calib.ext_switches = config.ext_switches != 0;
     calib.ext_adc = config.ext_adc != 0;
+    calib.adc_modes = config.adc_modes;
 
     // Roll: PA0 (RH) - inverted on FlySky mechanical gimbal
     calib.roll.invert = true;
@@ -260,37 +265,13 @@ pub fn apply_calibration(config: &crate::storage::RadioConfig) {
     calib.yaw.center = config.sticks[3].center;
     calib.yaw.max = config.sticks[3].max;
 
-    // Pots: VRA (PA6), VRB (PA7)
-    calib.vra.invert = false;
-    calib.vra.min = config.pots[0].min;
-    calib.vra.center = config.pots[0].center;
-    calib.vra.max = config.pots[0].max;
-
-    calib.vrb.invert = false;
-    calib.vrb.min = config.pots[1].min;
-    calib.vrb.center = config.pots[1].center;
-    calib.vrb.max = config.pots[1].max;
-
-    // Ext Pots: VRC (PC2), VRD (PC3), VRE (PC4), VRF (PC5) on Header P7
-    calib.vrc.invert = false;
-    calib.vrc.min = config.ext_pots[0].min;
-    calib.vrc.center = config.ext_pots[0].center;
-    calib.vrc.max = config.ext_pots[0].max;
-
-    calib.vrd.invert = false;
-    calib.vrd.min = config.ext_pots[1].min;
-    calib.vrd.center = config.ext_pots[1].center;
-    calib.vrd.max = config.ext_pots[1].max;
-
-    calib.vre.invert = false;
-    calib.vre.min = config.ext_pots[2].min;
-    calib.vre.center = config.ext_pots[2].center;
-    calib.vre.max = config.ext_pots[2].max;
-
-    calib.vrf.invert = false;
-    calib.vrf.min = config.ext_pots[3].min;
-    calib.vrf.center = config.ext_pots[3].center;
-    calib.vrf.max = config.ext_pots[3].max;
+    // 10 Auxiliary Analog Channels (SA..SD, VRA..VRB, VRC..VRF)
+    for i in 0..10 {
+        calib.aux[i].invert = false;
+        calib.aux[i].min = config.aux_pots[i].min;
+        calib.aux[i].center = (config.aux_pots[i].min + config.aux_pots[i].max) / 2;
+        calib.aux[i].max = config.aux_pots[i].max;
+    }
 }
 
 /// Enable or disable external switches SE & SF reading at runtime.
@@ -359,14 +340,76 @@ pub fn init() {
     }
 }
 
-/// Decode resistor ladder analog switch voltage:
+/// Decode a 2-position switch:
+/// - UP:   0 .. 2047
+/// - DOWN: 2048 .. 4095
+pub fn decode_switch_2pos(raw: u16) -> SwitchPos {
+    if raw < 2048 {
+        SwitchPos::Up
+    } else {
+        SwitchPos::Down
+    }
+}
+
+/// Decode resistor ladder 3-position switch voltage:
 /// - UP:   0 .. 1365 (0 .. 1/3 Vcc)
 /// - MID:  1366 .. 2730 (1/3 .. 2/3 Vcc)
 /// - DOWN: 2731 .. 4095 (2/3 .. 1 Vcc)
-fn decode_switch(raw: u16) -> SwitchPos {
+pub fn decode_switch_3pos(raw: u16) -> SwitchPos {
     if raw < 1365 {
         SwitchPos::Up
     } else if raw < 2730 {
+        SwitchPos::Mid
+    } else {
+        SwitchPos::Down
+    }
+}
+
+/// Decode 6-position flight mode switch voltage into 6 discrete intervals:
+/// - Pos 1: 0 .. 682      -> -1000
+/// - Pos 2: 683 .. 1365   -> -600
+/// - Pos 3: 1366 .. 2048  -> -200
+/// - Pos 4: 2049 .. 2730  -> +200
+/// - Pos 5: 2731 .. 3413  -> +600
+/// - Pos 6: 3414 .. 4095  -> +1000
+pub fn decode_switch_6pos_step(raw: u16) -> i16 {
+    if raw < 683 {
+        -1000
+    } else if raw < 1366 {
+        -600
+    } else if raw < 2049 {
+        -200
+    } else if raw < 2731 {
+        200
+    } else if raw < 3414 {
+        600
+    } else {
+        1000
+    }
+}
+
+/// Decode 6-position flight mode switch into discrete index 1..=6.
+pub fn decode_switch_6pos_num(raw: u16) -> u8 {
+    if raw < 683 {
+        1
+    } else if raw < 1366 {
+        2
+    } else if raw < 2049 {
+        3
+    } else if raw < 2731 {
+        4
+    } else if raw < 3414 {
+        5
+    } else {
+        6
+    }
+}
+
+/// Decode 6-position switch into a 3-state SwitchPos approximation (Up / Mid / Down)
+pub fn decode_switch_6pos_pos(raw: u16) -> SwitchPos {
+    if raw < 1366 {
+        SwitchPos::Up
+    } else if raw < 2731 {
         SwitchPos::Mid
     } else {
         SwitchPos::Down
@@ -400,34 +443,88 @@ pub fn poll() -> InputState {
         yaw: calib.yaw.normalize(raw[3]),
     };
 
-    // Pots: VRA on PA6, VRB on PA7, VRC..VRF on PC2..PC5 (Header P7)
+    // 10 Auxiliary Analog Channels mapped from raw ADC:
+    // [0] raw[4]  = PA4 (SA)
+    // [1] raw[5]  = PA5 (SB)
+    // [2] raw[8]  = PB0 (SC)
+    // [3] raw[9]  = PB1 (SD)
+    // [4] raw[6]  = PA6 (VRA)
+    // [5] raw[7]  = PA7 (VRB)
+    // [6] raw[11] = PC2 (VRC, Header P7)
+    // [7] raw[12] = PC3 (VRD, Header P7)
+    // [8] raw[13] = PC4 (VRE, Header P7)
+    // [9] raw[14] = PC5 (VRF, Header P7)
+    let aux_raw = [
+        raw[4],
+        raw[5],
+        raw[8],
+        raw[9],
+        raw[6],
+        raw[7],
+        raw[11],
+        raw[12],
+        raw[13],
+        raw[14],
+    ];
+
+    let mut aux_switches = [SwitchPos::Up; 10];
+    let mut aux_pots = [0i16; 10];
+
+    for i in 0..10 {
+        let r = aux_raw[i];
+        let mode = crate::storage::AdcInputMode::resolve(i, calib.adc_modes[i]);
+        match mode {
+            crate::storage::AdcInputMode::TwoPos => {
+                let sw = decode_switch_2pos(r);
+                aux_switches[i] = sw;
+                aux_pots[i] = if sw == SwitchPos::Up { -1000 } else { 1000 };
+            }
+            crate::storage::AdcInputMode::ThreePos => {
+                let sw = decode_switch_3pos(r);
+                aux_switches[i] = sw;
+                aux_pots[i] = match sw {
+                    SwitchPos::Up => -1000,
+                    SwitchPos::Mid => 0,
+                    SwitchPos::Down => 1000,
+                };
+            }
+            crate::storage::AdcInputMode::SixPos => {
+                aux_switches[i] = decode_switch_6pos_pos(r);
+                aux_pots[i] = decode_switch_6pos_step(r);
+            }
+            crate::storage::AdcInputMode::Pot => {
+                let val = calib.aux[i].normalize(r);
+                aux_pots[i] = val;
+                // Threshold analog pot to switch positions for switch-condition triggers
+                aux_switches[i] = if val < -333 {
+                    SwitchPos::Up
+                } else if val < 333 {
+                    SwitchPos::Mid
+                } else {
+                    SwitchPos::Down
+                };
+            }
+            crate::storage::AdcInputMode::Default => unreachable!(),
+        }
+    }
+
+    // Pots: VRA, VRB, and P7 VRC..VRF (if ext_adc is active)
     let (vr3, vr4, vr5, vr6) = if calib.ext_adc {
-        (
-            calib.vrc.normalize(raw[11]),
-            calib.vrd.normalize(raw[12]),
-            calib.vre.normalize(raw[13]),
-            calib.vrf.normalize(raw[14]),
-        )
+        (aux_pots[6], aux_pots[7], aux_pots[8], aux_pots[9])
     } else {
         (0, 0, 0, 0)
     };
 
     let pots = Pots {
-        vr1: calib.vra.normalize(raw[6]), // PA6 (VRA)
-        vr2: calib.vrb.normalize(raw[7]), // PA7 (VRB)
+        vr1: aux_pots[4], // VRA
+        vr2: aux_pots[5], // VRB
         vr3,
         vr4,
         vr5,
         vr6,
     };
 
-    // Switches:
-    // SA on PA4 (2-pos)
-    // SB on PA5 (3-pos)
-    // SC on PB0 (3-pos) - Swapped with VRB!
-    // SD on PB1 (2-pos)
-    // SE on PC12 (2-pos, active-low mod)
-    // SF on PC15 (2-pos, active-low mod)
+    // External digital switches SE (PC12) & SF (PC15)
     let (se, sf) = if calib.ext_switches {
         #[cfg(all(feature = "stm32", not(test)))]
         {
@@ -454,10 +551,10 @@ pub fn poll() -> InputState {
     };
 
     let switches = Switches {
-        sa: decode_switch(raw[4]), // PA4
-        sb: decode_switch(raw[5]), // PA5
-        sc: decode_switch(raw[8]), // PB0
-        sd: decode_switch(raw[9]), // PB1
+        sa: aux_switches[0],
+        sb: aux_switches[1],
+        sc: aux_switches[2],
+        sd: aux_switches[3],
         se,
         sf,
     };
@@ -477,6 +574,7 @@ pub fn poll() -> InputState {
         pots,
         switches,
         battery_mv,
+        aux_pots,
         raw,
     }
 }
@@ -576,5 +674,48 @@ mod tests {
         assert!(is_ext_adc_enabled());
         set_ext_adc_enabled(false);
         assert!(!is_ext_adc_enabled());
+    }
+
+    #[test]
+    fn test_decode_switch_2pos() {
+        assert_eq!(decode_switch_2pos(0), SwitchPos::Up);
+        assert_eq!(decode_switch_2pos(2047), SwitchPos::Up);
+        assert_eq!(decode_switch_2pos(2048), SwitchPos::Down);
+        assert_eq!(decode_switch_2pos(4095), SwitchPos::Down);
+    }
+
+    #[test]
+    fn test_decode_switch_3pos() {
+        assert_eq!(decode_switch_3pos(0), SwitchPos::Up);
+        assert_eq!(decode_switch_3pos(1364), SwitchPos::Up);
+        assert_eq!(decode_switch_3pos(1365), SwitchPos::Mid);
+        assert_eq!(decode_switch_3pos(2729), SwitchPos::Mid);
+        assert_eq!(decode_switch_3pos(2730), SwitchPos::Down);
+        assert_eq!(decode_switch_3pos(4095), SwitchPos::Down);
+    }
+
+    #[test]
+    fn test_decode_switch_6pos() {
+        // Steps: -1000, -600, -200, 200, 600, 1000
+        assert_eq!(decode_switch_6pos_step(0), -1000);
+        assert_eq!(decode_switch_6pos_step(682), -1000);
+        assert_eq!(decode_switch_6pos_step(683), -600);
+        assert_eq!(decode_switch_6pos_step(1365), -600);
+        assert_eq!(decode_switch_6pos_step(1366), -200);
+        assert_eq!(decode_switch_6pos_step(2048), -200);
+        assert_eq!(decode_switch_6pos_step(2049), 200);
+        assert_eq!(decode_switch_6pos_step(2730), 200);
+        assert_eq!(decode_switch_6pos_step(2731), 600);
+        assert_eq!(decode_switch_6pos_step(3413), 600);
+        assert_eq!(decode_switch_6pos_step(3414), 1000);
+        assert_eq!(decode_switch_6pos_step(4095), 1000);
+
+        // Approximation to SwitchPos:
+        assert_eq!(decode_switch_6pos_pos(0), SwitchPos::Up);
+        assert_eq!(decode_switch_6pos_pos(1365), SwitchPos::Up);
+        assert_eq!(decode_switch_6pos_pos(1366), SwitchPos::Mid);
+        assert_eq!(decode_switch_6pos_pos(2730), SwitchPos::Mid);
+        assert_eq!(decode_switch_6pos_pos(2731), SwitchPos::Down);
+        assert_eq!(decode_switch_6pos_pos(4095), SwitchPos::Down);
     }
 }
