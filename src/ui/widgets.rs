@@ -115,6 +115,100 @@ pub fn draw_channel_gauge(
     lcd.fill_rect(cursor_center - 1, y + 1, 3, height.saturating_sub(2), true);
 }
 
+/// Draw a horizontal calibration extent gauge with center reference, min/max extent fill,
+/// and a live cursor position marker.
+pub fn draw_calib_gauge(
+    lcd: &mut St7567,
+    x: i32,
+    y: i32,
+    width: u32,
+    height: u32,
+    center: u16,
+    min: u16,
+    max: u16,
+    current: u16,
+    target_span: u32,
+) {
+    if width < 6 || height < 3 {
+        return;
+    }
+    lcd.draw_rect(x, y, width, height, true);
+
+    let center_x = x + (width as i32 / 2);
+    lcd.draw_vline(center_x, y, height, true);
+
+    let half_w = (width as i32 / 2).saturating_sub(1);
+    if half_w <= 0 || target_span == 0 {
+        return;
+    }
+
+    let span_neg = center.saturating_sub(min);
+    let span_pos = max.saturating_sub(center);
+    let mid_y = y + (height as i32 / 2);
+
+    // Negative span fill (leftwards from center)
+    let left_w = (((span_neg as u32) * (half_w as u32)) / target_span).min(half_w as u32) as i32;
+    if left_w > 0 {
+        lcd.draw_hline(center_x - left_w, mid_y, left_w as u32 + 1, true);
+    }
+
+    // Positive span fill (rightwards from center)
+    let right_w = (((span_pos as u32) * (half_w as u32)) / target_span).min(half_w as u32) as i32;
+    if right_w > 0 {
+        lcd.draw_hline(center_x, mid_y, right_w as u32 + 1, true);
+    }
+
+    // Current live position cursor
+    let delta = current as i32 - center as i32;
+    let cur_x = if delta < 0 {
+        center_x - (((delta.unsigned_abs() * (half_w as u32)) / target_span).min(half_w as u32) as i32)
+    } else {
+        center_x + (((delta as u32 * (half_w as u32)) / target_span).min(half_w as u32) as i32)
+    };
+    let marker_h = height.saturating_sub(2);
+    if marker_h > 0 {
+        lcd.draw_vline(cur_x, y + 1, marker_h, true);
+    }
+}
+
+/// Draw the 4 primary flight stick calibration gauges with labels, travel extents, and readiness indicators.
+pub fn draw_calib_sticks(
+    lcd: &mut St7567,
+    labels: &[&str; 4],
+    centers: &[u16],
+    mins: &[u16],
+    maxs: &[u16],
+    current: &[u16],
+    stick_ready: &[bool; 4],
+) {
+    for i in 0..4 {
+        let y = 13 + (i as i32 * 8);
+        Text::new(labels[i], Point::new(2, y + 6), STYLE_TEXT_ON)
+            .draw(lcd)
+            .ok();
+
+        // Horizontal axes (Aileron 0, Rudder 3) travel ~1350 counts; Vertical axes (Elevator 1, Throttle 2) ~1250 counts
+        let stick_target = if i == 0 || i == 3 { 1350u32 } else { 1250u32 };
+        draw_calib_gauge(
+            lcd,
+            10,
+            y,
+            63,
+            7,
+            centers[i],
+            mins[i],
+            maxs[i],
+            current[i],
+            stick_target,
+        );
+
+        let status = if stick_ready[i] { "OK" } else { "--" };
+        Text::new(status, Point::new(75, y + 6), STYLE_TEXT_ON)
+            .draw(lcd)
+            .ok();
+    }
+}
+
 /// Draw a compact horizontal dual split bar for rotary pots (VRa and VRb).
 /// - Dimensions: width x 7 px. Top lane is VRa, bottom lane is VRb.
 /// - Each lane features a center tick and sliding 3px cursor (-1000..+1000).
@@ -196,12 +290,10 @@ pub fn draw_multi_pot_bar(lcd: &mut St7567, x: i32, y: i32, width: u32, pots: &[
     }
 
     if count == 3 {
-        // 1 column of 3 vertically stacked full-width tracks (at y, y+3, y+6)
         draw_pot_track(lcd, x, y, width, pots[0]);
         draw_pot_track(lcd, x, y + 3, width, pots[1]);
         draw_pot_track(lcd, x, y + 6, width, pots[2]);
     } else if count <= 6 {
-        // 2 columns (half-width tracks)
         let col_gap = 2;
         let col_w = (width.saturating_sub(col_gap) / 2).max(6);
         let right_x = x + col_w as i32 + col_gap as i32;
@@ -209,27 +301,24 @@ pub fn draw_multi_pot_bar(lcd: &mut St7567, x: i32, y: i32, width: u32, pots: &[
         let left_count = if count == 4 { 2 } else { 3 };
         let right_count = count - left_count;
 
-        // Render left column
         for row in 0..left_count {
             let ry = if left_count == 2 {
-                y + 1 + (row as i32 * 4) // y+1, y+5 for 2 rows
+                y + 1 + (row as i32 * 4)
             } else {
-                y + (row as i32 * 3) // y, y+3, y+6 for 3 rows
+                y + (row as i32 * 3)
             };
             draw_pot_track(lcd, x, ry, col_w, pots[row]);
         }
 
-        // Render right column
         for row in 0..right_count {
             let ry = if right_count == 2 {
-                y + 1 + (row as i32 * 4) // y+1, y+5 for 2 rows
+                y + 1 + (row as i32 * 4)
             } else {
-                y + (row as i32 * 3) // y, y+3, y+6 for 3 rows
+                y + (row as i32 * 3)
             };
             draw_pot_track(lcd, right_x, ry, col_w, pots[left_count + row]);
         }
     } else {
-        // 7..10 pots: 3 columns
         let col_gap = 2;
         let col_w = (width.saturating_sub(col_gap * 2) / 3).max(6);
         let rows_per_col = (count + 2) / 3;
@@ -256,7 +345,6 @@ pub fn draw_progress_bar(
 ) {
     lcd.draw_rect(x, y, width, height, true);
 
-    // Map -1000..+1000 to 0..max_fill
     let max_fill = (width - 2) as i32;
     let normalized = (val as i32 + 1000).clamp(0, 2000);
     let fill_len = ((normalized * max_fill) / 2000) as u32;
@@ -266,7 +354,6 @@ pub fn draw_progress_bar(
     }
 
     if trim != 0 {
-        // Trim tick: -25..+25 steps maps to ±10% (±100 µs) of full travel (2000 counts)
         let trim_offset = (trim as i32 * max_fill) / 250;
         let trim_x = (x + 1 + trim_offset.max(0)).min(x + max_fill);
         let tick_on = (trim_x - (x + 1)) >= fill_len as i32;
@@ -355,10 +442,8 @@ pub fn draw_scrollbar(lcd: &mut St7567, selected: usize, count: usize, top_y: i3
     if count <= 1 {
         return;
     }
-    // 1px track line on x = 126
     lcd.draw_vline(126, top_y, height, true);
 
-    // Thumb height: proportional or minimum 6px
     let thumb_h = ((height * 3) / count as u32).clamp(6, height);
     let travel = height.saturating_sub(thumb_h);
     let thumb_y = top_y + ((selected as u32 * travel) / (count as u32 - 1)) as i32;
@@ -469,11 +554,8 @@ mod tests {
     #[test]
     fn test_draw_list_row_right_alignment() {
         let mut lcd = St7567::new();
-        // Render unselected row with right-aligned value
         draw_list_row_right(&mut lcd, 0, false, "Thr Trim:", Some("IDLE"));
-        // Render selected row with right-aligned value
         draw_list_row_right(&mut lcd, 1, true, "Beeper:", Some("ENABLED"));
-        // Render action row with None value
         draw_list_row_right(&mut lcd, 2, false, "[Configure Module]", None);
     }
 }

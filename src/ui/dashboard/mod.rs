@@ -1,10 +1,11 @@
 //! Live Flight Dashboard subsystem for FlySky FS-i6X.
 //!
 //! Provides the primary 4-page flight display:
-//! - Page 0 (P1/4): Primary Gimbals, Trims, Switches, Pots
-//! - Page 1 (P2/4): 14-Channel Dual-Column Live Monitor
-//! - Page 2 (P3/4): Model Dashboard, Type, RX ID, Throttle Curve
-//! - Page 3 (P4/4): Telemetry & RF Diagnostics (CRSF Link Diag / AFHDS 2A)
+//! - Page 0 (P1/5): Primary Gimbals, Trims, Switches, Pots
+//! - Page 1 (P2/5): 18-Channel Dual-Column Live Monitor
+//! - Page 2 (P3/5): 18-Channel Dual-Column Live Monitor cont.
+//! - Page 3 (P4/5): Model Dashboard, Type, RX ID, Throttle Curve
+//! - Page 4 (P5/5): Telemetry & RF Diagnostics (CRSF Link Diag / AFHDS 2A)
 
 pub mod pages;
 pub mod status_bar;
