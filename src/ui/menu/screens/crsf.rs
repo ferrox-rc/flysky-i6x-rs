@@ -7,7 +7,6 @@ use embedded_graphics::{
     mono_font::{ascii::FONT_4X6, ascii::FONT_6X10, MonoTextStyle},
     pixelcolor::BinaryColor,
     prelude::*,
-    primitives::{PrimitiveStyle, Rectangle},
     text::Text,
 };
 
@@ -60,7 +59,6 @@ pub fn update(ctrl: &mut MenuController, lcd: &mut St7567, keys: &NavKeys, buzze
 
     let text_style = MonoTextStyle::new(&FONT_6X10, BinaryColor::On);
     let text_style_small = MonoTextStyle::new(&FONT_4X6, BinaryColor::On);
-    let fill_style = PrimitiveStyle::with_fill(BinaryColor::On);
 
     match engine.state {
         // --- State: Idle / Device Discovery (TBS-Agent Device List) ---
@@ -135,10 +133,7 @@ pub fn update(ctrl: &mut MenuController, lcd: &mut St7567, keys: &NavKeys, buzze
                     let y = 14 + (slot as i32 * 9);
                     let is_sel = idx == ctrl.selected_item;
                     let style = if is_sel {
-                        Rectangle::new(Point::new(2, y), Size::new(row_w, 9))
-                            .into_styled(fill_style)
-                            .draw(lcd)
-                            .ok();
+                        lcd.fill_rect(2, y, row_w, 9, true);
                         MonoTextStyle::new(&FONT_6X10, BinaryColor::Off)
                     } else {
                         text_style
@@ -438,10 +433,7 @@ pub fn update(ctrl: &mut MenuController, lcd: &mut St7567, keys: &NavKeys, buzze
                     let y = 14 + (slot as i32 * 9);
                     let is_sel = slot_idx == ctrl.selected_item;
                     let style = if is_sel {
-                        Rectangle::new(Point::new(2, y), Size::new(124, 9))
-                            .into_styled(fill_style)
-                            .draw(lcd)
-                            .ok();
+                        lcd.fill_rect(2, y, 124, 9, true);
                         MonoTextStyle::new(&FONT_6X10, BinaryColor::Off)
                     } else {
                         text_style
@@ -683,14 +675,8 @@ pub fn update(ctrl: &mut MenuController, lcd: &mut St7567, keys: &NavKeys, buzze
                         .map(|p| p.name(&engine.string_pool))
                         .unwrap_or("Action");
 
-                    Rectangle::new(Point::new(10, 16), Size::new(108, 32))
-                        .into_styled(PrimitiveStyle::with_fill(BinaryColor::Off))
-                        .draw(lcd)
-                        .ok();
-                    Rectangle::new(Point::new(10, 16), Size::new(108, 32))
-                        .into_styled(PrimitiveStyle::with_stroke(BinaryColor::On, 1))
-                        .draw(lcd)
-                        .ok();
+                    lcd.fill_rect(10, 16, 108, 32, false);
+                    lcd.draw_rect(10, 16, 108, 32, true);
 
                     let info_prompt = engine.cmd_info_str();
                     if !info_prompt.is_empty() {

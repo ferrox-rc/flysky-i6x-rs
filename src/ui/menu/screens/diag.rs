@@ -4,7 +4,6 @@ use embedded_graphics::{
     mono_font::{ascii::FONT_4X6, MonoTextStyle},
     pixelcolor::BinaryColor,
     prelude::*,
-    primitives::Rectangle,
     text::Text,
 };
 
@@ -64,7 +63,7 @@ pub fn update_diag_anas(
 
             let raw = raw_adc[adc_idx].min(4095);
             let fill_w = ((raw as u32 * 38) / 4095).min(38);
-            widgets::draw_bar_gauge(lcd, Rectangle::new(Point::new(44, y + 1), Size::new(40, 5)), fill_w);
+            widgets::draw_bar_gauge(lcd, 44, y + 1, 40, 5, fill_w);
 
             let mut val_buf = [0u8; 4];
             u16_to_dec_4(raw, &mut val_buf);
@@ -90,7 +89,7 @@ pub fn update_diag_anas(
             "UP (HIGH)"
         };
         let fill_se = if switches.se == crate::input::SwitchPos::Down { 30 } else { 0 };
-        widgets::draw_bar_gauge(lcd, Rectangle::new(Point::new(32, 23), Size::new(30, 6)), fill_se);
+        widgets::draw_bar_gauge(lcd, 32, 23, 30, 6, fill_se);
         Text::new(se_state, Point::new(66, 28), text_style_small).draw(lcd).ok();
 
         // SF (PC15)
@@ -101,7 +100,7 @@ pub fn update_diag_anas(
             "UP (HIGH)"
         };
         let fill_sf = if switches.sf == crate::input::SwitchPos::Down { 30 } else { 0 };
-        widgets::draw_bar_gauge(lcd, Rectangle::new(Point::new(32, 33), Size::new(30, 6)), fill_sf);
+        widgets::draw_bar_gauge(lcd, 32, 33, 30, 6, fill_sf);
         Text::new(sf_state, Point::new(66, 38), text_style_small).draw(lcd).ok();
 
         Text::new("Active-LOW mod to GND", Point::new(2, 49), text_style_small).draw(lcd).ok();
@@ -128,7 +127,7 @@ pub fn update_diag_anas(
             } else {
                 0
             };
-            widgets::draw_bar_gauge(lcd, Rectangle::new(Point::new(44, y + 1), Size::new(40, 5)), fill_w);
+            widgets::draw_bar_gauge(lcd, 44, y + 1, 40, 5, fill_w);
 
             let mut val_buf = [0u8; 4];
             if ext_active {

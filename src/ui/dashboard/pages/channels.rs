@@ -4,7 +4,6 @@ use embedded_graphics::{
     mono_font::{ascii::FONT_4X6, MonoTextStyle},
     pixelcolor::BinaryColor,
     prelude::*,
-    primitives::Rectangle,
     text::Text,
 };
 
@@ -54,11 +53,7 @@ pub fn render(lcd: &mut St7567, rf_chs: &[u16; NUM_CHANNELS], is_binding: bool, 
             // Bar gauge (width 26, height 5) using shared widget
             let us = rf_chs[ch].clamp(CHANNEL_MIN_US, CHANNEL_MAX_US);
             let fill_w = (((us - CHANNEL_MIN_US) as u32 * 24) / CHANNEL_SPAN_US).min(24);
-            widgets::draw_bar_gauge(
-                lcd,
-                Rectangle::new(Point::new(col_x + 14, y + 1), Size::new(26, 5)),
-                fill_w,
-            );
+            widgets::draw_bar_gauge(lcd, col_x + 14, y + 1, 26, 5, fill_w);
 
             // Value: "1500"
             let mut val_buf = [0u8; 4];

@@ -4,7 +4,6 @@ use embedded_graphics::{
     mono_font::{ascii::FONT_6X10, MonoTextStyle},
     pixelcolor::BinaryColor,
     prelude::*,
-    primitives::{PrimitiveStyle, Rectangle},
     text::Text,
 };
 
@@ -322,8 +321,6 @@ pub fn update_throttle_curve(
     widgets::draw_header(lcd, "THROTTLE CURVE");
 
     let text_style = MonoTextStyle::new(&FONT_6X10, BinaryColor::On);
-    let fill_style = PrimitiveStyle::with_fill(BinaryColor::On);
-    let border_style = PrimitiveStyle::with_stroke(BinaryColor::On, 1);
 
     // Left side: Mode & active point info
     let mode_str = if storage.models[active_idx].thr_curve_pts == 9 {
@@ -333,10 +330,7 @@ pub fn update_throttle_curve(
     };
     let is_sel_pts = !ctrl.editing && ctrl.selected_item == 0;
     if is_sel_pts {
-        Rectangle::new(Point::new(2, 13), Size::new(70, 9))
-            .into_styled(fill_style)
-            .draw(lcd)
-            .ok();
+        lcd.fill_rect(2, 13, 70, 9, true);
         let inv_style = MonoTextStyle::new(&FONT_6X10, BinaryColor::Off);
         Text::new("Pts:", Point::new(4, 20), inv_style)
             .draw(lcd)
@@ -360,10 +354,7 @@ pub fn update_throttle_curve(
     };
     let is_sel_crv = !ctrl.editing && ctrl.selected_item == 1;
     if is_sel_crv {
-        Rectangle::new(Point::new(2, 23), Size::new(70, 9))
-            .into_styled(fill_style)
-            .draw(lcd)
-            .ok();
+        lcd.fill_rect(2, 23, 70, 9, true);
         let inv_style = MonoTextStyle::new(&FONT_6X10, BinaryColor::Off);
         Text::new("Crv:", Point::new(4, 30), inv_style)
             .draw(lcd)
@@ -397,19 +388,13 @@ pub fn update_throttle_curve(
         let p_str = ascii_as_str(&p_buf);
 
         if ctrl.editing {
-            Rectangle::new(Point::new(2, 35), Size::new(70, 11))
-                .into_styled(fill_style)
-                .draw(lcd)
-                .ok();
+            lcd.fill_rect(2, 35, 70, 11, true);
             let inv_style = MonoTextStyle::new(&FONT_6X10, BinaryColor::Off);
             Text::new(p_str, Point::new(4, 44), inv_style)
                 .draw(lcd)
                 .ok();
         } else {
-            Rectangle::new(Point::new(2, 35), Size::new(70, 11))
-                .into_styled(border_style)
-                .draw(lcd)
-                .ok();
+            lcd.draw_rect(2, 35, 70, 11, true);
             Text::new(p_str, Point::new(4, 44), text_style)
                 .draw(lcd)
                 .ok();
@@ -426,10 +411,7 @@ pub fn update_throttle_curve(
     }
 
     // Right side: Graph box (x = 76..124, y = 13..49)
-    Rectangle::new(Point::new(76, 13), Size::new(49, 37))
-        .into_styled(border_style)
-        .draw(lcd)
-        .ok();
+    lcd.draw_rect(76, 13, 49, 37, true);
 
     // Draw curve graph inside box (width 47, height 35)
     let pts_mode = storage.models[active_idx].thr_curve_pts;
@@ -548,7 +530,6 @@ pub fn update_wing_mixer(
 
     widgets::draw_header(lcd, "WING & MIXER");
 
-    let fill_style = PrimitiveStyle::with_fill(BinaryColor::On);
     let text_style = MonoTextStyle::new(&FONT_6X10, BinaryColor::On);
     let mut b6 = [0u8; 6];
 
@@ -560,10 +541,7 @@ pub fn update_wing_mixer(
         let y = 14 + (slot as i32 * 9);
         let is_sel = idx == ctrl.selected_item;
         let style = if is_sel {
-            Rectangle::new(Point::new(2, y), Size::new(124, 9))
-                .into_styled(fill_style)
-                .draw(lcd)
-                .ok();
+            lcd.fill_rect(2, y, 124, 9, true);
             MonoTextStyle::new(&FONT_6X10, BinaryColor::Off)
         } else {
             text_style

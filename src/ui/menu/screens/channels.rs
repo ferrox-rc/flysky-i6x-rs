@@ -4,7 +4,6 @@ use embedded_graphics::{
     mono_font::{ascii::FONT_4X6, MonoTextStyle},
     pixelcolor::BinaryColor,
     prelude::*,
-    primitives::Rectangle,
     text::Text,
 };
 
@@ -287,11 +286,7 @@ pub fn update_channel_monitor(
 
         let us = rf_chs[ch].clamp(CHANNEL_MIN_US, CHANNEL_MAX_US);
         let fill_w = (((us - CHANNEL_MIN_US) as u32 * 38) / CHANNEL_SPAN_US).min(38);
-        widgets::draw_bar_gauge(
-            lcd,
-            Rectangle::new(Point::new(44, y + 1), Size::new(40, 5)),
-            fill_w,
-        );
+        widgets::draw_bar_gauge(lcd, 44, y + 1, 40, 5, fill_w);
 
         let mut val_buf = [0u8; 4];
         u16_to_dec_4(us, &mut val_buf);

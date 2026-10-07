@@ -4,7 +4,6 @@ use embedded_graphics::{
     mono_font::{ascii::FONT_4X6, ascii::FONT_6X10, MonoTextStyle},
     pixelcolor::BinaryColor,
     prelude::*,
-    primitives::Rectangle,
     text::Text,
 };
 
@@ -531,18 +530,12 @@ pub fn draw_list_row_right(
 }
 
 /// Draw a framed bar gauge meter with an inner filled level.
-pub fn draw_bar_gauge(lcd: &mut St7567, box_rect: Rectangle, fill_width: u32) {
-    lcd.draw_rect(
-        box_rect.top_left.x,
-        box_rect.top_left.y,
-        box_rect.size.width,
-        box_rect.size.height,
-        true,
-    );
+pub fn draw_bar_gauge(lcd: &mut St7567, x: i32, y: i32, width: u32, height: u32, fill_width: u32) {
+    lcd.draw_rect(x, y, width, height, true);
     if fill_width > 0 {
-        let inner_p_x = box_rect.top_left.x + 1;
-        let inner_p_y = box_rect.top_left.y + 1;
-        let inner_h = box_rect.size.height.saturating_sub(2);
+        let inner_p_x = x + 1;
+        let inner_p_y = y + 1;
+        let inner_h = height.saturating_sub(2);
         lcd.fill_rect(inner_p_x, inner_p_y, fill_width, inner_h, true);
     }
 }

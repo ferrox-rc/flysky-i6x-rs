@@ -4,7 +4,6 @@ use embedded_graphics::{
     mono_font::{ascii::FONT_6X10, MonoTextStyle},
     pixelcolor::BinaryColor,
     prelude::*,
-    primitives::{PrimitiveStyle, Rectangle},
     text::Text,
 };
 
@@ -301,7 +300,6 @@ pub fn update_setup(
 
     widgets::draw_header(lcd, "MODEL SETUP");
 
-    let fill_style = PrimitiveStyle::with_fill(BinaryColor::On);
     let text_style = MonoTextStyle::new(&FONT_6X10, BinaryColor::On);
     let mut t_buf = [0u8; 8];
 
@@ -314,7 +312,7 @@ pub fn update_setup(
         let is_sel = !ctrl.editing && idx == ctrl.selected_item;
         let is_edit = ctrl.editing && idx == ctrl.selected_item;
         let style = if is_sel || is_edit {
-            Rectangle::new(Point::new(2, y), Size::new(124, 9)).into_styled(fill_style).draw(lcd).ok();
+            lcd.fill_rect(2, y, 124, 9, true);
             MonoTextStyle::new(&FONT_6X10, BinaryColor::Off)
         } else {
             text_style
