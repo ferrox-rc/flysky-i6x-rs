@@ -36,27 +36,37 @@ pub struct ChannelCalib {
     pub _pad: u16,     // 32-bit alignment padding
 }
 
+#[repr(C)]
+pub struct PotCalib {
+    pub min: u16,      // Minimum endpoint (raw ADC counts)
+    pub center: u16,   // Neutral resting center (raw ADC counts)
+    pub max: u16,      // Maximum endpoint (raw ADC counts)
+}
+
 /// Global radio settings (exactly 128 bytes)
 #[repr(C)]
 pub struct RadioConfig {
-    pub magic: u32,                // 0x4653_4B59 ("FSKY")
-    pub version: u32,              // Config structure version (5)
-    pub active_model: u8,          // Current model index (0..19)
-    pub throttle_trim: u8,         // 0: OFF (Lock), 1: IDLE (T-Trim), 2: LINEAR
-    pub audio_enabled: u8,         // 0: Muted, 1: Enabled
-    pub backlight_timeout: u8,     // 0: Always On, 1: 15s, 2: 30s, 3: 60s
-    pub backlight_brightness: u8,  // 1..10 (10%..100%, default 10)
-    pub vbat_warn_deci: u8,        // 40..50 (4.0V..5.0V, default 44 = 4.4V)
-    pub lcd_contrast: u8,          // 15..55 (default 37 / 0x25)
-    pub usb_mode: u8,              // 0: Off, 1: Joystick, 2: Serial, 3: Composite
-    pub sticks: [ChannelCalib; 4], // 0: Roll, 1: Pitch, 2: Throttle, 3: Yaw (32 bytes)
-    pub pots: [ChannelCalib; 2],   // 0: VRA, 1: VRB (16 bytes)
-    pub ext_module_pwr: u8,        // 64: 0: Active HIGH (N-type), 1: Active LOW (P-type)
-    pub tone_style: u8,            // 65: 0: Simple / Tactile, 1: Rich / Melodic
-    pub servo_rate_hz: u16,        // 66..68: 50..400 Hz (default 50 Hz for analog servo safety)
-    pub rx_out_mode: u8,           // 68: 0: PWM, 1: PPM
-    pub rx_serial_proto: u8,       // 69: 0: i-BUS, 1: S.BUS
-    pub _reserved: [u8; 58],       // 70..128: Reserved expansion space (Total: 128 bytes)
+    pub magic: u32,                // 0..4 ("FSKY")
+    pub version: u32,              // 4..8 (5)
+    pub active_model: u8,          // 8 (0..19, active model index)
+    pub throttle_trim: u8,         // 9 (0: Off/Lock, 1: Idle T-Trim, 2: Linear)
+    pub audio_enabled: u8,         // 10 (0: Muted, 1: Enabled)
+    pub backlight_timeout: u8,     // 11 (0: Always On, 1: 15s, 2: 30s, 3: 60s)
+    pub backlight_brightness: u8,  // 12 (1..10)
+    pub vbat_warn_deci: u8,        // 13 (40..50 = 4.0V..5.0V, default 44 = 4.4V)
+    pub lcd_contrast: u8,          // 14 (15..55, default 37 / 0x25)
+    pub usb_mode: u8,              // 15 (0: Off, 1: Joystick, 2: Serial, 3: Composite)
+    pub sticks: [ChannelCalib; 4], // 16..48 (32 bytes: Roll, Pitch, Throttle, Yaw)
+    pub aux_pots: [PotCalib; 10],  // 48..108 (60 bytes: SA..SD, VRA..VRB, VRC..VRF)
+    pub ext_module_pwr: u8,        // 108 (0: Active HIGH / N-type, 1: Active LOW / P-type)
+    pub tone_style: u8,            // 109 (0: Simple / Standard, 1: Rich / Melodic)
+    pub servo_rate_hz: u16,        // 110..112 (50..400 Hz, default 50 Hz for analog servo safety)
+    pub rx_out_mode: u8,           // 112 (0: PWM, 1: PPM, default 0)
+    pub rx_serial_proto: u8,       // 113 (0: i-BUS, 1: S.BUS, default 0)
+    pub ext_switches: u8,          // 114 (0: Disabled, 1: Enabled / PC12+PC15)
+    pub ext_adc: u8,               // 115 (0: Disabled, 1: Enabled / Header P7 AD12-AD15)
+    pub adc_modes: [u8; 10],       // 116..126: Input modes for the 10 auxiliary analog channels
+    pub _reserved: [u8; 2],        // 126..128 (2 bytes reserved, exact 128-byte guarantee)
 }
 
 /// A single freeform mix rule in the matrix mixer (6 bytes)
@@ -173,14 +183,17 @@ stateDiagram-v2
 
 ### Step 1 (Center)
 1. **Key Release Guard**: When entering the wizard from the flight dashboard by holding `OK` for 1.2s, the wizard requires `OK` to be physically released before accepting input. This prevents accidentally skipping Step 1.
-2. **Neutral Reference**: The user leaves Roll, Pitch, and Yaw spring-centered, manually positions the friction Throttle stick to the physical middle (50%), and centers VRA/VRB.
-3. **Capture**: Pressing `[OK]` records `centers[0..5] = raw[0..5]` and initializes `mins` and `maxs` to the center reference.
+2. **Neutral Reference**: The user leaves Roll, Pitch, and Yaw spring-centered, manually positions the friction Throttle stick to the physical middle (50%), and centers all active potentiometers.
+3. **Capture**: Pressing `[OK]` records `centers` and initializes `mins` and `maxs` across sticks and all currently configured continuous potentiometers (`collect_configured_pots`).
 
 ### Step 2 (Limits & Margins)
-1. **Dynamic Tracking**: The user moves both sticks in full circles touching all 4 corners, and rotates VRA & VRB from stop to stop.
+1. **Dynamic Tracking**: The user moves both sticks in full circles touching all 4 corners, and rotates all active rotary dials from stop to stop.
 2. **Real-Time Display**:
-   - **Left side**: 4 stick gauges (`A`, `E`, `T`, `R`) with symmetric 30-pixel inner spans (`x = 11..41` left, `x = 41..71` right). Extent fill lines and live cursor ticks track the full throw. Once an axis has moved >= 250 counts in both directions, its status changes from `--` to `OK`.
-   - **Right side**: Live gauges for `V1` (VRA) and `V2` (VRB) with 16-pixel extent fill lines and `OK` status indicators.
+   - **Gimbals**: 4 primary stick gauges (`A`, `E`, `T`, `R`) with symmetric inner spans. Extent fill lines and live cursor ticks track full throw. Once an axis has measured sufficient deflection (>= 250 counts in both directions), its status changes from `--` to `OK`.
+   - **Dynamic Potentiometer Layout**: The wizard dynamically collects all channels configured as continuous potentiometers (`AdcInputMode::Pot` or `AdcInputMode::PotDetent`).
+     - **<= 2 Pots active**: Renders full-width single or dual gauges with center reference ticks and sliding cursors.
+     - **3..4 Pots active**: Switches to a 2-column split layout with compact bars.
+     - **> 4 Pots active**: Renders a dense multi-channel matrix tracking calibration across all extended dials.
 3. **Potentiometer Physics & ADC Range**:
    - The STM32 12-bit ADC spans `0..4095` counts (0V..3.3V).
    - However, standard rotary potentiometers have an electrical rotation angle of ~270°, whereas transmitter gimbals physically only tilt ±25° (a total travel of ~50°).

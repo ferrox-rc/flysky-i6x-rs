@@ -4,21 +4,16 @@
 //! 1. Center all sticks and pots (Throttle centered to 50%) -> captures neutral points.
 //! 2. Move sticks and pots to physical limits -> captures min/max extents.
 //!
+//! Reuses the widgets library and dynamic analog input discovery from gimbals.
 //! Applies OpenTX-style margins (~2%) and saves to Flash.
-
-use embedded_graphics::{
-    mono_font::{ascii::FONT_6X10, MonoTextStyle},
-    pixelcolor::BinaryColor,
-    prelude::*,
-    primitives::{Line, PrimitiveStyle, Rectangle},
-    text::Text,
-};
 
 use crate::adc;
 use crate::buzzer::Buzzer;
 use crate::display::St7567;
 use crate::input;
 use crate::storage::{self, ChannelCalib};
+use crate::ui::dashboard::pages::gimbals::{self, collect_configured_pots, ConfiguredPot};
+use crate::ui::widgets;
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum CalibStep {
@@ -85,10 +80,9 @@ impl CalibWizard {
         buzzer: &mut Buzzer,
     ) {
         // Debounce / release tracking for OK button (bit 10)
-        if self.waiting_release
-            && (keys & (1 << 10)) == 0 {
-                self.waiting_release = false;
-            }
+        if self.waiting_release && (keys & (1 << 10)) == 0 {
+            self.waiting_release = false;
+        }
 
         let newly_pressed = if self.waiting_release {
             0
@@ -100,32 +94,11 @@ impl CalibWizard {
         let ok_pressed = (newly_pressed & (1 << 10)) != 0;
         let cancel_pressed = (newly_pressed & (1 << 11)) != 0;
 
-        let text_style = MonoTextStyle::new(&FONT_6X10, BinaryColor::On);
-        let border_style = PrimitiveStyle::with_stroke(BinaryColor::On, 1);
+        // Map primary stick ADC readings (PA0..PA3)
+        let current_sticks = [raw_adc[0], raw_adc[1], raw_adc[2], raw_adc[3]];
 
-        // Map raw ADC to wizard channels:
-        // [0] PA0: Roll
-        // [1] PA1: Pitch
-        // [2] PA2: Throttle
-        // [3] PA3: Yaw
-        // [4] PA6: VRA
-        // [5] PA7: VRB
-        // [6] PC2: VRC (AD12 on Header P7)
-        // [7] PC3: VRD (AD13 on Header P7)
-        // [8] PC4: VRE (AD14 on Header P7)
-        // [9] PC5: VRF (AD15 on Header P7)
-        let current_raw = [
-            raw_adc[0],
-            raw_adc[1],
-            raw_adc[2],
-            raw_adc[3],
-            raw_adc[6],
-            raw_adc[7],
-            raw_adc[11],
-            raw_adc[12],
-            raw_adc[13],
-            raw_adc[14],
-        ];
+        // Dynamically inspect all configured analog potentiometer inputs
+        let (configured_pots, pot_count) = collect_configured_pots(storage);
 
         match self.step {
             CalibStep::Inactive => {}
@@ -138,29 +111,38 @@ impl CalibWizard {
                 }
 
                 if ok_pressed {
-                    self.centers.copy_from_slice(&current_raw);
-                    self.mins.copy_from_slice(&current_raw);
-                    self.maxs.copy_from_slice(&current_raw);
+                    // Capture center positions for the 4 sticks
+                    self.centers[0..4].copy_from_slice(&current_sticks);
+                    self.mins[0..4].copy_from_slice(&current_sticks);
+                    self.maxs[0..4].copy_from_slice(&current_sticks);
+
+                    // Capture center positions for all active pots
+                    for pot in &configured_pots[..pot_count] {
+                        let ch = pot.ch;
+                        let val = gimbals::aux_channel_raw_adc(raw_adc, ch);
+                        self.centers[ch] = val;
+                        self.mins[ch] = val;
+                        self.maxs[ch] = val;
+                    }
+
                     self.step = CalibStep::Limits;
-                    self.waiting_release = true; // Must release OK before accepting save in step 2!
+                    self.waiting_release = true;
                     buzzer.play_tone(2400, 50);
                     return;
                 }
 
-                // Render Step 1
-                lcd.clear(BinaryColor::Off).ok();
-                Text::new("CALIBRATION (1/2)", Point::new(12, 9), text_style).draw(lcd).ok();
-                Line::new(Point::new(0, 11), Point::new(127, 11)).into_styled(border_style).draw(lcd).ok();
+                // Render Step 1 using standard header & footer widgets
+                lcd.clear_buffer();
+                widgets::draw_header(lcd, "CALIBRATION (1/2)");
 
-                Text::new("1. Center all sticks", Point::new(2, 22), text_style).draw(lcd).ok();
-                Text::new("   & rotary pots.", Point::new(2, 32), text_style).draw(lcd).ok();
-                Text::new("2. Move THR to middle!", Point::new(2, 43), text_style).draw(lcd).ok();
+                lcd.draw_str_6x10(2, 15, "1. Center all sticks", false);
+                lcd.draw_str_6x10(2, 25, "   & rotary pots.", false);
+                lcd.draw_str_6x10(2, 36, "2. Move THR to middle!", false);
 
-                Line::new(Point::new(0, 48), Point::new(127, 48)).into_styled(border_style).draw(lcd).ok();
                 if self.waiting_release {
-                    Text::new("Release [OK] key...", Point::new(4, 59), text_style).draw(lcd).ok();
+                    widgets::draw_footer(lcd, "Release [OK] key...");
                 } else {
-                    Text::new("[OK] Next  [ESC] Exit", Point::new(2, 59), text_style).draw(lcd).ok();
+                    widgets::draw_footer_split(lcd, "[OK] Next", "[ESC] Exit");
                 }
             }
 
@@ -171,8 +153,8 @@ impl CalibWizard {
                     return;
                 }
 
-                // Continuously track minimum and maximum reached
-                for (i, &raw) in current_raw.iter().enumerate() {
+                // Track physical limits for sticks
+                for (i, &raw) in current_sticks.iter().enumerate() {
                     if raw < self.mins[i] {
                         self.mins[i] = raw;
                     }
@@ -181,7 +163,19 @@ impl CalibWizard {
                     }
                 }
 
-                // Check readiness of sticks (each stick must move at least 250 counts in each direction)
+                // Track physical limits for all active pots
+                for pot in &configured_pots[..pot_count] {
+                    let ch = pot.ch;
+                    let raw = gimbals::aux_channel_raw_adc(raw_adc, ch);
+                    if raw < self.mins[ch] {
+                        self.mins[ch] = raw;
+                    }
+                    if raw > self.maxs[ch] {
+                        self.maxs[ch] = raw;
+                    }
+                }
+
+                // Readiness criteria: sticks must travel at least 250 counts from center in each direction
                 let mut ready_count = 0u8;
                 let mut stick_ready = [false; 4];
                 for (i, ready) in stick_ready.iter_mut().enumerate() {
@@ -197,14 +191,16 @@ impl CalibWizard {
 
                 if ok_pressed {
                     if all_ready {
-                        // Apply OpenTX STICK_TOLERANCE 64 margin (62/64 = ~96.8%)
                         storage.radio.magic = storage::FLASH_MAGIC;
                         storage.radio.version = storage::CONFIG_VERSION;
 
+                        // Save calibrated stick ranges with OpenTX 63/64 margin
                         for i in 0..4 {
                             let center = self.centers[i];
-                            let span_neg = ((center.saturating_sub(self.mins[i]) as u32 * 63) / 64) as u16;
-                            let span_pos = ((self.maxs[i].saturating_sub(center) as u32 * 63) / 64) as u16;
+                            let span_neg =
+                                ((center.saturating_sub(self.mins[i]) as u32 * 63) / 64) as u16;
+                            let span_pos =
+                                ((self.maxs[i].saturating_sub(center) as u32 * 63) / 64) as u16;
                             storage.radio.sticks[i] = ChannelCalib::new(
                                 center.saturating_sub(span_neg),
                                 center,
@@ -212,37 +208,21 @@ impl CalibWizard {
                             );
                         }
 
-                        // Pots: if moved by >= 400 counts total span, update; otherwise preserve
-                        for i in 0..2 {
-                            let p_idx = 4 + i;
-                            let span = self.maxs[p_idx].saturating_sub(self.mins[p_idx]);
+                        // Save calibrated pot ranges for any active pot moved by >= 400 counts
+                        for pot in &configured_pots[..pot_count] {
+                            let ch = pot.ch;
+                            let span = self.maxs[ch].saturating_sub(self.mins[ch]);
                             if span >= 400 {
-                                let center = self.centers[p_idx];
-                                let span_neg = ((center.saturating_sub(self.mins[p_idx]) as u32 * 63) / 64) as u16;
-                                let span_pos = ((self.maxs[p_idx].saturating_sub(center) as u32 * 63) / 64) as u16;
-                                storage.radio.pots[i] = ChannelCalib::new(
+                                let center = self.centers[ch];
+                                let span_neg = ((center.saturating_sub(self.mins[ch]) as u32 * 63)
+                                    / 64) as u16;
+                                let span_pos = ((self.maxs[ch].saturating_sub(center) as u32 * 63)
+                                    / 64) as u16;
+                                storage.radio.aux_pots[ch] = storage::PotCalib::new(
                                     center.saturating_sub(span_neg),
                                     center,
                                     center.saturating_add(span_pos),
                                 );
-                            }
-                        }
-
-                        // Ext Pots: if ext_adc is active, update any ext pot moved by >= 400 counts
-                        if storage.radio.ext_adc != 0 {
-                            for i in 0..4 {
-                                let p_idx = 6 + i;
-                                let span = self.maxs[p_idx].saturating_sub(self.mins[p_idx]);
-                                if span >= 400 {
-                                    let center = self.centers[p_idx];
-                                    let span_neg = ((center.saturating_sub(self.mins[p_idx]) as u32 * 63) / 64) as u16;
-                                    let span_pos = ((self.maxs[p_idx].saturating_sub(center) as u32 * 63) / 64) as u16;
-                                    storage.radio.ext_pots[i] = ChannelCalib::new(
-                                        center.saturating_sub(span_neg),
-                                        center,
-                                        center.saturating_add(span_pos),
-                                    );
-                                }
                             }
                         }
 
@@ -251,113 +231,60 @@ impl CalibWizard {
 
                         buzzer.chime_calib_success();
                         self.step = CalibStep::Complete;
-                        self.timer_ms = 1200; // Display success banner for 1.2s
+                        self.timer_ms = 1200;
                     } else {
-                        // Warning buzz if not all sticks have been moved to limits
                         buzzer.play_tone(1100, 100);
                     }
                     return;
                 }
 
                 // Render Step 2
-                lcd.clear(BinaryColor::Off).ok();
-                Text::new("CALIBRATION (2/2)", Point::new(12, 9), text_style).draw(lcd).ok();
-                Line::new(Point::new(0, 11), Point::new(127, 11)).into_styled(border_style).draw(lcd).ok();
+                lcd.clear_buffer();
+                widgets::draw_header(lcd, "CALIBRATION (2/2)");
 
-                let labels = ["A", "E", "T", "R"];
-                for i in 0..4 {
-                    let y = 13 + (i as i32 * 8);
-                    Text::new(labels[i], Point::new(2, y + 6), text_style).draw(lcd).ok();
-
-                    // Outline gauge box (width = 63, from 10 to 72; inner x = 11..71)
-                    Rectangle::new(Point::new(10, y), Size::new(63, 7))
-                        .into_styled(border_style)
-                        .draw(lcd)
-                        .ok();
-
-                    // Center tick mark at 41 (left inner: 11..40 = 30px, right inner: 42..71 = 30px)
-                    Line::new(Point::new(41, y), Point::new(41, y + 6))
-                        .into_styled(border_style)
-                        .draw(lcd)
-                        .ok();
-
-                    // Display extent covered from center
-                    let center = self.centers[i];
-                    let span_neg = center.saturating_sub(self.mins[i]);
-                    let span_pos = self.maxs[i].saturating_sub(center);
-
-                    // Target nominal span for full gauge travel:
-                    // Horizontal (A, R) travel is ~1600 counts; Vertical (E, T) is ~1450 counts.
-                    // Using 1350 (H) / 1250 (V) ensures every physical axis reaches 100% of the box edges.
-                    let stick_target = if i == 0 || i == 3 { 1350u32 } else { 1250u32 };
-
-                    // Left fill: up to 30 pixels left (reaches x = 11)
-                    let left_w = ((span_neg as u32 * 30) / stick_target).min(30) as i32;
-                    if left_w > 0 {
-                        Line::new(Point::new(41 - left_w, y + 3), Point::new(41, y + 3))
-                            .into_styled(border_style)
-                            .draw(lcd)
-                            .ok();
-                    }
-
-                    // Right fill: up to 30 pixels right (reaches x = 71)
-                    let right_w = ((span_pos as u32 * 30) / stick_target).min(30) as i32;
-                    if right_w > 0 {
-                        Line::new(Point::new(41, y + 3), Point::new(41 + right_w, y + 3))
-                            .into_styled(border_style)
-                            .draw(lcd)
-                            .ok();
-                    }
-
-                    // Current stick position tick mark
-                    let cur = current_raw[i];
-                    let delta = cur as i32 - center as i32;
-                    let cur_x = if delta < 0 {
-                        41 - ((delta.unsigned_abs() * 30) / stick_target).min(30) as i32
-                    } else {
-                        41 + ((delta as u32 * 30) / stick_target).min(30) as i32
-                    };
-                    Line::new(Point::new(cur_x, y + 1), Point::new(cur_x, y + 5))
-                        .into_styled(border_style)
-                        .draw(lcd)
-                        .ok();
-
-                    // Stick status text
-                    if stick_ready[i] {
-                        Text::new("OK", Point::new(75, y + 6), text_style).draw(lcd).ok();
-                    } else {
-                        Text::new("--", Point::new(75, y + 6), text_style).draw(lcd).ok();
-                    }
-                }
-
-                // Pot scaling: pots swing ~800..1300 counts around center. 900 counts fills 16 pixels.
-                let pot_target = 900u32;
-
-                draw_pot_gauge(
-                    lcd, "V1 OK", "V1 --", 19, 21,
-                    self.centers[4], self.mins[4], self.maxs[4], current_raw[4],
-                    pot_target, text_style, border_style,
-                );
-                draw_pot_gauge(
-                    lcd, "V2 OK", "V2 --", 35, 37,
-                    self.centers[5], self.mins[5], self.maxs[5], current_raw[5],
-                    pot_target, text_style, border_style,
-                );
-
-                Line::new(Point::new(0, 48), Point::new(127, 48)).into_styled(border_style).draw(lcd).ok();
-                if self.waiting_release {
-                    Text::new("Release [OK] key...", Point::new(4, 59), text_style).draw(lcd).ok();
-                } else if all_ready {
-                    Text::new("[OK] Save  [ESC] Exit", Point::new(2, 59), text_style).draw(lcd).ok();
+                let is_general = storage.active_model().model_type == 4;
+                let stick_labels = if is_general {
+                    ["1", "2", "3", "4"]
                 } else {
-                    Text::new("Stir sticks & pots", Point::new(2, 59), text_style).draw(lcd).ok();
+                    ["A", "E", "T", "R"]
+                };
+
+                // Render flight sticks using the dedicated widget
+                widgets::draw_calib_sticks(
+                    lcd,
+                    &stick_labels,
+                    &self.centers[0..4],
+                    &self.mins[0..4],
+                    &self.maxs[0..4],
+                    &current_sticks,
+                    &stick_ready,
+                );
+
+                // Dynamically render all configured potentiometers
+                draw_calib_pots(
+                    lcd,
+                    &configured_pots[..pot_count],
+                    &self.centers,
+                    &self.mins,
+                    &self.maxs,
+                    raw_adc,
+                );
+
+                if self.waiting_release {
+                    widgets::draw_footer(lcd, "Release [OK] key...");
+                } else if all_ready {
+                    widgets::draw_footer_split(lcd, "[OK] Save", "[ESC] Exit");
+                } else {
+                    widgets::draw_footer_split(lcd, "Stir sticks & pots", "[ESC] Exit");
                 }
             }
 
             CalibStep::Complete => {
-                lcd.clear(BinaryColor::Off).ok();
-                Text::new("CALIBRATION SAVED!", Point::new(10, 24), text_style).draw(lcd).ok();
-                Text::new("Flash updated OK", Point::new(14, 38), text_style).draw(lcd).ok();
+                lcd.clear_buffer();
+                widgets::draw_header(lcd, "CALIBRATION (OK)");
+                lcd.draw_str_6x10(10, 19, "CALIBRATION SAVED!", false);
+                lcd.draw_str_6x10(14, 33, "Flash updated OK", false);
+                widgets::draw_footer(lcd, "Ready");
 
                 if self.timer_ms > dt_ms {
                     self.timer_ms -= dt_ms;
@@ -369,58 +296,97 @@ impl CalibWizard {
     }
 }
 
-#[allow(clippy::too_many_arguments)]
-fn draw_pot_gauge(
+/// Dynamically render all active potentiometer calibration gauges on the right side of the screen.
+fn draw_calib_pots(
     lcd: &mut St7567,
-    label_ok: &'static str,
-    label_wait: &'static str,
-    text_y: i32,
-    box_y: i32,
-    center: u16,
-    min: u16,
-    max: u16,
-    current: u16,
-    pot_target: u32,
-    text_style: MonoTextStyle<'_, BinaryColor>,
-    border_style: PrimitiveStyle<BinaryColor>,
+    configured_pots: &[ConfiguredPot],
+    centers: &[u16; 10],
+    mins: &[u16; 10],
+    maxs: &[u16; 10],
+    raw_adc: &[u16; adc::NUM_CHANNELS],
 ) {
-    let span_neg = center.saturating_sub(min);
-    let span_pos = max.saturating_sub(center);
-    let moved = (span_neg + span_pos) >= 400;
-    let txt = if moved { label_ok } else { label_wait };
-    Text::new(txt, Point::new(92, text_y), text_style).draw(lcd).ok();
-    Rectangle::new(Point::new(92, box_y), Size::new(35, 7))
-        .into_styled(border_style)
-        .draw(lcd)
-        .ok();
-    Line::new(Point::new(109, box_y), Point::new(109, box_y + 6))
-        .into_styled(border_style)
-        .draw(lcd)
-        .ok();
-
-    let left_w = ((span_neg as u32 * 16) / pot_target).min(16) as i32;
-    if left_w > 0 {
-        Line::new(Point::new(109 - left_w, box_y + 3), Point::new(109, box_y + 3))
-            .into_styled(border_style)
-            .draw(lcd)
-            .ok();
-    }
-    let right_w = ((span_pos as u32 * 16) / pot_target).min(16) as i32;
-    if right_w > 0 {
-        Line::new(Point::new(109, box_y + 3), Point::new(109 + right_w, box_y + 3))
-            .into_styled(border_style)
-            .draw(lcd)
-            .ok();
+    let count = configured_pots.len();
+    if count == 0 {
+        return;
     }
 
-    let delta = current as i32 - center as i32;
-    let mark_x = if delta < 0 {
-        109 - ((delta.unsigned_abs() * 16) / pot_target).min(16) as i32
+    let pot_target = 900u32;
+
+    if count <= 2 {
+        for (i, pot) in configured_pots.iter().enumerate() {
+            let ch = pot.ch;
+            let center = centers[ch];
+            let min = mins[ch];
+            let max = maxs[ch];
+            let cur = gimbals::aux_channel_raw_adc(raw_adc, ch);
+            let moved = max.saturating_sub(min) >= 400;
+
+            let (text_y, box_y) = if count == 1 {
+                (18, 27)
+            } else if i == 0 {
+                (12, 21)
+            } else {
+                (28, 37)
+            };
+
+            lcd.draw_str_6x10(92, text_y, pot.name, false);
+            let status = if moved { "OK" } else { "--" };
+            lcd.draw_str_6x10(110, text_y, status, false);
+
+            widgets::draw_calib_gauge(lcd, 92, box_y, 35, 7, center, min, max, cur, pot_target);
+        }
+    } else if count <= 4 {
+        for (i, pot) in configured_pots.iter().enumerate() {
+            let ch = pot.ch;
+            let center = centers[ch];
+            let min = mins[ch];
+            let max = maxs[ch];
+            let cur = gimbals::aux_channel_raw_adc(raw_adc, ch);
+            let moved = max.saturating_sub(min) >= 400;
+
+            let y = 13 + (i as i32 * 8);
+
+            lcd.draw_str_4x6(89, y + 1, pot.name, false);
+            let status = if moved { "OK" } else { "--" };
+            lcd.draw_str_4x6(99, y + 1, status, false);
+
+            widgets::draw_calib_gauge(lcd, 110, y, 17, 7, center, min, max, cur, pot_target);
+        }
     } else {
-        109 + ((delta as u32 * 16) / pot_target).min(16) as i32
-    };
-    Line::new(Point::new(mark_x, box_y + 1), Point::new(mark_x, box_y + 5))
-        .into_styled(border_style)
-        .draw(lcd)
-        .ok();
+        let col_w = 18;
+        let left_x = 89;
+        let right_x = 108;
+        let rows_per_col = count.div_ceil(2);
+
+        for (i, pot) in configured_pots.iter().enumerate() {
+            let ch = pot.ch;
+            let center = centers[ch];
+            let min = mins[ch];
+            let max = maxs[ch];
+            let cur = gimbals::aux_channel_raw_adc(raw_adc, ch);
+            let moved = max.saturating_sub(min) >= 400;
+
+            let col = i / rows_per_col;
+            let row = i % rows_per_col;
+            let x = if col == 0 { left_x } else { right_x };
+            let y = 13 + (row as i32 * 7);
+
+            lcd.draw_str_4x6(x, y, pot.name, false);
+            if moved {
+                lcd.draw_rect(x + 9, y, col_w - 9, 6, true);
+            }
+            widgets::draw_calib_gauge(
+                lcd,
+                x + 9,
+                y,
+                col_w - 9,
+                6,
+                center,
+                min,
+                max,
+                cur,
+                pot_target,
+            );
+        }
+    }
 }

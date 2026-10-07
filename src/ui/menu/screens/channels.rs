@@ -1,13 +1,5 @@
 //! Auxiliary channels assignment, Channel reversing, and Channel monitor screens.
 
-use embedded_graphics::{
-    mono_font::{ascii::FONT_4X6, MonoTextStyle},
-    pixelcolor::BinaryColor,
-    prelude::*,
-    primitives::Rectangle,
-    text::Text,
-};
-
 use crate::buzzer::Buzzer;
 use crate::display::St7567;
 use crate::menu::format::{ascii_as_str, u16_to_dec_4, SOURCE_NAMES};
@@ -271,7 +263,6 @@ pub fn update_channel_monitor(
         _ => 12,
     };
 
-    let text_style_small = MonoTextStyle::new(&FONT_4X6, BinaryColor::On);
     let active_model = storage.active_model();
 
     for i in 0..6 {
@@ -281,24 +272,16 @@ pub fn update_channel_monitor(
         let mut name_buf = [0u8; 10];
         let name = format_channel_label(ch, active_model, &mut name_buf);
 
-        Text::new(name, Point::new(2, y + 5), text_style_small)
-            .draw(lcd)
-            .ok();
+        lcd.draw_str_4x6(2, y, name, false);
 
         let us = rf_chs[ch].clamp(CHANNEL_MIN_US, CHANNEL_MAX_US);
         let fill_w = (((us - CHANNEL_MIN_US) as u32 * 38) / CHANNEL_SPAN_US).min(38);
-        widgets::draw_bar_gauge(
-            lcd,
-            Rectangle::new(Point::new(44, y + 1), Size::new(40, 5)),
-            fill_w,
-        );
+        widgets::draw_bar_gauge(lcd, 44, y + 1, 40, 5, fill_w);
 
         let mut val_buf = [0u8; 4];
         u16_to_dec_4(us, &mut val_buf);
         let val_str = ascii_as_str(&val_buf);
-        Text::new(val_str, Point::new(90, y + 5), text_style_small)
-            .draw(lcd)
-            .ok();
+        lcd.draw_str_4x6(90, y, val_str, false);
     }
 
     widgets::draw_footer(lcd, "[UP/DN] Page  [ESC] Back");

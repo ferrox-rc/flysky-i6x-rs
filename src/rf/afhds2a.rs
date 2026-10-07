@@ -594,9 +594,9 @@ mod tests {
         let mut decoded = [0u16; 18];
 
         // 1. Standard channels 0..13 (slots 0..13)
-        for i in 0..14 {
+        for (i, ch_val) in decoded[..14].iter_mut().enumerate() {
             let offset = i * 2;
-            decoded[i] =
+            *ch_val =
                 (slot_bytes[offset] as u16) | (((slot_bytes[offset + 1] & 0x0F) as u16) << 8);
         }
 
@@ -637,13 +637,13 @@ mod tests {
 
         // A legacy 14-channel decoder reads 16-bit little-endian and masks 12 bits (& 0x0FFF)
         let slot_bytes = &packet[9..37];
-        for ch in 0..14 {
+        for (ch, &expected) in test_channels[..14].iter().enumerate() {
             let offset = ch * 2;
             let raw_16 = (slot_bytes[offset] as u16) | ((slot_bytes[offset + 1] as u16) << 8);
             let legacy_12 = raw_16 & 0x0FFF;
             assert_eq!(
                 legacy_12,
-                test_channels[ch],
+                expected,
                 "Legacy 14-ch decoder on CH{} failed: got {}, expected {}",
                 ch + 1,
                 legacy_12,

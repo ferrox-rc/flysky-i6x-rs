@@ -24,7 +24,10 @@ fn panic(_info: &core::panic::PanicInfo) -> ! {
         };
 
         if count < PANIC_MAX_CONSECUTIVE {
-            core::ptr::write_volatile(core::ptr::addr_of_mut!(PANIC_COUNT), PANIC_MAGIC | (count + 1));
+            core::ptr::write_volatile(
+                core::ptr::addr_of_mut!(PANIC_COUNT),
+                PANIC_MAGIC | (count + 1),
+            );
             // Trigger rapid Cortex-M0 warm reset (<20ms recovery vs 2.0s watchdog)
             cortex_m::peripheral::SCB::sys_reset();
         }
@@ -38,12 +41,6 @@ fn panic(_info: &core::panic::PanicInfo) -> ! {
 }
 
 use cortex_m_rt::entry;
-use embedded_graphics::{
-    mono_font::{ascii::FONT_4X6, ascii::FONT_6X10, MonoTextStyle},
-    pixelcolor::BinaryColor,
-    prelude::*,
-    text::Text,
-};
 
 use flysky_i6x_rs::{
     adc, boot, buzzer, calib, chip, crsf, curve, display, input, mixer, rf, storage, time, trim,
@@ -97,7 +94,7 @@ impl FlightPipeline {
         buzzer: &mut buzzer::Buzzer,
     ) -> FlightSnapshot {
         // 1. Poll continuous DMA analog and digital inputs (sub-microsecond)
-        let state = input::poll();
+        let state = input::read();
         let active_model = storage.active_model();
 
         // 2. Resynchronize arm state when active model changes or when exiting settings menu
@@ -693,9 +690,6 @@ fn run_preflight_check(
         return;
     }
 
-    let text_style = MonoTextStyle::new(&FONT_6X10, BinaryColor::On);
-    let text_style_small = MonoTextStyle::new(&FONT_4X6, BinaryColor::On);
-
     let mut preflight_beep_timer: u32 = 0;
     let mut preflight_last_render: u32 = 0;
     let mut warned = false;
@@ -704,7 +698,7 @@ fn run_preflight_check(
         watchdog::feed();
 
         let now = time::millis();
-        let state = input::poll();
+        let state = input::read();
         let keys = boot::scan_keys();
 
         let is_general = storage.active_model().model_type == 4;
@@ -753,22 +747,16 @@ fn run_preflight_check(
             preflight_last_render = now;
             buzzer.tick(dt);
 
-            lcd.clear(BinaryColor::Off).ok();
-            Text::new("SAFETY WARNING!", Point::new(16, 9), text_style)
-                .draw(lcd)
-                .ok();
+            lcd.clear_buffer();
+            lcd.draw_str_6x10(16, 2, "SAFETY WARNING!", false);
             lcd.draw_hline(0, 11, 128, true);
 
             if thr_unsafe {
-                Text::new("THROTTLE NOT AT IDLE!", Point::new(2, 23), text_style)
-                    .draw(lcd)
-                    .ok();
+                lcd.draw_str_6x10(2, 16, "THROTTLE NOT AT IDLE!", false);
             }
 
             if sw_unsafe {
-                Text::new("SWITCH WARNING:", Point::new(2, 34), text_style)
-                    .draw(lcd)
-                    .ok();
+                lcd.draw_str_6x10(2, 27, "SWITCH WARNING:", false);
                 let mut sw_warn = [b' '; 20];
                 let mut col = 0;
                 for &(unsafe_flag, label) in &[
@@ -786,21 +774,12 @@ fn run_preflight_check(
                         }
                     }
                 }
-                let sw_str =
-                    ui::format::ascii_as_str(&sw_warn[..col.saturating_sub(1).min(16)]);
-                Text::new(sw_str, Point::new(2, 44), text_style)
-                    .draw(lcd)
-                    .ok();
+                let sw_str = ui::format::ascii_as_str(&sw_warn[..col.saturating_sub(1).min(16)]);
+                lcd.draw_str_6x10(2, 37, sw_str, false);
             }
 
             lcd.draw_hline(0, 55, 128, true);
-            Text::new(
-                "Lower Thr/Safe SW  [ESC]Skip",
-                Point::new(2, 62),
-                text_style_small,
-            )
-            .draw(lcd)
-            .ok();
+            lcd.draw_str_4x6(2, 57, "Lower Thr/Safe SW  [ESC]Skip", false);
             lcd.flush();
         }
     }
@@ -811,16 +790,10 @@ fn draw_timer_reset_modal(lcd: &mut St7567, progress_pct: u8, completed: bool) {
     lcd.fill_rect(18, 19, 92, 26, false);
     lcd.draw_rect(18, 19, 92, 26, true);
 
-    let text_style = MonoTextStyle::new(&FONT_6X10, BinaryColor::On);
-
     if completed {
-        Text::new("TIMER RESET!", Point::new(28, 35), text_style)
-            .draw(lcd)
-            .ok();
+        lcd.draw_str_6x10(28, 28, "TIMER RESET!", false);
     } else {
-        Text::new("RESET TIMER", Point::new(31, 29), text_style)
-            .draw(lcd)
-            .ok();
+        lcd.draw_str_6x10(31, 22, "RESET TIMER", false);
 
         // Progress bar container: 74 x 6, positioned at (27, 33)
         lcd.draw_rect(27, 33, 74, 6, true);
@@ -983,10 +956,16 @@ fn main() -> ! {
 
     // 11. Pre-flight Startup Safety Check: Throttle at idle and switches in safe (UP) positions
     // Bypassed on watchdog reset to immediately resume RF control in flight
-    run_preflight_check(storage, &mut buzzer, &mut lcd, &calib_wizard, was_watchdog_reset);
+    run_preflight_check(
+        storage,
+        &mut buzzer,
+        &mut lcd,
+        &calib_wizard,
+        was_watchdog_reset,
+    );
 
     // Initialize execution tiers
-    let init_state = input::poll();
+    let init_state = input::read();
     let mut pipeline = FlightPipeline::new(storage, &init_state);
     let mut idle_manager = BackgroundIdleManager::new(&init_state, bind_on_boot);
     let mut dashboard = ui::dashboard::DashboardController::new();
