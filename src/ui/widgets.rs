@@ -84,6 +84,7 @@ pub fn draw_channel_gauge(
 
 /// Draw a horizontal calibration extent gauge with center reference, min/max extent fill,
 /// and a live cursor position marker.
+#[allow(clippy::too_many_arguments)]
 pub fn draw_calib_gauge(
     lcd: &mut St7567,
     x: i32,
@@ -264,27 +265,27 @@ pub fn draw_multi_pot_bar(lcd: &mut St7567, x: i32, y: i32, width: u32, pots: &[
         let left_count = if count == 4 { 2 } else { 3 };
         let right_count = count - left_count;
 
-        for row in 0..left_count {
+        for (row, &val) in pots.iter().take(left_count).enumerate() {
             let ry = if left_count == 2 {
                 y + 1 + (row as i32 * 4)
             } else {
                 y + (row as i32 * 3)
             };
-            draw_pot_track(lcd, x, ry, col_w, pots[row]);
+            draw_pot_track(lcd, x, ry, col_w, val);
         }
 
-        for row in 0..right_count {
+        for (row, &val) in pots[left_count..].iter().take(right_count).enumerate() {
             let ry = if right_count == 2 {
                 y + 1 + (row as i32 * 4)
             } else {
                 y + (row as i32 * 3)
             };
-            draw_pot_track(lcd, right_x, ry, col_w, pots[left_count + row]);
+            draw_pot_track(lcd, right_x, ry, col_w, val);
         }
     } else {
         let col_gap = 2;
         let col_w = (width.saturating_sub(col_gap * 2) / 3).max(6);
-        let rows_per_col = (count + 2) / 3;
+        let rows_per_col = count.div_ceil(3);
 
         for (i, &val) in pots.iter().enumerate() {
             let col = i / rows_per_col;

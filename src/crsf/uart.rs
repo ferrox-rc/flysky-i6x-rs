@@ -83,48 +83,6 @@ unsafe fn apply_power_pin() {
     }
 }
 
-#[cfg(test)]
-pub mod mock {
-    extern crate std;
-    use std::sync::Mutex;
-    use std::vec::Vec;
-
-    static RX_QUEUE: Mutex<Vec<u8>> = Mutex::new(Vec::new());
-    static TX_LOG: Mutex<Vec<Vec<u8>>> = Mutex::new(Vec::new());
-
-    pub fn push_rx_bytes(bytes: &[u8]) {
-        let mut q = RX_QUEUE.lock().unwrap();
-        q.extend_from_slice(bytes);
-    }
-
-    pub fn pop_rx_byte() -> Option<u8> {
-        let mut q = RX_QUEUE.lock().unwrap();
-        if q.is_empty() {
-            None
-        } else {
-            Some(q.remove(0))
-        }
-    }
-
-    pub fn record_tx(data: &[u8]) {
-        let mut log = TX_LOG.lock().unwrap();
-        log.push(data.to_vec());
-    }
-
-    pub fn take_tx() -> Vec<Vec<u8>> {
-        let mut log = TX_LOG.lock().unwrap();
-        std::mem::take(&mut *log)
-    }
-
-    pub fn tx_count() -> usize {
-        TX_LOG.lock().unwrap().len()
-    }
-
-    pub fn clear() {
-        RX_QUEUE.lock().unwrap().clear();
-        TX_LOG.lock().unwrap().clear();
-    }
-}
 
 /// Initialize GPIO pins: PC13 as power switch (initially OFF), PD5 and PA15 peripheral clocks.
 pub fn init(active_high: bool) {
@@ -368,5 +326,48 @@ fn USART2() {
                 RX_HEAD.store(next_head, Ordering::Release);
             }
         }
+    }
+}
+
+#[cfg(test)]
+pub mod mock {
+    extern crate std;
+    use std::sync::Mutex;
+    use std::vec::Vec;
+
+    static RX_QUEUE: Mutex<Vec<u8>> = Mutex::new(Vec::new());
+    static TX_LOG: Mutex<Vec<Vec<u8>>> = Mutex::new(Vec::new());
+
+    pub fn push_rx_bytes(bytes: &[u8]) {
+        let mut q = RX_QUEUE.lock().unwrap();
+        q.extend_from_slice(bytes);
+    }
+
+    pub fn pop_rx_byte() -> Option<u8> {
+        let mut q = RX_QUEUE.lock().unwrap();
+        if q.is_empty() {
+            None
+        } else {
+            Some(q.remove(0))
+        }
+    }
+
+    pub fn record_tx(data: &[u8]) {
+        let mut log = TX_LOG.lock().unwrap();
+        log.push(data.to_vec());
+    }
+
+    pub fn take_tx() -> Vec<Vec<u8>> {
+        let mut log = TX_LOG.lock().unwrap();
+        std::mem::take(&mut *log)
+    }
+
+    pub fn tx_count() -> usize {
+        TX_LOG.lock().unwrap().len()
+    }
+
+    pub fn clear() {
+        RX_QUEUE.lock().unwrap().clear();
+        TX_LOG.lock().unwrap().clear();
     }
 }

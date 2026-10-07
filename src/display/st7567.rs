@@ -473,7 +473,7 @@ impl St7567 {
     /// Render a single 4x6 character at (x, y).
     /// If `invert` is true, pixels that are ON become OFF (useful over filled inverted bars).
     pub fn draw_char_4x6(&mut self, x: i32, y: i32, c: u8, invert: bool) {
-        if c < 0x20 || c > 0x7E {
+        if !(0x20..=0x7E).contains(&c) {
             return;
         }
         let glyph_idx = (c - 0x20) as usize;
@@ -484,8 +484,8 @@ impl St7567 {
             if px < 0 || px >= WIDTH as i32 {
                 continue;
             }
-            for row in 0..6 {
-                let py = y + row as i32;
+            for row in 0..6i32 {
+                let py = y + row;
                 if py < 0 || py >= HEIGHT as i32 {
                     continue;
                 }
@@ -512,7 +512,7 @@ impl St7567 {
     /// Render a single 6x10 character at (x, y).
     /// If `invert` is true, pixels that are ON become OFF (useful over filled inverted bars).
     pub fn draw_char_6x10(&mut self, x: i32, y: i32, c: u8, invert: bool) {
-        if c < 0x20 || c > 0x7E {
+        if !(0x20..=0x7E).contains(&c) {
             return;
         }
         let glyph_idx = (c - 0x20) as usize;
@@ -523,8 +523,8 @@ impl St7567 {
             if px < 0 || px >= WIDTH as i32 {
                 continue;
             }
-            for row in 0..10 {
-                let py = y + row as i32;
+            for row in 0..10i32 {
+                let py = y + row;
                 if py < 0 || py >= HEIGHT as i32 {
                     continue;
                 }

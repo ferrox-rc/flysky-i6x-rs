@@ -98,7 +98,7 @@ impl CalibWizard {
         let current_sticks = [raw_adc[0], raw_adc[1], raw_adc[2], raw_adc[3]];
 
         // Dynamically inspect all configured analog potentiometer inputs
-        let (configured_pots, pot_count) = collect_configured_pots(&storage);
+        let (configured_pots, pot_count) = collect_configured_pots(storage);
 
         match self.step {
             CalibStep::Inactive => {}
@@ -356,7 +356,7 @@ fn draw_calib_pots(
         let col_w = 18;
         let left_x = 89;
         let right_x = 108;
-        let rows_per_col = (count + 1) / 2;
+        let rows_per_col = count.div_ceil(2);
 
         for (i, pot) in configured_pots.iter().enumerate() {
             let ch = pot.ch;

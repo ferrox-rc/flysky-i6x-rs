@@ -2937,7 +2937,7 @@ mod tests {
         unsafe {
             for i in 1..=MAX_PARAMS {
                 let id = i as u8;
-                let opt = if id % 2 == 0 { "Low;Med;High" } else { "" };
+                let opt = if id.is_multiple_of(2) { "Low;Med;High" } else { "" };
                 add_test_param(id, 0, protocol::CRSF_TYPE_SELECT, "Param", 1, 2, opt);
             }
         }

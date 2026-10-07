@@ -23,13 +23,10 @@ pub fn collect_configured_pots(storage: &RadioStorage) -> ([ConfiguredPot; 10], 
     let mut pots = [ConfiguredPot { ch: 0, name: "" }; 10];
     let mut count = 0;
 
-    for ch in 0..max_channels {
+    for (ch, &name) in pot_names.iter().enumerate().take(max_channels) {
         let mode = AdcInputMode::resolve(ch, storage.radio.adc_modes[ch]);
         if matches!(mode, AdcInputMode::Pot) {
-            pots[count] = ConfiguredPot {
-                ch,
-                name: pot_names[ch],
-            };
+            pots[count] = ConfiguredPot { ch, name };
             count += 1;
         }
     }
@@ -172,7 +169,7 @@ pub fn render_adaptive_layout(lcd: &mut St7567, state: &InputState, storage: &Ra
     let mut pot_count = 0usize;
 
     let max_channels = if ext_adc { 10 } else { 6 };
-    for ch in 0..max_channels {
+    for (ch, &name) in ch_names.iter().enumerate().take(max_channels) {
         let mode = AdcInputMode::resolve(ch, storage.radio.adc_modes[ch]);
         match mode {
             AdcInputMode::TwoPos | AdcInputMode::ThreePos => {
@@ -192,13 +189,13 @@ pub fn render_adaptive_layout(lcd: &mut St7567, state: &InputState, storage: &Ra
                         }
                     }
                 };
-                sw_list[sw_count] = (ch_names[ch], pos, false, 0);
+                sw_list[sw_count] = (name, pos, false, 0);
                 sw_count += 1;
             }
             AdcInputMode::SixPos => {
                 let raw_ch = aux_channel_raw_adc(&state.raw, ch);
                 let mode_num = crate::input::decode_switch_6pos_num(raw_ch);
-                sw_list[sw_count] = (ch_names[ch], crate::input::SwitchPos::Mid, true, mode_num);
+                sw_list[sw_count] = (name, crate::input::SwitchPos::Mid, true, mode_num);
                 sw_count += 1;
             }
             AdcInputMode::Pot | AdcInputMode::PotDetent => {
@@ -244,9 +241,8 @@ pub fn render_adaptive_layout(lcd: &mut St7567, state: &InputState, storage: &Ra
             (sw_region_w / sw_count as i32).max(9)
         };
 
-        for i in 0..sw_count {
+        for (i, &(name, pos, is_6pos, mode_num)) in sw_list.iter().take(sw_count).enumerate() {
             let x = 2 + (i as i32 * sw_spacing);
-            let (name, pos, is_6pos, mode_num) = sw_list[i];
             draw_switch_slot(
                 lcd,
                 x,
