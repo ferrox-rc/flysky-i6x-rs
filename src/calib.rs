@@ -7,13 +7,6 @@
 //! Reuses the widgets library and dynamic analog input discovery from gimbals.
 //! Applies OpenTX-style margins (~2%) and saves to Flash.
 
-use embedded_graphics::{
-    mono_font::{ascii::FONT_4X6, ascii::FONT_6X10, MonoTextStyle},
-    pixelcolor::BinaryColor,
-    prelude::*,
-    text::Text,
-};
-
 use crate::adc;
 use crate::buzzer::Buzzer;
 use crate::display::St7567;
@@ -101,8 +94,6 @@ impl CalibWizard {
         let ok_pressed = (newly_pressed & (1 << 10)) != 0;
         let cancel_pressed = (newly_pressed & (1 << 11)) != 0;
 
-        let text_style = MonoTextStyle::new(&FONT_6X10, BinaryColor::On);
-
         // Map primary stick ADC readings (PA0..PA3)
         let current_sticks = [raw_adc[0], raw_adc[1], raw_adc[2], raw_adc[3]];
 
@@ -141,18 +132,12 @@ impl CalibWizard {
                 }
 
                 // Render Step 1 using standard header & footer widgets
-                lcd.clear(BinaryColor::Off).ok();
+                lcd.clear_buffer();
                 widgets::draw_header(lcd, "CALIBRATION (1/2)");
 
-                Text::new("1. Center all sticks", Point::new(2, 22), text_style)
-                    .draw(lcd)
-                    .ok();
-                Text::new("   & rotary pots.", Point::new(2, 32), text_style)
-                    .draw(lcd)
-                    .ok();
-                Text::new("2. Move THR to middle!", Point::new(2, 43), text_style)
-                    .draw(lcd)
-                    .ok();
+                lcd.draw_str_6x10(2, 15, "1. Center all sticks", false);
+                lcd.draw_str_6x10(2, 25, "   & rotary pots.", false);
+                lcd.draw_str_6x10(2, 36, "2. Move THR to middle!", false);
 
                 if self.waiting_release {
                     widgets::draw_footer(lcd, "Release [OK] key...");
@@ -254,7 +239,7 @@ impl CalibWizard {
                 }
 
                 // Render Step 2
-                lcd.clear(BinaryColor::Off).ok();
+                lcd.clear_buffer();
                 widgets::draw_header(lcd, "CALIBRATION (2/2)");
 
                 let is_general = storage.active_model().model_type == 4;
@@ -295,14 +280,10 @@ impl CalibWizard {
             }
 
             CalibStep::Complete => {
-                lcd.clear(BinaryColor::Off).ok();
+                lcd.clear_buffer();
                 widgets::draw_header(lcd, "CALIBRATION (OK)");
-                Text::new("CALIBRATION SAVED!", Point::new(10, 26), text_style)
-                    .draw(lcd)
-                    .ok();
-                Text::new("Flash updated OK", Point::new(14, 40), text_style)
-                    .draw(lcd)
-                    .ok();
+                lcd.draw_str_6x10(10, 19, "CALIBRATION SAVED!", false);
+                lcd.draw_str_6x10(14, 33, "Flash updated OK", false);
                 widgets::draw_footer(lcd, "Ready");
 
                 if self.timer_ms > dt_ms {
@@ -329,8 +310,6 @@ fn draw_calib_pots(
         return;
     }
 
-    let text_style = MonoTextStyle::new(&FONT_6X10, BinaryColor::On);
-    let text_style_small = MonoTextStyle::new(&FONT_4X6, BinaryColor::On);
     let pot_target = 900u32;
 
     if count <= 2 {
@@ -343,20 +322,16 @@ fn draw_calib_pots(
             let moved = max.saturating_sub(min) >= 400;
 
             let (text_y, box_y) = if count == 1 {
-                (25, 27)
+                (18, 27)
             } else if i == 0 {
-                (19, 21)
+                (12, 21)
             } else {
-                (35, 37)
+                (28, 37)
             };
 
-            Text::new(pot.name, Point::new(92, text_y), text_style)
-                .draw(lcd)
-                .ok();
+            lcd.draw_str_6x10(92, text_y, pot.name, false);
             let status = if moved { "OK" } else { "--" };
-            Text::new(status, Point::new(110, text_y), text_style)
-                .draw(lcd)
-                .ok();
+            lcd.draw_str_6x10(110, text_y, status, false);
 
             widgets::draw_calib_gauge(lcd, 92, box_y, 35, 7, center, min, max, cur, pot_target);
         }
@@ -371,13 +346,9 @@ fn draw_calib_pots(
 
             let y = 13 + (i as i32 * 8);
 
-            Text::new(pot.name, Point::new(89, y + 6), text_style_small)
-                .draw(lcd)
-                .ok();
+            lcd.draw_str_4x6(89, y + 1, pot.name, false);
             let status = if moved { "OK" } else { "--" };
-            Text::new(status, Point::new(99, y + 6), text_style_small)
-                .draw(lcd)
-                .ok();
+            lcd.draw_str_4x6(99, y + 1, status, false);
 
             widgets::draw_calib_gauge(lcd, 110, y, 17, 7, center, min, max, cur, pot_target);
         }
@@ -400,9 +371,7 @@ fn draw_calib_pots(
             let x = if col == 0 { left_x } else { right_x };
             let y = 13 + (row as i32 * 7);
 
-            Text::new(pot.name, Point::new(x, y + 5), text_style_small)
-                .draw(lcd)
-                .ok();
+            lcd.draw_str_4x6(x, y, pot.name, false);
             if moved {
                 lcd.draw_rect(x + 9, y, col_w - 9, 6, true);
             }

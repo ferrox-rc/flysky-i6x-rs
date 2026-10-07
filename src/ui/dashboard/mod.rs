@@ -10,9 +10,6 @@
 pub mod pages;
 pub mod status_bar;
 
-use embedded_graphics::pixelcolor::BinaryColor;
-use embedded_graphics::prelude::*;
-
 use crate::buzzer::Buzzer;
 use crate::display::St7567;
 use crate::input::InputState;
@@ -90,7 +87,7 @@ impl DashboardController {
         timer_expired: bool,
         buzzer: &mut Buzzer,
     ) {
-        lcd.clear(BinaryColor::Off).ok();
+        lcd.clear_buffer();
 
         status_bar::render(
             lcd,

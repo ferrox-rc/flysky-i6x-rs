@@ -9,9 +9,6 @@ pub use crate::ui::format;
 pub use crate::ui::widgets;
 pub mod screens;
 
-use embedded_graphics::pixelcolor::BinaryColor;
-use embedded_graphics::prelude::*;
-
 use crate::adc;
 use crate::buzzer::Buzzer;
 use crate::display::St7567;
@@ -219,7 +216,7 @@ impl MenuController {
             return;
         }
 
-        lcd.clear(BinaryColor::Off).ok();
+        lcd.clear_buffer();
 
         match self.state {
             MenuState::Closed => {}

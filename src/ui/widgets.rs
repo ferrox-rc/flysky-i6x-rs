@@ -1,56 +1,32 @@
 //! Reusable UI widgets and layout helpers for FlySky FS-i6X menu displays.
 
-use embedded_graphics::{
-    mono_font::{ascii::FONT_4X6, ascii::FONT_6X10, MonoTextStyle},
-    pixelcolor::BinaryColor,
-    prelude::*,
-    text::Text,
-};
-
 use crate::buzzer::Buzzer;
 use crate::display::St7567;
-
-pub const STYLE_TEXT_ON: MonoTextStyle<'static, BinaryColor> =
-    MonoTextStyle::new(&FONT_6X10, BinaryColor::On);
-pub const STYLE_TEXT_INV: MonoTextStyle<'static, BinaryColor> =
-    MonoTextStyle::new(&FONT_6X10, BinaryColor::Off);
-pub const STYLE_SMALL_ON: MonoTextStyle<'static, BinaryColor> =
-    MonoTextStyle::new(&FONT_4X6, BinaryColor::On);
-pub const STYLE_SMALL_INV: MonoTextStyle<'static, BinaryColor> =
-    MonoTextStyle::new(&FONT_4X6, BinaryColor::Off);
 
 /// Draw a standardized top header banner with title and underline divider.
 pub fn draw_header(lcd: &mut St7567, title: &str) {
     let x = ((128i32 - title.len() as i32 * 6) / 2).max(2);
-    Text::new(title, Point::new(x, 9), STYLE_TEXT_ON)
-        .draw(lcd)
-        .ok();
+    lcd.draw_str_6x10(x, 2, title, false);
     lcd.draw_hline(0, 11, 128, true);
 }
 
-/// Draw a standardized bottom footer with small font (FONT_4X6) and divider line at y = 55,
-/// matching the flight pages' 8-pixel footer height and baseline at y = 62.
+/// Draw a standardized bottom footer with small font (4x6) and divider line at y = 55,
+/// matching the flight pages' 8-pixel footer height and baseline at y = 62 (top at y = 57).
 pub fn draw_footer(lcd: &mut St7567, text: &str) {
     lcd.draw_hline(0, 55, 128, true);
-    Text::new(text, Point::new(2, 62), STYLE_SMALL_ON)
-        .draw(lcd)
-        .ok();
+    lcd.draw_str_4x6(2, 57, text, false);
 }
 
-/// Draw a standardized bottom footer with left-aligned and right-aligned text (FONT_4X6)
+/// Draw a standardized bottom footer with left-aligned and right-aligned text (4x6)
 /// and divider line at y = 55.
 pub fn draw_footer_split(lcd: &mut St7567, left: &str, right: &str) {
     lcd.draw_hline(0, 55, 128, true);
-    Text::new(left, Point::new(2, 62), STYLE_SMALL_ON)
-        .draw(lcd)
-        .ok();
+    lcd.draw_str_4x6(2, 57, left, false);
     let right_x = (126i32 - right.len() as i32 * 4).max(2);
-    Text::new(right, Point::new(right_x, 62), STYLE_SMALL_ON)
-        .draw(lcd)
-        .ok();
+    lcd.draw_str_4x6(right_x, 57, right, false);
 }
 
-/// Draw a standardized bottom footer with left-aligned, center-aligned, and right-aligned text (FONT_4X6)
+/// Draw a standardized bottom footer with left-aligned, center-aligned, and right-aligned text (4x6)
 /// and divider line at y = 55. If center_inverted is true, draws an inverted solid background behind center text.
 pub fn draw_footer_three(
     lcd: &mut St7567,
@@ -60,26 +36,18 @@ pub fn draw_footer_three(
     center_inverted: bool,
 ) {
     lcd.draw_hline(0, 55, 128, true);
-    Text::new(left, Point::new(2, 62), STYLE_SMALL_ON)
-        .draw(lcd)
-        .ok();
+    lcd.draw_str_4x6(2, 57, left, false);
     if !center.is_empty() {
         let center_x = ((128i32 - center.len() as i32 * 4) / 2).max(2);
         if center_inverted {
             lcd.fill_rect(center_x - 2, 56, center.len() as u32 * 4 + 3, 7, true);
-            Text::new(center, Point::new(center_x, 62), STYLE_SMALL_INV)
-                .draw(lcd)
-                .ok();
+            lcd.draw_str_4x6(center_x, 57, center, true);
         } else {
-            Text::new(center, Point::new(center_x, 62), STYLE_SMALL_ON)
-                .draw(lcd)
-                .ok();
+            lcd.draw_str_4x6(center_x, 57, center, false);
         }
     }
     let right_x = (126i32 - right.len() as i32 * 4).max(2);
-    Text::new(right, Point::new(right_x, 62), STYLE_SMALL_ON)
-        .draw(lcd)
-        .ok();
+    lcd.draw_str_4x6(right_x, 57, right, false);
 }
 
 /// Draw a horizontal channel gauge (-1000..+1000) with center ticks, trim marker, and a sliding 3px cursor.
@@ -182,9 +150,7 @@ pub fn draw_calib_sticks(
 ) {
     for i in 0..4 {
         let y = 13 + (i as i32 * 8);
-        Text::new(labels[i], Point::new(2, y + 6), STYLE_TEXT_ON)
-            .draw(lcd)
-            .ok();
+        lcd.draw_str_6x10(2, y - 1, labels[i], false);
 
         // Horizontal axes (Aileron 0, Rudder 3) travel ~1350 counts; Vertical axes (Elevator 1, Throttle 2) ~1250 counts
         let stick_target = if i == 0 || i == 3 { 1350u32 } else { 1250u32 };
@@ -202,9 +168,7 @@ pub fn draw_calib_sticks(
         );
 
         let status = if stick_ready[i] { "OK" } else { "--" };
-        Text::new(status, Point::new(75, y + 6), STYLE_TEXT_ON)
-            .draw(lcd)
-            .ok();
+        lcd.draw_str_6x10(75, y - 1, status, false);
     }
 }
 
@@ -460,32 +424,24 @@ pub fn draw_icon_row<F>(
     value: Option<&str>,
     value_x: i32,
 ) where
-    F: FnOnce(&mut St7567, Point, BinaryColor),
+    F: FnOnce(&mut St7567, i32, i32, bool),
 {
     let y = 13 + (slot as i32 * 14);
-    let (text_color, icon_color) = if is_selected {
+    let icon_on = !is_selected;
+    if is_selected {
         lcd.fill_rect(2, y, 121, 13, true);
-        (BinaryColor::Off, BinaryColor::Off)
-    } else {
-        (BinaryColor::On, BinaryColor::On)
-    };
-
-    let text_style = MonoTextStyle::new(&FONT_6X10, text_color);
+    }
 
     let text_x = if let Some(draw_fn) = draw_icon {
-        draw_fn(lcd, Point::new(4, y + 1), icon_color);
+        draw_fn(lcd, 4, y + 1, icon_on);
         19
     } else {
         4
     };
 
-    Text::new(label, Point::new(text_x, y + 10), text_style)
-        .draw(lcd)
-        .ok();
+    lcd.draw_str_6x10(text_x, y + 3, label, is_selected);
     if let Some(val) = value {
-        Text::new(val, Point::new(value_x, y + 10), text_style)
-            .draw(lcd)
-            .ok();
+        lcd.draw_str_6x10(value_x, y + 3, val, is_selected);
     }
 }
 
@@ -500,21 +456,18 @@ pub fn draw_list_row(
     value_x: i32,
 ) {
     let y = 14 + (slot as i32 * 9);
-    let style = if is_selected {
+    if is_selected {
         lcd.fill_rect(2, y, 124, 9, true);
-        STYLE_TEXT_INV
-    } else {
-        STYLE_TEXT_ON
-    };
+    }
 
-    Text::new(label, Point::new(4, y + 7), style).draw(lcd).ok();
+    lcd.draw_str_6x10(4, y, label, is_selected);
     if let Some(val) = value {
         let vx = if value_x <= 0 {
             124 - (val.len() as i32 * 6)
         } else {
             value_x
         };
-        Text::new(val, Point::new(vx, y + 7), style).draw(lcd).ok();
+        lcd.draw_str_6x10(vx, y, val, is_selected);
     }
 }
 

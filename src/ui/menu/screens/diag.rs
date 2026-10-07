@@ -1,12 +1,5 @@
 //! Analog diagnostics and System Information screens.
 
-use embedded_graphics::{
-    mono_font::{ascii::FONT_4X6, MonoTextStyle},
-    pixelcolor::BinaryColor,
-    prelude::*,
-    text::Text,
-};
-
 use crate::adc;
 use crate::buzzer::Buzzer;
 use crate::chip;
@@ -46,8 +39,6 @@ pub fn update_diag_anas(
     };
     widgets::draw_header(lcd, title);
 
-    let text_style_small = MonoTextStyle::new(&FONT_4X6, BinaryColor::On);
-
     if ctrl.page_idx < 2 {
         let start_idx = if ctrl.page_idx == 0 { 0 } else { 6 };
         let names: &[&str] = if ctrl.page_idx == 0 {
@@ -59,7 +50,7 @@ pub fn update_diag_anas(
         for (i, &name) in names.iter().enumerate() {
             let adc_idx = start_idx + i;
             let y = 12 + (i as i32 * 7);
-            Text::new(name, Point::new(2, y + 5), text_style_small).draw(lcd).ok();
+            lcd.draw_str_4x6(2, y, name, false);
 
             let raw = raw_adc[adc_idx].min(4095);
             let fill_w = ((raw as u32 * 38) / 4095).min(38);
@@ -68,7 +59,7 @@ pub fn update_diag_anas(
             let mut val_buf = [0u8; 4];
             u16_to_dec_4(raw, &mut val_buf);
             let val_str = ascii_as_str(&val_buf);
-            Text::new(val_str, Point::new(90, y + 5), text_style_small).draw(lcd).ok();
+            lcd.draw_str_4x6(90, y, val_str, false);
         }
     } else if ctrl.page_idx == 2 {
         // Page 2: SE and SF Switch Diagnostics
@@ -79,10 +70,10 @@ pub fn update_diag_anas(
         } else {
             "EXT SW: DISABLED (OFF)"
         };
-        Text::new(cfg_label, Point::new(2, 18), text_style_small).draw(lcd).ok();
+        lcd.draw_str_4x6(2, 13, cfg_label, false);
 
         // SE (PC12)
-        Text::new("SW:SE", Point::new(2, 28), text_style_small).draw(lcd).ok();
+        lcd.draw_str_4x6(2, 23, "SW:SE", false);
         let se_state = if switches.se == crate::input::SwitchPos::Down {
             "DN (LOW)"
         } else {
@@ -90,10 +81,10 @@ pub fn update_diag_anas(
         };
         let fill_se = if switches.se == crate::input::SwitchPos::Down { 30 } else { 0 };
         widgets::draw_bar_gauge(lcd, 32, 23, 30, 6, fill_se);
-        Text::new(se_state, Point::new(66, 28), text_style_small).draw(lcd).ok();
+        lcd.draw_str_4x6(66, 23, se_state, false);
 
         // SF (PC15)
-        Text::new("SW:SF", Point::new(2, 38), text_style_small).draw(lcd).ok();
+        lcd.draw_str_4x6(2, 33, "SW:SF", false);
         let sf_state = if switches.sf == crate::input::SwitchPos::Down {
             "DN (LOW)"
         } else {
@@ -101,9 +92,9 @@ pub fn update_diag_anas(
         };
         let fill_sf = if switches.sf == crate::input::SwitchPos::Down { 30 } else { 0 };
         widgets::draw_bar_gauge(lcd, 32, 33, 30, 6, fill_sf);
-        Text::new(sf_state, Point::new(66, 38), text_style_small).draw(lcd).ok();
+        lcd.draw_str_4x6(66, 33, sf_state, false);
 
-        Text::new("Active-LOW mod to GND", Point::new(2, 49), text_style_small).draw(lcd).ok();
+        lcd.draw_str_4x6(2, 44, "Active-LOW mod to GND", false);
     } else {
         // Page 3: P7 Header AD12..AD15 Analog Diagnostics
         let ext_active = crate::input::is_ext_adc_enabled();
@@ -113,13 +104,13 @@ pub fn update_diag_anas(
         } else {
             "P7 ADC: DISABLED (OFF)"
         };
-        Text::new(cfg_label, Point::new(2, 18), text_style_small).draw(lcd).ok();
+        lcd.draw_str_4x6(2, 13, cfg_label, false);
 
         let names: [&str; 4] = ["VRC:AD12", "VRD:AD13", "VRE:AD14", "VRF:AD15"];
         for (i, &name) in names.iter().enumerate() {
             let adc_idx = 11 + i;
             let y = 25 + (i as i32 * 7);
-            Text::new(name, Point::new(2, y + 5), text_style_small).draw(lcd).ok();
+            lcd.draw_str_4x6(2, y, name, false);
 
             let raw = raw_adc[adc_idx].min(4095);
             let fill_w = if ext_active {
@@ -136,7 +127,7 @@ pub fn update_diag_anas(
                 val_buf = *b" OFF";
             }
             let val_str = ascii_as_str(&val_buf);
-            Text::new(val_str, Point::new(90, y + 5), text_style_small).draw(lcd).ok();
+            lcd.draw_str_4x6(90, y, val_str, false);
         }
     }
 
@@ -160,23 +151,20 @@ pub fn update_system_info(
 
     widgets::draw_header(lcd, "SYSTEM INFORMATION");
 
-    let text_style = MonoTextStyle::new(&FONT_4X6, BinaryColor::On);
+    lcd.draw_str_4x6(4, 13, "MCU:      ", false);
+    lcd.draw_str_4x6(48, 13, profile.name, false);
 
-    Text::new("MCU:      ", Point::new(4, 18), text_style).draw(lcd).ok();
-    Text::new(profile.name, Point::new(48, 18), text_style).draw(lcd).ok();
-
-    Text::new("Firmware: ", Point::new(4, 25), text_style).draw(lcd).ok();
-    Text::new(
+    lcd.draw_str_4x6(4, 20, "Firmware: ", false);
+    lcd.draw_str_4x6(
+        48,
+        20,
         concat!(env!("FIRMWARE_VERSION"), " (", env!("GIT_HASH"), ")"),
-        Point::new(48, 25),
-        text_style,
-    )
-    .draw(lcd)
-    .ok();
+        false,
+    );
 
-    Text::new("Flash:    128KB (64 Pages)", Point::new(4, 32), text_style).draw(lcd).ok();
-    Text::new("SRAM:     16KB (Parity)", Point::new(4, 39), text_style).draw(lcd).ok();
-    Text::new("Profiles: 20 Models", Point::new(4, 46), text_style).draw(lcd).ok();
+    lcd.draw_str_4x6(4, 27, "Flash:    128KB (64 Pages)", false);
+    lcd.draw_str_4x6(4, 34, "SRAM:     16KB (Parity)", false);
+    lcd.draw_str_4x6(4, 41, "Profiles: 20 Models", false);
 
     widgets::draw_footer(lcd, "[ESC] Back");
 }

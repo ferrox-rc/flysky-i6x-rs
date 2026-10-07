@@ -3,13 +3,6 @@
 //! Features TBS-Agent style auto-discovery of all bus devices (TX, RX, FC),
 //! hierarchical folder drill-down and back navigation, and in-place modal option editing.
 
-use embedded_graphics::{
-    mono_font::{ascii::FONT_4X6, ascii::FONT_6X10, MonoTextStyle},
-    pixelcolor::BinaryColor,
-    prelude::*,
-    text::Text,
-};
-
 use crate::buzzer::Buzzer;
 use crate::crsf::{self, CrsfConfigState};
 use crate::display::St7567;
@@ -57,9 +50,6 @@ pub fn update(ctrl: &mut MenuController, lcd: &mut St7567, keys: &NavKeys, buzze
         }
     }
 
-    let text_style = MonoTextStyle::new(&FONT_6X10, BinaryColor::On);
-    let text_style_small = MonoTextStyle::new(&FONT_4X6, BinaryColor::On);
-
     match engine.state {
         // --- State: Idle / Device Discovery (TBS-Agent Device List) ---
         CrsfConfigState::Idle | CrsfConfigState::Discovering => {
@@ -75,16 +65,8 @@ pub fn update(ctrl: &mut MenuController, lcd: &mut St7567, keys: &NavKeys, buzze
                 }
 
                 widgets::draw_header(lcd, "CRSF DEVICES");
-                Text::new("Searching for devices...", Point::new(4, 26), text_style)
-                    .draw(lcd)
-                    .ok();
-                Text::new(
-                    "Listening for pings (1Hz)",
-                    Point::new(4, 38),
-                    text_style_small,
-                )
-                .draw(lcd)
-                .ok();
+                lcd.draw_str_6x10(4, 19, "Searching for devices...", false);
+                lcd.draw_str_4x6(4, 33, "Listening for pings (1Hz)", false);
 
                 widgets::draw_footer(lcd, "[OK] Scan   [ESC] Back");
             } else {
@@ -132,30 +114,19 @@ pub fn update(ctrl: &mut MenuController, lcd: &mut St7567, keys: &NavKeys, buzze
                     }
                     let y = 14 + (slot as i32 * 9);
                     let is_sel = idx == ctrl.selected_item;
-                    let style = if is_sel {
+                    if is_sel {
                         lcd.fill_rect(2, y, row_w, 9, true);
-                        MonoTextStyle::new(&FONT_6X10, BinaryColor::Off)
-                    } else {
-                        text_style
-                    };
+                    }
 
                     let dev = &engine.devices[idx];
                     let d_name =
                         crate::ui::format::ascii_as_str(&dev.name[..dev.name_len as usize]);
 
                     // Left: Device Name
-                    Text::new(d_name, Point::new(4, y + 7), style)
-                        .draw(lcd)
-                        .ok();
+                    lcd.draw_str_6x10(4, y, d_name, is_sel);
 
                     // Right: [Role] Tag (e.g. [TX], [RX], [FC], [VTX], [WIFI], [ESC1])
                     // Or raw hex fallback for uncommon devices (e.g. [0x55])
-                    let tag_style = if is_sel {
-                        MonoTextStyle::new(&FONT_4X6, BinaryColor::Off)
-                    } else {
-                        text_style_small
-                    };
-
                     let mut tag_buf = [b' '; 9];
                     tag_buf[0] = b'[';
                     let tag_len = match crsf::protocol::device_role_str(dev.address) {
@@ -179,9 +150,7 @@ pub fn update(ctrl: &mut MenuController, lcd: &mut St7567, keys: &NavKeys, buzze
 
                     let tag_str = crate::ui::format::ascii_as_str(&tag_buf[..tag_len]);
                     let tag_x = (row_w as i32) - (tag_len as i32 * 4);
-                    Text::new(tag_str, Point::new(tag_x, y + 7), tag_style)
-                        .draw(lcd)
-                        .ok();
+                    lcd.draw_str_4x6(tag_x, y + 2, tag_str, is_sel);
                 }
 
                 if has_scroll {
@@ -206,9 +175,7 @@ pub fn update(ctrl: &mut MenuController, lcd: &mut St7567, keys: &NavKeys, buzze
             }
 
             widgets::draw_header(lcd, "CRSF CONFIG");
-            Text::new("Loading...", Point::new(12, 28), text_style)
-                .draw(lcd)
-                .ok();
+            lcd.draw_str_6x10(12, 21, "Loading...", false);
 
             widgets::draw_footer(lcd, "Please wait...  [ESC] Abort");
         }
@@ -223,9 +190,7 @@ pub fn update(ctrl: &mut MenuController, lcd: &mut St7567, keys: &NavKeys, buzze
                 if engine.params_len == 0 {
                     if engine.folder_loading {
                         widgets::draw_header(lcd, "[Loading...]");
-                        Text::new("Loading items...", Point::new(12, 28), text_style)
-                            .draw(lcd)
-                            .ok();
+                        lcd.draw_str_6x10(12, 21, "Loading items...", false);
                         widgets::draw_footer(lcd, "Loading...    [ESC] Back");
                         if keys.cancel {
                             if crsf::exit_current_folder() {
@@ -258,9 +223,7 @@ pub fn update(ctrl: &mut MenuController, lcd: &mut St7567, keys: &NavKeys, buzze
                         return;
                     }
                     widgets::draw_header(lcd, "CRSF CONFIG");
-                    Text::new("No parameters found", Point::new(8, 28), text_style)
-                        .draw(lcd)
-                        .ok();
+                    lcd.draw_str_6x10(8, 21, "No parameters found", false);
                     widgets::draw_footer(lcd, "[OK] Retry   [ESC] Devices");
                 } else {
                     // Empty subfolder
@@ -283,9 +246,7 @@ pub fn update(ctrl: &mut MenuController, lcd: &mut St7567, keys: &NavKeys, buzze
                     let mut fbuf = [0u8; crsf::MAX_FOLDER_NAME_LEN];
                     let fname = crsf::get_folder_name(current_folder, &mut fbuf);
                     widgets::draw_header(lcd, fname);
-                    Text::new("Empty folder", Point::new(12, 28), text_style)
-                        .draw(lcd)
-                        .ok();
+                    lcd.draw_str_6x10(12, 21, "Empty folder", false);
                     widgets::draw_footer(lcd, "[ESC] Up");
                 }
             } else {
@@ -432,12 +393,9 @@ pub fn update(ctrl: &mut MenuController, lcd: &mut St7567, keys: &NavKeys, buzze
                     let actual_idx = folder_indices[slot_idx] as usize;
                     let y = 14 + (slot as i32 * 9);
                     let is_sel = slot_idx == ctrl.selected_item;
-                    let style = if is_sel {
+                    if is_sel {
                         lcd.fill_rect(2, y, 124, 9, true);
-                        MonoTextStyle::new(&FONT_6X10, BinaryColor::Off)
-                    } else {
-                        text_style
-                    };
+                    }
 
                     let p = &engine.params[actual_idx];
                     let name = p.name(&engine.string_pool);
@@ -447,10 +405,8 @@ pub fn update(ctrl: &mut MenuController, lcd: &mut St7567, keys: &NavKeys, buzze
                         // Folder row with trailing chevron
                         let max_n_chars = 18usize;
                         let n_disp = &name[..name.len().min(max_n_chars)];
-                        Text::new(n_disp, Point::new(4, y + 7), style)
-                            .draw(lcd)
-                            .ok();
-                        Text::new(">", Point::new(118, y + 7), style).draw(lcd).ok();
+                        lcd.draw_str_6x10(4, y, n_disp, is_sel);
+                        lcd.draw_str_6x10(118, y, ">", is_sel);
                     } else if p_type == crsf::protocol::CRSF_TYPE_SELECT {
                         let mut opt_buf = [0u8; 24];
                         let raw_opt = if is_sel && ctrl.editing {
@@ -489,22 +445,14 @@ pub fn update(ctrl: &mut MenuController, lcd: &mut St7567, keys: &NavKeys, buzze
                             let val_x = 124i32.saturating_sub((ed_str.len() as i32) * 6);
                             let max_name_chars = 20usize.saturating_sub(ed_str.len() + 1).max(5);
                             let name_disp = &name[..name.len().min(max_name_chars)];
-                            Text::new(name_disp, Point::new(4, y + 7), style)
-                                .draw(lcd)
-                                .ok();
-                            Text::new(ed_str, Point::new(val_x, y + 7), style)
-                                .draw(lcd)
-                                .ok();
+                            lcd.draw_str_6x10(4, y, name_disp, is_sel);
+                            lcd.draw_str_6x10(val_x, y, ed_str, is_sel);
                         } else {
                             let val_x = 124i32.saturating_sub((opt_clean.len() as i32) * 6);
                             let max_name_chars = 20usize.saturating_sub(opt_clean.len() + 1).max(5);
                             let name_disp = &name[..name.len().min(max_name_chars)];
-                            Text::new(name_disp, Point::new(4, y + 7), style)
-                                .draw(lcd)
-                                .ok();
-                            Text::new(opt_clean, Point::new(val_x, y + 7), style)
-                                .draw(lcd)
-                                .ok();
+                            lcd.draw_str_6x10(4, y, name_disp, is_sel);
+                            lcd.draw_str_6x10(val_x, y, opt_clean, is_sel);
                         }
                     } else if p_type == crsf::protocol::CRSF_TYPE_COMMAND {
                         let is_active = match engine.active_cmd {
@@ -532,7 +480,7 @@ pub fn update(ctrl: &mut MenuController, lcd: &mut St7567, keys: &NavKeys, buzze
                             cmd_buf[1..1 + t_len].copy_from_slice(&t_bytes[..t_len]);
                             cmd_buf[1 + t_len] = b']';
                             let c_str = crate::ui::format::ascii_as_str(&cmd_buf[..2 + t_len]);
-                            Text::new(c_str, Point::new(6, y + 7), style).draw(lcd).ok();
+                            lcd.draw_str_6x10(6, y, c_str, is_sel);
                         } else {
                             let mut cmd_buf = [b' '; 22];
                             cmd_buf[0] = b'[';
@@ -541,7 +489,7 @@ pub fn update(ctrl: &mut MenuController, lcd: &mut St7567, keys: &NavKeys, buzze
                             cmd_buf[1..1 + n_len].copy_from_slice(&n_bytes[..n_len]);
                             cmd_buf[1 + n_len] = b']';
                             let c_str = crate::ui::format::ascii_as_str(&cmd_buf[..2 + n_len]);
-                            Text::new(c_str, Point::new(6, y + 7), style).draw(lcd).ok();
+                            lcd.draw_str_6x10(6, y, c_str, is_sel);
                         }
                     } else if p_type == crsf::protocol::CRSF_TYPE_INFO
                         || p_type == crsf::protocol::CRSF_TYPE_STRING
@@ -550,17 +498,10 @@ pub fn update(ctrl: &mut MenuController, lcd: &mut St7567, keys: &NavKeys, buzze
                         if info.is_empty() {
                             let max_n_chars = 19usize;
                             let n_disp = &name[..name.len().min(max_n_chars)];
-                            Text::new(n_disp, Point::new(4, y + 7), style)
-                                .draw(lcd)
-                                .ok();
+                            lcd.draw_str_6x10(4, y, n_disp, is_sel);
                         } else {
                             let use_small = info.len() > 7 || name.len() + info.len() > 17;
                             if use_small {
-                                let tag_style = if is_sel {
-                                    MonoTextStyle::new(&FONT_4X6, BinaryColor::Off)
-                                } else {
-                                    text_style_small
-                                };
                                 let max_info_chars = 15usize;
                                 let info_len = info.len().min(max_info_chars);
                                 let info_disp = &info[..info_len];
@@ -569,23 +510,15 @@ pub fn update(ctrl: &mut MenuController, lcd: &mut St7567, keys: &NavKeys, buzze
                                 let max_name_chars = (max_name_width / 6) as usize;
                                 let name_disp = &name[..name.len().min(max_name_chars)];
 
-                                Text::new(name_disp, Point::new(4, y + 7), style)
-                                    .draw(lcd)
-                                    .ok();
-                                Text::new(info_disp, Point::new(val_x, y + 7), tag_style)
-                                    .draw(lcd)
-                                    .ok();
+                                lcd.draw_str_6x10(4, y, name_disp, is_sel);
+                                lcd.draw_str_4x6(val_x, y + 2, info_disp, is_sel);
                             } else {
                                 let val_x = 124i32.saturating_sub(info.len() as i32 * 6);
                                 let max_name_chars = 20usize.saturating_sub(info.len() + 1).max(5);
                                 let name_disp = &name[..name.len().min(max_name_chars)];
 
-                                Text::new(name_disp, Point::new(4, y + 7), style)
-                                    .draw(lcd)
-                                    .ok();
-                                Text::new(info, Point::new(val_x, y + 7), style)
-                                    .draw(lcd)
-                                    .ok();
+                                lcd.draw_str_6x10(4, y, name_disp, is_sel);
+                                lcd.draw_str_6x10(val_x, y, info, is_sel);
                             }
                         }
                     } else if p.is_integer() {
@@ -627,12 +560,8 @@ pub fn update(ctrl: &mut MenuController, lcd: &mut St7567, keys: &NavKeys, buzze
                             let val_x = 124i32.saturating_sub((ed_str.len() as i32) * 6);
                             let max_name_chars = 20usize.saturating_sub(ed_str.len() + 1).max(5);
                             let name_disp = &name[..name.len().min(max_name_chars)];
-                            Text::new(name_disp, Point::new(4, y + 7), style)
-                                .draw(lcd)
-                                .ok();
-                            Text::new(ed_str, Point::new(val_x, y + 7), style)
-                                .draw(lcd)
-                                .ok();
+                            lcd.draw_str_6x10(4, y, name_disp, is_sel);
+                            lcd.draw_str_6x10(val_x, y, ed_str, is_sel);
                         } else {
                             let mut full_val_buf = [0u8; 24];
                             let mut offset = 0;
@@ -651,19 +580,13 @@ pub fn update(ctrl: &mut MenuController, lcd: &mut St7567, keys: &NavKeys, buzze
                             let val_x = 124i32.saturating_sub((full_val_str.len() as i32) * 6);
                             let max_name_chars = 20usize.saturating_sub(full_val_str.len() + 1).max(5);
                             let name_disp = &name[..name.len().min(max_name_chars)];
-                            Text::new(name_disp, Point::new(4, y + 7), style)
-                                .draw(lcd)
-                                .ok();
-                            Text::new(full_val_str, Point::new(val_x, y + 7), style)
-                                .draw(lcd)
-                                .ok();
+                            lcd.draw_str_6x10(4, y, name_disp, is_sel);
+                            lcd.draw_str_6x10(val_x, y, full_val_str, is_sel);
                         }
                     } else {
                         let max_n_chars = 19usize;
                         let n_disp = &name[..name.len().min(max_n_chars)];
-                        Text::new(n_disp, Point::new(4, y + 7), style)
-                            .draw(lcd)
-                            .ok();
+                        lcd.draw_str_6x10(4, y, n_disp, is_sel);
                     }
                 }
 
@@ -683,9 +606,7 @@ pub fn update(ctrl: &mut MenuController, lcd: &mut St7567, keys: &NavKeys, buzze
                         let prompt_len = info_prompt.len().min(17);
                         let prompt_disp = &info_prompt[..prompt_len];
                         let prompt_x = 10 + (108i32.saturating_sub(prompt_len as i32 * 6) / 2);
-                        Text::new(prompt_disp, Point::new(prompt_x, 27), text_style)
-                            .draw(lcd)
-                            .ok();
+                        lcd.draw_str_6x10(prompt_x, 20, prompt_disp, false);
                     } else {
                         let mut q_buf = [b' '; 18];
                         q_buf[..6].copy_from_slice(b"Run: [");
@@ -695,13 +616,9 @@ pub fn update(ctrl: &mut MenuController, lcd: &mut St7567, keys: &NavKeys, buzze
                         q_buf[7 + n_len] = b'?';
                         let q_str = crate::ui::format::ascii_as_str(&q_buf[..8 + n_len]);
                         let q_x = 10 + (108i32.saturating_sub((8 + n_len) as i32 * 6) / 2);
-                        Text::new(q_str, Point::new(q_x, 27), text_style)
-                            .draw(lcd)
-                            .ok();
+                        lcd.draw_str_6x10(q_x, 20, q_str, false);
                     }
-                    Text::new("[OK] Yes  [ESC] No", Point::new(20, 42), text_style_small)
-                        .draw(lcd)
-                        .ok();
+                    lcd.draw_str_4x6(20, 37, "[OK] Yes  [ESC] No", false);
 
                     widgets::draw_footer(lcd, "[OK] Confirm   [ESC] Cancel");
                 } else if engine.folder_loading {

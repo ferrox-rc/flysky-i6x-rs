@@ -5,6 +5,21 @@ All notable changes to the `flysky-i6x-rs` project will be documented in this fi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.21.0] - 2026-10-07
+
+### Added
+- **In-Tree Bare-Metal 1bpp Glyph Tables ([`src/display/fonts.rs`](src/display/fonts.rs), [`src/display/st7567.rs`](src/display/st7567.rs))**:
+  - Implemented pixel-exact in-tree 1bpp glyph bitmap lookup tables for `4x6` micro font (`FONT_4X6_DATA`, 380 bytes) and `6x10` standard font (`FONT_6X10_DATA`, 1,140 bytes) covering printable ASCII (32..=126).
+  - Added inherent blitting routines `St7567::draw_char_4x6`, `St7567::draw_str_4x6`, `St7567::draw_char_6x10`, and `St7567::draw_str_6x10` with optional background inversion.
+  - Added unit test `test_baremetal_fonts_match_embedded_graphics` asserting 100% pixel parity across all 95 ASCII characters for both fonts.
+
+### Removed
+- **Embedded-Graphics Runtime Font & Text Subsystem**:
+  - Completely eliminated all `Text::new(...)`, `MonoTextStyle`, and `embedded-graphics` font data arrays from the runtime firmware across all UI screens, menus, widgets, calibration wizards, and status bars.
+  - Migrated UI layout coordinates strictly to integer screen space.
+  - Eliminated runtime `embedded-graphics` primitives in favor of driver rectangle routines (`draw_rect`, `fill_rect`, `draw_hline`, `draw_vline`).
+  - Achieved an **8.66 KB Flash memory reduction** (from 104,584 bytes down to 95,924 bytes text section).
+
 ## [0.20.2] - 2026-10-07
 
 ### Added

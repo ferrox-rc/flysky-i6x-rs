@@ -1,12 +1,5 @@
 //! Page 0 (P1/4): Primary Gimbals & Trims, Switches, Pots, and Trim status.
 
-use embedded_graphics::{
-    mono_font::{ascii::FONT_4X6, ascii::FONT_6X10, MonoTextStyle},
-    pixelcolor::BinaryColor,
-    prelude::*,
-    text::Text,
-};
-
 use crate::adc;
 use crate::display::St7567;
 use crate::input::InputState;
@@ -93,33 +86,26 @@ pub fn render_primary_sticks(
     storage: &RadioStorage,
     trims: &TrimController,
 ) {
-    let text_style = MonoTextStyle::new(&FONT_6X10, BinaryColor::On);
     let mut pct_buf = [0u8; 5];
     let is_general = storage.active_model().model_type == 4;
 
-    // CH1: Roll / 1 (y = 13)
+    // CH1: Roll / 1 (y = 13, text top-left y = 12)
     let lbl1 = if is_general { "1" } else { "A" };
-    Text::new(lbl1, Point::new(2, 19), text_style)
-        .draw(lcd)
-        .ok();
+    lcd.draw_str_6x10(2, 12, lbl1, false);
     widgets::draw_channel_gauge(lcd, 12, 13, 76, 7, state.sticks.roll, trims.values.roll);
     let p1 = format_percent(state.sticks.roll, &mut pct_buf);
-    Text::new(p1, Point::new(92, 19), text_style).draw(lcd).ok();
+    lcd.draw_str_6x10(92, 12, p1, false);
 
-    // CH2: Pitch / 2 (y = 21)
+    // CH2: Pitch / 2 (y = 21, text top-left y = 20)
     let lbl2 = if is_general { "2" } else { "E" };
-    Text::new(lbl2, Point::new(2, 27), text_style)
-        .draw(lcd)
-        .ok();
+    lcd.draw_str_6x10(2, 20, lbl2, false);
     widgets::draw_channel_gauge(lcd, 12, 21, 76, 7, state.sticks.pitch, trims.values.pitch);
     let p2 = format_percent(state.sticks.pitch, &mut pct_buf);
-    Text::new(p2, Point::new(92, 27), text_style).draw(lcd).ok();
+    lcd.draw_str_6x10(92, 20, p2, false);
 
-    // CH3: Throttle / 3 (y = 29)
+    // CH3: Throttle / 3 (y = 29, text top-left y = 28)
     let lbl3 = if is_general { "3" } else { "T" };
-    Text::new(lbl3, Point::new(2, 35), text_style)
-        .draw(lcd)
-        .ok();
+    lcd.draw_str_6x10(2, 28, lbl3, false);
     if is_general {
         widgets::draw_channel_gauge(
             lcd,
@@ -131,7 +117,7 @@ pub fn render_primary_sticks(
             trims.values.throttle,
         );
         let p3 = format_percent(state.sticks.throttle, &mut pct_buf);
-        Text::new(p3, Point::new(92, 35), text_style).draw(lcd).ok();
+        lcd.draw_str_6x10(92, 28, p3, false);
     } else {
         let thr_trim = if storage.radio.throttle_trim != 0 {
             trims.values.throttle
@@ -140,149 +126,41 @@ pub fn render_primary_sticks(
         };
         widgets::draw_progress_bar(lcd, 12, 29, 76, 7, state.sticks.throttle, thr_trim);
         let p3 = format_throttle_percent(state.sticks.throttle, &mut pct_buf);
-        Text::new(p3, Point::new(92, 35), text_style).draw(lcd).ok();
+        lcd.draw_str_6x10(92, 28, p3, false);
     }
 
-    // CH4: Yaw / 4 (y = 37)
+    // CH4: Yaw / 4 (y = 37, text top-left y = 36)
     let lbl4 = if is_general { "4" } else { "R" };
-    Text::new(lbl4, Point::new(2, 43), text_style)
-        .draw(lcd)
-        .ok();
+    lcd.draw_str_6x10(2, 36, lbl4, false);
     widgets::draw_channel_gauge(lcd, 12, 37, 76, 7, state.sticks.yaw, trims.values.yaw);
     let p4 = format_percent(state.sticks.yaw, &mut pct_buf);
-    Text::new(p4, Point::new(92, 43), text_style).draw(lcd).ok();
+    lcd.draw_str_6x10(92, 36, p4, false);
 }
 
 /// Render the default switch and dual pot layout (y = 46..53) for standard stock models.
 pub fn render_default_layout(lcd: &mut St7567, state: &InputState, storage: &RadioStorage) {
-    let text_style = MonoTextStyle::new(&FONT_6X10, BinaryColor::On);
-    let text_style_small = MonoTextStyle::new(&FONT_4X6, BinaryColor::On);
     let ext_sw = storage.radio.ext_switches != 0;
 
     if ext_sw {
-        draw_switch_slot(
-            lcd,
-            2,
-            7,
-            "A",
-            state.switches.sa,
-            false,
-            0,
-            text_style,
-            text_style_small,
-        );
-        draw_switch_slot(
-            lcd,
-            13,
-            18,
-            "B",
-            state.switches.sb,
-            false,
-            0,
-            text_style,
-            text_style_small,
-        );
-        draw_switch_slot(
-            lcd,
-            24,
-            29,
-            "C",
-            state.switches.sc,
-            false,
-            0,
-            text_style,
-            text_style_small,
-        );
-        draw_switch_slot(
-            lcd,
-            35,
-            40,
-            "D",
-            state.switches.sd,
-            false,
-            0,
-            text_style,
-            text_style_small,
-        );
-        draw_switch_slot(
-            lcd,
-            46,
-            51,
-            "E",
-            state.switches.se,
-            false,
-            0,
-            text_style,
-            text_style_small,
-        );
-        draw_switch_slot(
-            lcd,
-            57,
-            62,
-            "F",
-            state.switches.sf,
-            false,
-            0,
-            text_style,
-            text_style_small,
-        );
+        draw_switch_slot(lcd, 2, 7, "A", state.switches.sa, false, 0);
+        draw_switch_slot(lcd, 13, 18, "B", state.switches.sb, false, 0);
+        draw_switch_slot(lcd, 24, 29, "C", state.switches.sc, false, 0);
+        draw_switch_slot(lcd, 35, 40, "D", state.switches.sd, false, 0);
+        draw_switch_slot(lcd, 46, 51, "E", state.switches.se, false, 0);
+        draw_switch_slot(lcd, 57, 62, "F", state.switches.sf, false, 0);
     } else {
-        draw_switch_slot(
-            lcd,
-            2,
-            9,
-            "A",
-            state.switches.sa,
-            false,
-            0,
-            text_style,
-            text_style_small,
-        );
-        draw_switch_slot(
-            lcd,
-            20,
-            27,
-            "B",
-            state.switches.sb,
-            false,
-            0,
-            text_style,
-            text_style_small,
-        );
-        draw_switch_slot(
-            lcd,
-            38,
-            45,
-            "C",
-            state.switches.sc,
-            false,
-            0,
-            text_style,
-            text_style_small,
-        );
-        draw_switch_slot(
-            lcd,
-            56,
-            63,
-            "D",
-            state.switches.sd,
-            false,
-            0,
-            text_style,
-            text_style_small,
-        );
+        draw_switch_slot(lcd, 2, 9, "A", state.switches.sa, false, 0);
+        draw_switch_slot(lcd, 20, 27, "B", state.switches.sb, false, 0);
+        draw_switch_slot(lcd, 38, 45, "C", state.switches.sc, false, 0);
+        draw_switch_slot(lcd, 56, 63, "D", state.switches.sd, false, 0);
     }
 
-    Text::new("VR", Point::new(74, 52), text_style_small)
-        .draw(lcd)
-        .ok();
+    lcd.draw_str_4x6(74, 47, "VR", false);
     widgets::draw_split_pot_bar(lcd, 84, 46, 42, state.pots.vr1, state.pots.vr2);
 }
 
 /// Render the adaptive switch and pot layout (y = 46..53) based on dynamic channel mappings.
 pub fn render_adaptive_layout(lcd: &mut St7567, state: &InputState, storage: &RadioStorage) {
-    let text_style = MonoTextStyle::new(&FONT_6X10, BinaryColor::On);
-    let text_style_small = MonoTextStyle::new(&FONT_4X6, BinaryColor::On);
     let ext_sw = storage.radio.ext_switches != 0;
     let ext_adc = storage.radio.ext_adc != 0;
 
@@ -377,8 +255,6 @@ pub fn render_adaptive_layout(lcd: &mut St7567, state: &InputState, storage: &Ra
                 pos,
                 is_6pos,
                 mode_num,
-                text_style,
-                text_style_small,
             );
         }
     }
@@ -424,8 +300,6 @@ pub fn render_footer(
     }
 }
 
-#[inline(always)]
-#[allow(clippy::too_many_arguments)]
 pub fn draw_switch_slot(
     lcd: &mut St7567,
     text_x: i32,
@@ -434,18 +308,12 @@ pub fn draw_switch_slot(
     pos: crate::input::SwitchPos,
     is_6pos: bool,
     mode_num: u8,
-    _text_style: MonoTextStyle<'_, BinaryColor>,
-    text_style_small: MonoTextStyle<'_, BinaryColor>,
 ) {
-    Text::new(name, Point::new(text_x + 1, 53), text_style_small)
-        .draw(lcd)
-        .ok();
+    lcd.draw_str_4x6(text_x + 1, 48, name, false);
     if is_6pos {
         let num_char = [b'0' + mode_num.clamp(1, 6)];
         let num_str = crate::ui::format::ascii_as_str(&num_char);
-        Text::new(num_str, Point::new(glyph_x + 1, 52), text_style_small)
-            .draw(lcd)
-            .ok();
+        lcd.draw_str_4x6(glyph_x + 1, 47, num_str, false);
     } else {
         draw_switch_arrow(lcd, glyph_x, 46, pos);
     }
