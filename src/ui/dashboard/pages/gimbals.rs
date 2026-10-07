@@ -389,7 +389,7 @@ pub fn render_adaptive_layout(lcd: &mut St7567, state: &InputState, storage: &Ra
         } else if pot_count == 2 {
             widgets::draw_split_pot_bar(lcd, pot_start_x, 46, pot_w, pot_vals[0], pot_vals[1]);
         } else {
-            widgets::draw_multi_pot_bar(lcd, pot_start_x, 46, pot_w, &pot_vals[..pot_count]);
+            widgets::draw_multi_pot_bar(lcd, pot_start_x, 45, pot_w, &pot_vals[..pot_count]);
         }
     }
 }

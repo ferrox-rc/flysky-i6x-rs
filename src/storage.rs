@@ -96,7 +96,7 @@ impl AdcInputMode {
         // Default hardware mapping:
         match channel_idx {
             0 => Self::TwoPos,   // SA (2-pos stock)
-            1 => Self::ThreePos, // SB (3-pos stock)
+            1 => Self::TwoPos,   // SB (2-pos stock)
             2 => Self::ThreePos, // SC (3-pos stock)
             3 => Self::TwoPos,   // SD (2-pos stock)
             _ => Self::Pot,      // VRA, VRB, VRC, VRD, VRE, VRF (Pots stock)

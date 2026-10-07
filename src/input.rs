@@ -15,16 +15,6 @@ pub enum SwitchPos {
     Down,
 }
 
-impl SwitchPos {
-    pub fn as_char(&self) -> char {
-        match self {
-            SwitchPos::Up => 'U',
-            SwitchPos::Mid => 'M',
-            SwitchPos::Down => 'D',
-        }
-    }
-}
-
 /// Normalized stick axes (-1000 .. +1000).
 #[derive(Copy, Clone, Debug)]
 pub struct Sticks {
@@ -337,15 +327,15 @@ pub fn is_ext_adc_enabled() -> bool {
 
 /// Map raw analog reading to a 6-position flight mode index (1..6).
 pub fn decode_switch_6pos_num(raw: u16) -> u8 {
-    if raw < 500 {
+    if raw < 682 {
         1
-    } else if raw < 1300 {
+    } else if raw < 1365 {
         2
-    } else if raw < 2100 {
+    } else if raw < 2048 {
         3
-    } else if raw < 2900 {
+    } else if raw < 2730 {
         4
-    } else if raw < 3600 {
+    } else if raw < 3413 {
         5
     } else {
         6
@@ -489,16 +479,16 @@ pub fn process(raw: [u16; adc::NUM_CHANNELS]) -> InputState {
         sf,
     };
 
-    // Battery voltage calculation: channel 10 resistor divider (scale to mV)
-    let raw_batt = raw[10];
-    if calib.filtered_battery_mv == 0 {
-        calib.filtered_battery_mv = (raw_batt as u32 * 3300 * 2) / 4095 * 8;
+    let instant_mv = calculate_battery_mv(raw[10]); // PC0
+    let battery_mv = if calib.filtered_battery_mv == 0 {
+        calib.filtered_battery_mv = (instant_mv as u32) << 8;
+        instant_mv
     } else {
-        let current_sample_mv = (raw_batt as u32 * 3300 * 2) / 4095;
-        calib.filtered_battery_mv =
-            (calib.filtered_battery_mv - (calib.filtered_battery_mv / 8)) + current_sample_mv;
-    }
-    let battery_mv = (calib.filtered_battery_mv / 8) as u16;
+        // Exponential moving average filter (alpha = 1/32) to stabilize hundredths digit
+        calib.filtered_battery_mv = calib.filtered_battery_mv - (calib.filtered_battery_mv >> 5)
+            + ((instant_mv as u32) << 3);
+        (calib.filtered_battery_mv >> 8) as u16
+    };
 
     InputState {
         sticks,
@@ -508,6 +498,16 @@ pub fn process(raw: [u16; adc::NUM_CHANNELS]) -> InputState {
         aux_pots,
         raw,
     }
+}
+
+/// Calculate battery voltage in millivolts using the OpenI6X calibrated formula.
+/// Accounts for the 1/2 resistor divider and 0.20V series protection diode.
+fn calculate_battery_mv(raw: u16) -> u16 {
+    // OpenTX calibrated formula uses 11-bit ADC (raw / 2):
+    // instant_vbat = ((raw/2) * 200) / 421 + 20 (in 10mV steps)
+    // Directly from 12-bit raw: (raw * 100) / 421 + 20
+    let vbat_10mv = ((raw as u32 * 100) / 421) + 20;
+    (vbat_10mv * 10) as u16
 }
 
 /// Read the latest frame from the ADC and return the processed input state.

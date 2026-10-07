@@ -258,13 +258,7 @@ const AUX_NAMES: [&str; 10] = [
     "VRF (P7):",
 ];
 
-const MODE_STRS: [&str; 5] = [
-    "DEFAULT",
-    "2-POS",
-    "3-POS",
-    "6-POS",
-    "POT",
-];
+const MODE_STRS: [&str; 6] = ["DEFAULT", "2-POS", "3-POS", "6-POS", "POT", "POT-D"];
 
 #[inline(never)]
 pub fn update_input_setup(
@@ -297,8 +291,8 @@ pub fn update_input_setup(
         let ch = ctrl.selected_item;
         if ch < INPUT_ITEMS {
             buzzer.click();
-            // Cycle: Default(0) -> 2Pos(1) -> 3Pos(2) -> 6Pos(3) -> Pot(4) -> Default(0)
-            storage.radio.adc_modes[ch] = (storage.radio.adc_modes[ch] + 1) % 5;
+            // Cycle: Default(0) -> 2Pos(1) -> 3Pos(2) -> 6Pos(3) -> Pot(4) -> PotDetent(5) -> Default(0)
+            storage.radio.adc_modes[ch] = (storage.radio.adc_modes[ch] + 1) % MODE_STRS.len() as u8;
             crate::input::apply_calibration(&storage.radio);
             storage::save_radio_config(storage);
         }
@@ -312,7 +306,7 @@ pub fn update_input_setup(
             break;
         }
         let is_sel = idx == ctrl.selected_item;
-        let mode_idx = (storage.radio.adc_modes[idx] as usize).min(4);
+        let mode_idx = (storage.radio.adc_modes[idx] as usize).min(MODE_STRS.len());
         let mode_str = MODE_STRS[mode_idx];
         widgets::draw_list_row_right(lcd, slot, is_sel, AUX_NAMES[idx], Some(mode_str));
     }
