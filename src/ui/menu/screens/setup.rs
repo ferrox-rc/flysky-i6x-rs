@@ -258,7 +258,7 @@ const AUX_NAMES: [&str; 10] = [
     "VRF (P7):",
 ];
 
-const MODE_STRS: [&str; 6] = ["DEFAULT", "2-POS", "3-POS", "6-POS", "POT", "POT-D"];
+const MODE_STRS: [&str; 7] = ["DEFAULT", "2-POS", "3-POS", "6-POS", "POT", "POT-D", "INST-TRIM"];
 
 #[inline(never)]
 pub fn update_input_setup(

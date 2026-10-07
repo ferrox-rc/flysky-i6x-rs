@@ -21,7 +21,7 @@ pub fn draw_splash(lcd: &mut St7567) {
     lcd.draw_str_4x6(38, 45, "flysky-i6x-rs", false);
 
     // 4. Draw Version Tag dynamically centered horizontally (4x6 is 4px wide)
-    const VERSION_TAG: &str = env!("FIRMWARE_VERSION");
+    const VERSION_TAG: &str = concat!(env!("FIRMWARE_VERSION"), " (", env!("GIT_HASH"), ")");
     const VERSION_X: i32 = ((128 - (VERSION_TAG.len() * 4)) / 2) as i32;
     lcd.draw_str_4x6(VERSION_X, 54, VERSION_TAG, false);
 }

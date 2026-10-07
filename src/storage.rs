@@ -63,6 +63,7 @@ pub enum AdcInputMode {
     SixPos = 3,
     Pot = 4,
     PotDetent = 5,
+    InstantTrim = 6,
 }
 
 impl AdcInputMode {
@@ -73,6 +74,7 @@ impl AdcInputMode {
             3 => Self::SixPos,
             4 => Self::Pot,
             5 => Self::PotDetent,
+            6 => Self::InstantTrim,
             _ => Self::Default,
         }
     }
@@ -456,7 +458,7 @@ impl RadioStorage {
             }
         }
         for mode in self.radio.adc_modes.iter_mut() {
-            if *mode > 5 {
+            if *mode > 6 {
                 *mode = 0; // Default
             }
         }
@@ -1000,8 +1002,10 @@ mod tests {
     fn test_adc_input_mode_detent() {
         assert_eq!(AdcInputMode::from_u8(4), AdcInputMode::Pot);
         assert_eq!(AdcInputMode::from_u8(5), AdcInputMode::PotDetent);
+        assert_eq!(AdcInputMode::from_u8(6), AdcInputMode::InstantTrim);
         assert!(AdcInputMode::Pot.is_pot());
         assert!(AdcInputMode::PotDetent.is_pot());
+        assert!(!AdcInputMode::InstantTrim.is_pot());
         assert!(!AdcInputMode::Pot.has_detent());
         assert!(AdcInputMode::PotDetent.has_detent());
     }

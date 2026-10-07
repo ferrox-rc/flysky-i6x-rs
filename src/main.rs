@@ -237,6 +237,7 @@ struct BackgroundIdleManager {
     rx_id_dirty: bool,
     trim_dirty: bool,
     trim_save_cooldown_ms: u16,
+    prev_instant_trim_active: bool,
 }
 
 impl BackgroundIdleManager {
@@ -275,6 +276,7 @@ impl BackgroundIdleManager {
             rx_id_dirty: false,
             trim_dirty: false,
             trim_save_cooldown_ms: 0,
+            prev_instant_trim_active: false,
         }
     }
 
@@ -435,7 +437,46 @@ impl BackgroundIdleManager {
             buzzer.play_tone_pattern(2400, 70, 50, 2);
         }
 
-        // 7. Debounced auto-save of active model trims to Flash (inhibit while armed)
+        // 7. Instant Trim Evaluation: Check if any auxiliary channel configured as InstantTrim went active
+        let mut instant_trim_active = false;
+        let max_adc = if storage.radio.ext_adc != 0 { 10 } else { 6 };
+        for ch in 0..max_adc {
+            let mode = storage::AdcInputMode::resolve(ch, storage.radio.adc_modes[ch]);
+            if matches!(mode, storage::AdcInputMode::InstantTrim) {
+                // Active when switch is toggled down (raw reading > 2048)
+                let raw_val = flight.state.raw[match ch {
+                    0 => 4,
+                    1 => 5,
+                    2 => 8,
+                    3 => 9,
+                    4 => 6,
+                    5 => 7,
+                    6 => 11,
+                    7 => 12,
+                    8 => 13,
+                    _ => 14,
+                }];
+                if raw_val >= 2048 {
+                    instant_trim_active = true;
+                    break;
+                }
+            }
+        }
+
+        let instant_trim_triggered = instant_trim_active && !self.prev_instant_trim_active;
+        self.prev_instant_trim_active = instant_trim_active;
+
+        if !menu_active && instant_trim_triggered {
+            let delta_roll = (flight.state.sticks.roll / 40) as i8;
+            let delta_pitch = (flight.state.sticks.pitch / 40) as i8;
+            trims.values.roll = (trims.values.roll + delta_roll).clamp(-25, 25);
+            trims.values.pitch = (trims.values.pitch + delta_pitch).clamp(-25, 25);
+            self.trim_dirty = true;
+            self.trim_save_cooldown_ms = 1000;
+            buzzer.play_tone_pattern(2400, 60, 40, 2);
+        }
+
+        // 8. Debounced auto-save of active model trims to Flash (inhibit while armed)
         let active_trims = [
             trims.values.roll,
             trims.values.pitch,
@@ -980,10 +1021,14 @@ fn main() -> ! {
         let dt_ms = (now.wrapping_sub(last_tick_ms)).min(100) as u16;
 
         let keys = boot::scan_keys();
+        let menu_active = menu_controller.is_active() || calib_wizard.is_active();
+
         if dt_ms > 0 {
             last_tick_ms = now;
             buzzer.tick(dt_ms);
-            trims.update(keys, dt_ms, &mut buzzer);
+            if !menu_active {
+                trims.update(keys, dt_ms, &mut buzzer);
+            }
 
             // Once the transmitter has been running steadily in the flight loop for >5 seconds,
             // clear the consecutive panic count.
@@ -995,8 +1040,6 @@ fn main() -> ! {
                 }
             }
         }
-
-        let menu_active = menu_controller.is_active() || calib_wizard.is_active();
 
         // Tier 1: High-Rate Flight Pipeline Tick (multi-kHz)
         let flight_snapshot = pipeline.tick(now, storage, &trims, menu_active, &mut buzzer);

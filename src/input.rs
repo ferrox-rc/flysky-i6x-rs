@@ -402,7 +402,7 @@ pub fn process(raw: [u16; adc::NUM_CHANNELS]) -> InputState {
         aux_pots[i] = match mode {
             AdcInputMode::PotDetent => calib.aux[i].normalize_detent(raw_val, DETENT_DEADBAND),
             AdcInputMode::Pot => calib.aux[i].normalize(raw_val),
-            AdcInputMode::TwoPos => {
+            AdcInputMode::TwoPos | AdcInputMode::InstantTrim => {
                 if raw_val < 2048 {
                     -1000
                 } else {

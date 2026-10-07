@@ -172,7 +172,7 @@ pub fn render_adaptive_layout(lcd: &mut St7567, state: &InputState, storage: &Ra
     for (ch, &name) in ch_names.iter().enumerate().take(max_channels) {
         let mode = AdcInputMode::resolve(ch, storage.radio.adc_modes[ch]);
         match mode {
-            AdcInputMode::TwoPos | AdcInputMode::ThreePos => {
+            AdcInputMode::TwoPos | AdcInputMode::ThreePos | AdcInputMode::InstantTrim => {
                 let pos = match ch {
                     0 => state.switches.sa,
                     1 => state.switches.sb,
