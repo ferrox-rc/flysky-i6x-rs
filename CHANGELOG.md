@@ -5,6 +5,21 @@ All notable changes to the `flysky-i6x-rs` project will be documented in this fi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.20.2] - 2026-10-07
+
+### Added
+- **Universal Configurable ADC Input Modes (`AdcInputMode`) ([`src/storage.rs`](src/storage.rs), [`src/input.rs`](src/input.rs), [`src/ui/menu/screens/setup.rs`](src/ui/menu/screens/setup.rs))**:
+  - Added universal configurable input decoding modes (`DEFAULT`, `2-POS`, `3-POS`, `6-POS`, `POT`, `POT-D`) for all 10 auxiliary analog channels (`SA`..`SD`, `VRA`..`VRB`, and Header P7 inputs `VRC`..`VRF`).
+  - Added dedicated **`Input Setup`** (`INPUT SETUP`) menu under `Radio Setup` to independently configure hardware roles for each auxiliary channel.
+  - Implemented `POT-D` (Pot with Detent): continuous potentiometer input with active real-time acoustic zero-crossing detent clicks (`2200 Hz`, 10 ms), providing tactile non-visual feedback for dials without mechanical center detents.
+  - Added multi-position flight mode switch decoding (`6-POS`) using resistor-ladder voltage divider decoding.
+- **Dynamic Adaptive Calibration Wizard ([`src/calib.rs`](src/calib.rs), [`src/ui/dashboard/pages/gimbals.rs`](src/ui/dashboard/pages/gimbals.rs))**:
+  - Dynamically collects all auxiliary channels configured as continuous potentiometers (`Pot` / `PotDetent`).
+  - Adapts wizard display to render single/dual full-width bars, 2-column split bars (3..4 pots), or dense matrix rows (>4 pots).
+  - Main flight gimbals dashboard dynamically reflows switch slots and rotary pot meters based on active input modes.
+- **Non-Volatile Storage Layout Expansion ([`src/storage.rs`](src/storage.rs))**:
+  - Added `aux_pots: [PotCalib; 10]` and `adc_modes: [u8; 10]` to `RadioConfig` while strictly preserving the exact 128-byte layout constraint.
+
 ## [0.20.1] - 2026-10-03
 
 ### Fixed

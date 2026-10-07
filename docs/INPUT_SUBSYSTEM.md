@@ -26,7 +26,25 @@ When P7 Header ADC is active (`Radio Setup -> P7 Header: AD12-AD15`), channels *
 
 ---
 
-## 2. Gimbal Potentiometer Geometry & Endpoints
+## 2. Universal Configurable ADC Input Modes (`AdcInputMode`)
+
+Every one of the 10 auxiliary ADC channels (`SA`, `SB`, `SC`, `SD`, `VRA`, `VRB`, plus Header P7 inputs `VRC`, `VRD`, `VRE`, `VRF`) can be configured individually via **`RADIO SETUP -> ADC Modes`** to decode incoming voltages under any of the following hardware topologies:
+
+| Mode | Enumeration | Output Semantics | Decoding Logic |
+| :--- | :--- | :--- | :--- |
+| **Default** | `0` | Hardware Default | Retains stock hardware role: `SA/SB/SD` as 2-Pos, `SC` as 3-Pos, pots as continuous rotary dials. |
+| **2-Position Switch** | `1` (`TwoPos`) | -1000 (UP) / +1000 (DOWN) | Thresholded at calibrated midpoint. |
+| **3-Position Switch** | `2` (`ThreePos`) | -1000 (UP) / 0 (MID) / +1000 (DOWN) | Three-way window comparator around calibrated center and endpoints. |
+| **Potentiometer** | `3` (`Pot`) | Continuous -1000 .. +1000 | Linearly scaled between calibrated min, center, and max endpoints with deadband margin. |
+| **Pot with Detent** | `4` (`PotDetent`) | Continuous -1000 .. +1000 + Acoustic Click | Identical continuous analog output to `Pot`, but actively triggers a subtle acoustic haptic click (`2200 Hz`, 10 ms) whenever the knob sweeps across mechanical neutral ($0$). |
+| **6-Position Switch** | `5` (`SixPos`) | Steps 1..6 (mapped to flight mode pulses) | Resistor-ladder voltage divider decoding for multi-position flight mode switch assemblies. |
+
+### Potentiometer Center Acoustic Detent Haptics
+For rotary pots (`VRA`, `VRB`, or P7 pots) lacking physical mechanical indentations, configuring the channel to **`PotDetent`** enables real-time software zero-crossing detection. The pilot receives immediate non-visual audio confirmation when flaps, gimbal pitch, or gain knobs cross center neutral.
+
+---
+
+## 3. Gimbal Potentiometer Geometry & Endpoints
 
 FlySky FS-i6X gimbals use dedicated potentiometers that sweep almost their entire resistive track across mechanical stick movement (~3400 ADC counts total):
 - **Horizontal Axes (Roll `A`, Yaw `R`)**: Wide mechanical clearance (~1670–1720 counts throw from center). Default `GIMBAL_H_HALF_SPAN = 1670`.
@@ -52,7 +70,7 @@ Implemented in [`src/input.rs`](../src/input.rs).
 
 ---
 
-## 3. Digital Trim Subsystem
+## 4. Digital Trim Subsystem
 
 The transmitter has 4 trim rocker switches (8 directional switches) connected to columns 0 and 1 of the key matrix:
 
@@ -74,7 +92,7 @@ The transmitter has 4 trim rocker switches (8 directional switches) connected to
 
 ---
 
-## 4. Hardware Piezo Buzzer (`src/buzzer.rs`)
+## 5. Hardware Piezo Buzzer (`src/buzzer.rs`)
 
 The piezo buzzer on pin `PA8` is driven by **`TIM1_CH1`** in hardware PWM Mode 1:
 - Clocked at 48 MHz with `PSC = 47` (1.000 µs per timer tick).
@@ -91,7 +109,7 @@ The piezo buzzer on pin `PA8` is driven by **`TIM1_CH1`** in hardware PWM Mode 1
 
 ---
 
-## 5. Navigation Keypad & Auto-Repeat (`src/boot.rs`, `src/menu.rs`)
+## 6. Navigation Keypad & Auto-Repeat (`src/boot.rs`, `src/menu.rs`)
 
 The transmitter keypad is scanned via the 3 x 4 GPIO key matrix:
 - **`[UP]`** and **`[DOWN]`**:

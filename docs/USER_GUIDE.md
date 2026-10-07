@@ -311,6 +311,10 @@ The Radio Setup menu features a scrollable 4-item viewport with 9px row heights 
 - **`PC13 Pwr:`**: Configures external module power polarity on `PC13`: `HIGH (N)` (default active-HIGH for N-channel MOSFET switches) or `LOW (P)` (active-LOW for P-channel MOSFET switches).
 - **`Ext Sw:`**: Toggles auxiliary hardware switches SE and SF on pins `PC12` and `PC15` (`OFF` or `PC12+PC15`).
 - **`P7 Header:`**: Toggles autonomous 15-channel ADC scanning for auxiliary inputs AD12..AD15 on Header P7 (`OFF` or `AD12-AD15`).
+- **`Inputs:`**: Opens the **Input Setup** (`INPUT SETUP`) sub-screen to configure the input decoding modes for all 10 auxiliary analog channels individually:
+  - Channels: `SA (PA4)`, `SB (PA5)`, `SC (PB0)`, `SD (PB1)`, `VRA (PA6)`, `VRB (PA7)`, and Header P7 inputs `VRC (P7)`, `VRD (P7)`, `VRE (P7)`, `VRF (P7)`.
+  - Modes: **`DEFAULT`**, **`2-POS`**, **`3-POS`**, **`6-POS`**, **`POT`**, and **`POT-D`** (Pot with center detent click).
+  - Toggling immediately reapplies calibration, adjusts the main flight dashboard layout dynamically, and enables center acoustic clicks when `POT-D` is selected.
 
 ### Submenu 9: Protocol Setup (`PROTOCOL SETUP`)
 Universal RF protocol and receiver configuration, saved per-model:
@@ -333,8 +337,8 @@ Universal RF protocol and receiver configuration, saved per-model:
   - Channels 5..18 dynamically display their assigned auxiliary source short names (e.g. `5:SA`, `6:SB`, `7:VR1`, `10:SD`, `11:VRC`, `18:None`).
 - Press **`[UP]`** / **`[DOWN]`** to toggle between Page 1 (CH1..CH6), Page 2 (CH7..CH12), and Page 3 (CH13..CH18).
 
-### Submenu 11: Stick Calibration (`STICK CALIB`)
-Launches the interactive 2-step calibration wizard (see Section 5 below).
+### Submenu 11: Stick & Pot Calibration (`STICK CALIB`)
+Launches the interactive 2-step calibration wizard (see Section 6 below), automatically adapted to all flight sticks and configured continuous rotary potentiometers.
 
 ### Submenu 12: Analog Diagnostics (`DIAG ANAS`)
 - Multi-page graphic diagnostics screen matching the `CHANNEL MONITOR` layout with 40-pixel graphic fill bars and exact 4-digit raw decimal ADC counts (0..4095):
@@ -409,11 +413,11 @@ Calibration ensures gimbals reach full travel without clipping or deadzones:
 2. **Step 1: Center Position**:
    - Let Roll, Pitch, and Yaw return to center springs.
    - Move Throttle (friction stick) to the physical middle (50%).
-   - Center rotary dials VRA and VRB.
+   - Center all active rotary dials (VRA, VRB, and any continuous potentiometers configured in Input Setup).
    - Press **`[OK]`** to capture neutral centers.
 3. **Step 2: Limit Travel**:
    - Move both gimbals in wide circular motions touching all four corners.
-   - Rotate VRA and VRB back and forth across their full rotation.
+   - Rotate all active potentiometers back and forth across their full rotation.
    - Watch the on-screen gauges fill out. Once an axis has measured sufficient travel, its indicator changes from `--` to `OK`.
    - When all axes display `OK`, press **`[OK]`** to save.
 4. **Completion**:
