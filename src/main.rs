@@ -24,7 +24,10 @@ fn panic(_info: &core::panic::PanicInfo) -> ! {
         };
 
         if count < PANIC_MAX_CONSECUTIVE {
-            core::ptr::write_volatile(core::ptr::addr_of_mut!(PANIC_COUNT), PANIC_MAGIC | (count + 1));
+            core::ptr::write_volatile(
+                core::ptr::addr_of_mut!(PANIC_COUNT),
+                PANIC_MAGIC | (count + 1),
+            );
             // Trigger rapid Cortex-M0 warm reset (<20ms recovery vs 2.0s watchdog)
             cortex_m::peripheral::SCB::sys_reset();
         }
@@ -97,7 +100,7 @@ impl FlightPipeline {
         buzzer: &mut buzzer::Buzzer,
     ) -> FlightSnapshot {
         // 1. Poll continuous DMA analog and digital inputs (sub-microsecond)
-        let state = input::poll();
+        let state = input::read();
         let active_model = storage.active_model();
 
         // 2. Resynchronize arm state when active model changes or when exiting settings menu
@@ -704,7 +707,7 @@ fn run_preflight_check(
         watchdog::feed();
 
         let now = time::millis();
-        let state = input::poll();
+        let state = input::read();
         let keys = boot::scan_keys();
 
         let is_general = storage.active_model().model_type == 4;
@@ -786,8 +789,7 @@ fn run_preflight_check(
                         }
                     }
                 }
-                let sw_str =
-                    ui::format::ascii_as_str(&sw_warn[..col.saturating_sub(1).min(16)]);
+                let sw_str = ui::format::ascii_as_str(&sw_warn[..col.saturating_sub(1).min(16)]);
                 Text::new(sw_str, Point::new(2, 44), text_style)
                     .draw(lcd)
                     .ok();
@@ -983,10 +985,16 @@ fn main() -> ! {
 
     // 11. Pre-flight Startup Safety Check: Throttle at idle and switches in safe (UP) positions
     // Bypassed on watchdog reset to immediately resume RF control in flight
-    run_preflight_check(storage, &mut buzzer, &mut lcd, &calib_wizard, was_watchdog_reset);
+    run_preflight_check(
+        storage,
+        &mut buzzer,
+        &mut lcd,
+        &calib_wizard,
+        was_watchdog_reset,
+    );
 
     // Initialize execution tiers
-    let init_state = input::poll();
+    let init_state = input::read();
     let mut pipeline = FlightPipeline::new(storage, &init_state);
     let mut idle_manager = BackgroundIdleManager::new(&init_state, bind_on_boot);
     let mut dashboard = ui::dashboard::DashboardController::new();

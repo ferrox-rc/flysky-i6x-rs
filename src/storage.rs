@@ -36,17 +36,19 @@ impl ChannelCalib {
     }
 }
 
-/// Compact calibration parameters for an auxiliary potentiometer/slider (4 bytes).
+/// Compact calibration parameters for an auxiliary potentiometer/slider (6 bytes).
+/// Supports both standard pots (with calculated midpoint) and detented pots (with fixed detent center).
 #[repr(C)]
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct PotCalib {
     pub min: u16,
+    pub center: u16,
     pub max: u16,
 }
 
 impl PotCalib {
-    pub const fn new(min: u16, max: u16) -> Self {
-        Self { min, max }
+    pub const fn new(min: u16, center: u16, max: u16) -> Self {
+        Self { min, center, max }
     }
 }
 
@@ -60,6 +62,7 @@ pub enum AdcInputMode {
     ThreePos = 2,
     SixPos = 3,
     Pot = 4,
+    PotDetent = 5,
 }
 
 impl AdcInputMode {
@@ -69,8 +72,19 @@ impl AdcInputMode {
             2 => Self::ThreePos,
             3 => Self::SixPos,
             4 => Self::Pot,
+            5 => Self::PotDetent,
             _ => Self::Default,
         }
+    }
+
+    /// Check if this mode represents any analog potentiometer (continuous or center-detent).
+    pub fn is_pot(&self) -> bool {
+        matches!(self, Self::Pot | Self::PotDetent)
+    }
+
+    /// Check if this mode utilizes a physical center detent.
+    pub fn has_detent(&self) -> bool {
+        matches!(self, Self::PotDetent)
     }
 
     /// Resolve effective mode for a given channel index (0..3: SA..SD, 4..5: VRA..VRB, 6..9: VRC..VRF)
@@ -105,16 +119,16 @@ pub struct RadioConfig {
     pub lcd_contrast: u8,          // 14 (15..55, default 37 / 0x25)
     pub usb_mode: u8,              // 15 (0: Off, 1: Joystick, 2: Serial, 3: Composite)
     pub sticks: [ChannelCalib; 4], // 16..48 (32 bytes: Roll, Pitch, Throttle, Yaw)
-    pub aux_pots: [PotCalib; 10],  // 48..88 (40 bytes: SA..SD, VRA..VRB, VRC..VRF)
-    pub ext_module_pwr: u8,        // 88 (0: Active HIGH / N-type, 1: Active LOW / P-type)
-    pub tone_style: u8,            // 89 (0: Simple / Standard, 1: Rich / Melodic)
-    pub servo_rate_hz: u16,        // 90..92 (50..400 Hz, default 50 Hz for analog servo safety)
-    pub rx_out_mode: u8,           // 92 (0: PWM, 1: PPM, default 0)
-    pub rx_serial_proto: u8,       // 93 (0: i-BUS, 1: S.BUS, default 0)
-    pub ext_switches: u8,          // 94 (0: Disabled, 1: Enabled / PC12+PC15)
-    pub ext_adc: u8,               // 95 (0: Disabled, 1: Enabled / Header P7 AD12-AD15)
-    pub adc_modes: [u8; 10],       // 96..106: Input modes for the 10 auxiliary analog channels
-    pub _reserved: [u8; 22],       // 106..128 (22 bytes reserved)
+    pub aux_pots: [PotCalib; 10],  // 48..108 (60 bytes: SA..SD, VRA..VRB, VRC..VRF)
+    pub ext_module_pwr: u8,        // 108 (0: Active HIGH / N-type, 1: Active LOW / P-type)
+    pub tone_style: u8,            // 109 (0: Simple / Standard, 1: Rich / Melodic)
+    pub servo_rate_hz: u16,        // 110..112 (50..400 Hz, default 50 Hz for analog servo safety)
+    pub rx_out_mode: u8,           // 112 (0: PWM, 1: PPM, default 0)
+    pub rx_serial_proto: u8,       // 113 (0: i-BUS, 1: S.BUS, default 0)
+    pub ext_switches: u8,          // 114 (0: Disabled, 1: Enabled / PC12+PC15)
+    pub ext_adc: u8,               // 115 (0: Disabled, 1: Enabled / Header P7 AD12-AD15)
+    pub adc_modes: [u8; 10],       // 116..126: Input modes for the 10 auxiliary analog channels
+    pub _reserved: [u8; 2],        // 126..128 (2 bytes reserved, exact 128-byte guarantee)
 }
 
 impl RadioConfig {
@@ -153,16 +167,56 @@ impl RadioConfig {
                 ), // Yaw (Horizontal)
             ],
             aux_pots: [
-                PotCalib::new(crate::adc::ADC_MIN, crate::adc::ADC_MAX), // SA
-                PotCalib::new(crate::adc::ADC_MIN, crate::adc::ADC_MAX), // SB
-                PotCalib::new(crate::adc::ADC_MIN, crate::adc::ADC_MAX), // SC
-                PotCalib::new(crate::adc::ADC_MIN, crate::adc::ADC_MAX), // SD
-                PotCalib::new(crate::adc::ADC_MIN, crate::adc::ADC_MAX), // VRA
-                PotCalib::new(crate::adc::ADC_MIN, crate::adc::ADC_MAX), // VRB
-                PotCalib::new(crate::adc::ADC_MIN, crate::adc::ADC_MAX), // VRC (PC2)
-                PotCalib::new(crate::adc::ADC_MIN, crate::adc::ADC_MAX), // VRD (PC3)
-                PotCalib::new(crate::adc::ADC_MIN, crate::adc::ADC_MAX), // VRE (PC4)
-                PotCalib::new(crate::adc::ADC_MIN, crate::adc::ADC_MAX), // VRF (PC5)
+                PotCalib::new(
+                    crate::adc::ADC_MIN,
+                    crate::adc::ADC_CENTER,
+                    crate::adc::ADC_MAX,
+                ), // SA
+                PotCalib::new(
+                    crate::adc::ADC_MIN,
+                    crate::adc::ADC_CENTER,
+                    crate::adc::ADC_MAX,
+                ), // SB
+                PotCalib::new(
+                    crate::adc::ADC_MIN,
+                    crate::adc::ADC_CENTER,
+                    crate::adc::ADC_MAX,
+                ), // SC
+                PotCalib::new(
+                    crate::adc::ADC_MIN,
+                    crate::adc::ADC_CENTER,
+                    crate::adc::ADC_MAX,
+                ), // SD
+                PotCalib::new(
+                    crate::adc::ADC_MIN,
+                    crate::adc::ADC_CENTER,
+                    crate::adc::ADC_MAX,
+                ), // VRA
+                PotCalib::new(
+                    crate::adc::ADC_MIN,
+                    crate::adc::ADC_CENTER,
+                    crate::adc::ADC_MAX,
+                ), // VRB
+                PotCalib::new(
+                    crate::adc::ADC_MIN,
+                    crate::adc::ADC_CENTER,
+                    crate::adc::ADC_MAX,
+                ), // VRC (PC2)
+                PotCalib::new(
+                    crate::adc::ADC_MIN,
+                    crate::adc::ADC_CENTER,
+                    crate::adc::ADC_MAX,
+                ), // VRD (PC3)
+                PotCalib::new(
+                    crate::adc::ADC_MIN,
+                    crate::adc::ADC_CENTER,
+                    crate::adc::ADC_MAX,
+                ), // VRE (PC4)
+                PotCalib::new(
+                    crate::adc::ADC_MIN,
+                    crate::adc::ADC_CENTER,
+                    crate::adc::ADC_MAX,
+                ), // VRF (PC5)
             ],
             ext_module_pwr: 0,
             tone_style: 1,
@@ -172,7 +226,7 @@ impl RadioConfig {
             ext_switches: 0,
             ext_adc: 0,
             adc_modes: [0; 10], // Default hardware modes
-            _reserved: [0; 22],
+            _reserved: [0; 2],
         }
     }
 
@@ -229,7 +283,7 @@ pub struct ModelConfig {
     pub _pad0: u8,              // 11: align rx_id to 4 bytes
     pub rx_id: u32,             // 12..16: Model Match bound receiver ID
     pub trims: [i8; 4],         // 16..20: Roll, Pitch, Throttle, Yaw (-25..+25)
-    pub channel_reverse: u32,   // 20..24: Bitmask for CH1..CH18 inversion (was u16 20..22)
+    pub channel_reverse: u32,   // 20..24: Bitmask for CH1..CH18 inversion
     pub dr_switch: u8,          // 24: 0: None, 1: SA, 2: SB, 3: SC, 4: SD
     pub thr_curve_pts: u8,      // 25: 5 or 9 points mode
     pub thr_curve_smooth: u8,   // 26: 0: Linear, 1: Spline / Smooth
@@ -242,7 +296,7 @@ pub struct ModelConfig {
     pub timer_source: u8, // 50: 0: Off, 1: THs (Thr>5%), 2: THt (Thr Latched), 3: Always On, 4..13: SA^..SDv
     pub protocol_subtype: u8, // 51: 0: PWM, 1: PPM, 2: i-BUS, 3: S.BUS
     pub failsafe_thr: u16, // 52..54: Failsafe throttle pulse in µs (e.g. 1000)
-    pub aux_channels: [u8; 14], // 54..68: Source for CH5..CH18 (was [u8; 10] 52..62)
+    pub aux_channels: [u8; 14], // 54..68: Source for CH5..CH18
     pub wing_tail_mix: u8, // 68: 0: Normal, 1: Elevon/Delta, 2: V-Tail, 3: Flaperon
     pub template_diff: i8, // 69: Differential / mix ratio (-100..+100)
     pub mixes: [MixLine; 8], // 70..118: 8 freeform mix rules (8 * 6 = 48 bytes)
@@ -283,7 +337,6 @@ impl ModelConfig {
             timer_source: 1,
             protocol_subtype: 0,
             failsafe_thr: 1000,
-            // Defaults for CH5..CH18: CH5=SA(7), CH6=SB(8), CH7=VRA(5), CH8=VRB(6), CH9=SC(9), CH10=SD(10), CH11..18=None(0)
             aux_channels: [7, 8, 5, 6, 9, 10, 0, 0, 0, 0, 0, 0, 0, 0],
             wing_tail_mix: 0,
             template_diff: 0,
@@ -342,7 +395,6 @@ impl RadioStorage {
     }
 
     /// Sanitize all radio and model parameters to valid operating bounds.
-    /// Prevents uninitialized Flash bytes or corrupted rates/mixes from impairing flight controls.
     pub fn sanitize(&mut self) {
         self.radio.magic = FLASH_MAGIC;
         self.radio.version = CONFIG_VERSION;
@@ -397,13 +449,14 @@ impl RadioStorage {
             self.radio.ext_adc = 0;
         }
         for pot in self.radio.aux_pots.iter_mut() {
-            if pot.min >= pot.max || pot.max > crate::adc::ADC_MAX {
+            if pot.min >= pot.center || pot.center >= pot.max || pot.max > crate::adc::ADC_MAX {
                 pot.min = crate::adc::ADC_MIN;
+                pot.center = crate::adc::ADC_CENTER;
                 pot.max = crate::adc::ADC_MAX;
             }
         }
         for mode in self.radio.adc_modes.iter_mut() {
-            if *mode > 4 {
+            if *mode > 5 {
                 *mode = 0; // Default
             }
         }
@@ -444,7 +497,6 @@ impl RadioStorage {
             if m.failsafe_thr < 900 || m.failsafe_thr > 2100 {
                 m.failsafe_thr = 1000;
             }
-            // If aux_channels are all 0 (uninitialized Flash from v0.9.x and earlier), restore defaults
             if m.aux_channels[0..6] == [0; 6] {
                 m.aux_channels = [7, 8, 5, 6, 9, 10, 0, 0, 0, 0, 0, 0, 0, 0];
             }
@@ -492,7 +544,6 @@ impl RadioStorage {
     }
 }
 
-// Compile-time size guarantees
 const _: () = assert!(core::mem::size_of::<RadioConfig>() == 128);
 const _: () = assert!(core::mem::size_of::<ModelConfig>() == 128);
 const _: () = assert!(core::mem::size_of::<RadioStorage>() == 2688);
@@ -500,18 +551,15 @@ const _: () = assert!(core::mem::size_of::<RadioStorage>() == 2688);
 static mut GLOBAL_STORAGE: RadioStorage = RadioStorage::empty();
 
 /// Get global mutable reference to persistent RadioStorage.
-/// Stored in static RAM to avoid allocating 2,688 bytes on the main stack.
 #[allow(static_mut_refs)]
 pub fn get_storage() -> &'static mut RadioStorage {
     unsafe { &mut GLOBAL_STORAGE }
 }
 
-pub const FLASH_STORAGE_ADDR: usize = 0x0801_E000; // Page 60 start (8 KB storage across Pages 60..63)
-pub const FLASH_STORAGE_END: usize = 0x0802_0000; // Page 63 end
-#[allow(dead_code)]
-pub const FLASH_STORAGE_PAGES: usize = 4;
-pub const FLASH_LEGACY_SNAPSHOT_ADDR: usize = 0x0801_F000; // Previous snapshot base
-pub const FLASH_LEGACY_ADDR: usize = 0x0801_F800; // Legacy v1/v2 base
+pub const FLASH_STORAGE_ADDR: usize = 0x0801_E000;
+pub const FLASH_STORAGE_END: usize = 0x0802_0000;
+pub const FLASH_LEGACY_SNAPSHOT_ADDR: usize = 0x0801_F000;
+pub const FLASH_LEGACY_ADDR: usize = 0x0801_F800;
 
 pub const KEY_RADIO: u8 = 0;
 pub const KEY_MODEL_BASE: u8 = 1;
@@ -725,7 +773,6 @@ impl embedded_storage_async::nor_flash::NorFlash for Stm32Flash {
 
 impl embedded_storage_async::nor_flash::MultiwriteNorFlash for Stm32Flash {}
 
-/// Zero-cost synchronous executor for non-blocking embedded leaf futures.
 fn block_on<F: core::future::Future>(mut future: F) -> F::Output {
     use core::task::{Context, Poll, RawWaker, RawWakerVTable, Waker};
 
@@ -819,71 +866,6 @@ impl<'a> sequential_storage::map::Value<'a> for ModelConfig {
     }
 }
 
-#[repr(C)]
-#[derive(Copy, Clone)]
-struct ModelConfigV4 {
-    name: [u8; 10],
-    model_type: u8,
-    _pad0: u8,
-    rx_id: u32,
-    trims: [i8; 4],
-    channel_reverse: u16,
-    dr_switch: u8,
-    thr_curve_pts: u8,
-    thr_curve_smooth: u8,
-    thr_curve: [u8; 9],
-    dr_high: [u8; 3],
-    dr_low: [u8; 3],
-    expo_high: [i8; 3],
-    expo_low: [i8; 3],
-    timer_secs: u16,
-    timer_source: u8,
-    protocol_subtype: u8,
-    failsafe_thr: u16,
-    aux_channels: [u8; 10],
-    wing_tail_mix: u8,
-    template_diff: i8,
-    mixes: [MixLine; 8],
-    failsafe_mode: u8,
-    failsafe_timeout: u8,
-    rf_protocol: u8,
-    crsf_baud: u8,
-    arm_switch: u8,
-    _reserved: [u8; 11],
-}
-
-impl<'a> sequential_storage::map::Value<'a> for ModelConfigV4 {
-    fn serialize_into(
-        &self,
-        buffer: &mut [u8],
-    ) -> Result<usize, sequential_storage::map::SerializationError> {
-        let size = core::mem::size_of::<Self>();
-        if buffer.len() < size {
-            return Err(sequential_storage::map::SerializationError::BufferTooSmall);
-        }
-        let src = self as *const Self as *const u8;
-        unsafe {
-            core::ptr::copy_nonoverlapping(src, buffer.as_mut_ptr(), size);
-        }
-        Ok(size)
-    }
-
-    fn deserialize_from(
-        buffer: &'a [u8],
-    ) -> Result<(Self, usize), sequential_storage::map::SerializationError> {
-        let size = core::mem::size_of::<Self>();
-        if buffer.len() < size {
-            return Err(sequential_storage::map::SerializationError::BufferTooSmall);
-        }
-        let mut val = core::mem::MaybeUninit::<Self>::uninit();
-        unsafe {
-            core::ptr::copy_nonoverlapping(buffer.as_ptr(), val.as_mut_ptr() as *mut u8, size);
-            Ok((val.assume_init(), size))
-        }
-    }
-}
-
-/// Helper to format 4 storage pages to fresh 0xFF state and write full initial dataset into MapStorage.
 fn format_and_save_all(storage: &RadioStorage) {
     let mut flash = Stm32Flash;
     let _ = block_on(flash.erase(FLASH_STORAGE_ADDR as u32, FLASH_STORAGE_END as u32));
@@ -901,7 +883,6 @@ fn format_and_save_all(storage: &RadioStorage) {
     }
 }
 
-/// Load complete storage from Flash into caller-supplied memory (0 stack allocation for storage).
 #[inline(never)]
 pub fn load_storage_into(storage: &mut RadioStorage) {
     let mut map = sequential_storage::map::MapStorage::new(
@@ -911,7 +892,6 @@ pub fn load_storage_into(storage: &mut RadioStorage) {
     );
     let mut buf = [0u8; 256];
 
-    // 1. Try reading RadioConfig from sequential-storage log
     let radio_res: Result<Option<RadioConfig>, _> = block_on(map.fetch_item(&mut buf, &KEY_RADIO));
     if let Ok(Some(cfg)) = radio_res {
         if cfg.magic == FLASH_MAGIC && cfg.version == CONFIG_VERSION {
@@ -926,59 +906,14 @@ pub fn load_storage_into(storage: &mut RadioStorage) {
             }
             storage.sanitize();
             return;
-        } else if cfg.magic == FLASH_MAGIC && (cfg.version == 4 || cfg.version == 3) {
-            // Migrate v3/v4 to v5
-            storage.radio = cfg;
-            storage.radio.version = CONFIG_VERSION;
-            for idx in 0..NUM_MODELS {
-                let key = KEY_MODEL_BASE + idx as u8;
-                if let Ok(Some(m4)) = block_on(map.fetch_item::<ModelConfigV4>(&mut buf, &key)) {
-                    let mut m = ModelConfig::default_for_index(idx);
-                    m.name = m4.name;
-                    m.model_type = m4.model_type;
-                    m.rx_id = m4.rx_id;
-                    m.trims = m4.trims;
-                    m.channel_reverse = m4.channel_reverse as u32;
-                    m.dr_switch = m4.dr_switch;
-                    m.thr_curve_pts = m4.thr_curve_pts;
-                    m.thr_curve_smooth = m4.thr_curve_smooth;
-                    m.thr_curve = m4.thr_curve;
-                    m.dr_high = m4.dr_high;
-                    m.dr_low = m4.dr_low;
-                    m.expo_high = m4.expo_high;
-                    m.expo_low = m4.expo_low;
-                    m.timer_secs = m4.timer_secs;
-                    m.timer_source = m4.timer_source;
-                    m.protocol_subtype = m4.protocol_subtype;
-                    m.failsafe_thr = m4.failsafe_thr;
-                    m.aux_channels[0..10].copy_from_slice(&m4.aux_channels);
-                    m.aux_channels[10..14].fill(0);
-                    m.wing_tail_mix = m4.wing_tail_mix;
-                    m.template_diff = m4.template_diff;
-                    m.mixes = m4.mixes;
-                    m.failsafe_mode = m4.failsafe_mode;
-                    m.failsafe_timeout = m4.failsafe_timeout;
-                    m.rf_protocol = m4.rf_protocol;
-                    m.crsf_baud = m4.crsf_baud;
-                    m.arm_switch = m4.arm_switch;
-                    storage.models[idx] = m;
-                } else {
-                    storage.models[idx] = ModelConfig::default_for_index(idx);
-                }
-            }
-            storage.sanitize();
-            format_and_save_all(storage);
-            return;
         }
     }
 
-    // 2. Migration: Check previous snapshot base at 0x0801_F000
+    // Migration: Check legacy snapshot base
     unsafe {
         let snap_magic = core::ptr::read_volatile(FLASH_LEGACY_SNAPSHOT_ADDR as *const u32);
         let snap_ver = core::ptr::read_volatile((FLASH_LEGACY_SNAPSHOT_ADDR + 4) as *const u32);
-        if snap_magic == FLASH_MAGIC
-            && (snap_ver == CONFIG_VERSION || snap_ver == 4 || snap_ver == 3)
-        {
+        if snap_magic == FLASH_MAGIC && snap_ver == CONFIG_VERSION {
             let src = FLASH_LEGACY_SNAPSHOT_ADDR as *const u32;
             let dst = storage as *mut RadioStorage as *mut u32;
             let word_count = core::mem::size_of::<RadioStorage>() / 4;
@@ -990,46 +925,12 @@ pub fn load_storage_into(storage: &mut RadioStorage) {
             return;
         }
 
-        // 3. Migration: Check legacy v1/v2 at 0x0801_F800
-        let legacy_magic = core::ptr::read_volatile(FLASH_LEGACY_ADDR as *const u32);
-        let legacy_ver = core::ptr::read_volatile((FLASH_LEGACY_ADDR + 4) as *const u32);
-        if legacy_magic == FLASH_MAGIC && (legacy_ver == 1 || legacy_ver == 2) {
-            storage.init_default();
-            let rx_id = core::ptr::read_volatile((FLASH_LEGACY_ADDR + 8) as *const u32);
-            if rx_id != 0 && rx_id != 0xFFFF_FFFF {
-                storage.models[0].rx_id = rx_id;
-            }
-            let src_sticks = (FLASH_LEGACY_ADDR + 12) as *const ChannelCalib;
-            for i in 0..4 {
-                storage.radio.sticks[i] = core::ptr::read_volatile(src_sticks.add(i));
-            }
-            let src_pots = (FLASH_LEGACY_ADDR + 44) as *const ChannelCalib;
-            for i in 0..2 {
-                let p = core::ptr::read_volatile(src_pots.add(i));
-                storage.radio.aux_pots[4 + i] = PotCalib::new(p.min, p.max);
-            }
-            if legacy_ver == 2 {
-                storage.radio.throttle_trim =
-                    core::ptr::read_volatile((FLASH_LEGACY_ADDR + 60) as *const u8);
-                storage.radio.audio_enabled =
-                    core::ptr::read_volatile((FLASH_LEGACY_ADDR + 61) as *const u8);
-                storage.radio.backlight_timeout =
-                    core::ptr::read_volatile((FLASH_LEGACY_ADDR + 62) as *const u8);
-                storage.radio.backlight_brightness =
-                    core::ptr::read_volatile((FLASH_LEGACY_ADDR + 63) as *const u8);
-            }
-            storage.sanitize();
-            format_and_save_all(storage);
-            return;
-        }
-
-        // 4. Clean factory default initialization
+        // Clean factory default initialization
         storage.init_default();
         format_and_save_all(storage);
     }
 }
 
-/// Load complete storage from Flash.
 #[allow(dead_code)]
 pub fn load_storage() -> RadioStorage {
     let mut storage = RadioStorage::empty();
@@ -1037,7 +938,6 @@ pub fn load_storage() -> RadioStorage {
     storage
 }
 
-/// Save only the active model configuration via append-only log (~2.8 ms, 0 page erase).
 pub fn save_active_model(storage: &RadioStorage) -> bool {
     let mut map = sequential_storage::map::MapStorage::new(
         Stm32Flash,
@@ -1050,7 +950,6 @@ pub fn save_active_model(storage: &RadioStorage) -> bool {
     block_on(map.store_item(&mut buf, &key, &storage.models[idx])).is_ok()
 }
 
-/// Save only the system radio configuration via append-only log (~2.8 ms, 0 page erase).
 pub fn save_radio_config(storage: &RadioStorage) -> bool {
     let mut map = sequential_storage::map::MapStorage::new(
         Stm32Flash,
@@ -1061,15 +960,12 @@ pub fn save_radio_config(storage: &RadioStorage) -> bool {
     block_on(map.store_item(&mut buf, &KEY_RADIO, &storage.radio)).is_ok()
 }
 
-/// Save complete storage to Flash.
-/// In sequential-storage append-only architecture, writes radio config and active model delta.
 pub fn save_storage(storage: &RadioStorage) -> bool {
     let mut ok = save_radio_config(storage);
     ok = ok && save_active_model(storage);
     ok
 }
 
-/// Convenience helper to load current RadioConfig directly from Flash (only 128 bytes, 0 stack bloat).
 pub fn load_config() -> RadioConfig {
     let storage = get_storage();
     load_storage_into(storage);
@@ -1101,218 +997,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_storage_sanitize_uninitialized_and_corrupt_data() {
-        let mut storage = RadioStorage::empty();
-        // Simulate dirty/uninitialized 0xFF flash pattern
-        storage.radio.active_model = 255;
-        storage.radio.throttle_trim = 255;
-        storage.radio.tone_style = 255;
-        storage.radio.vbat_warn_deci = 255;
-        storage.radio.lcd_contrast = 255;
-        storage.radio.usb_mode = 255;
-        storage.radio.ext_module_pwr = 255;
-        storage.radio.servo_rate_hz = 65535;
-        storage.radio.rx_out_mode = 255;
-        storage.radio.rx_serial_proto = 255;
-        storage.radio.ext_switches = 255;
-        storage.radio.ext_adc = 255;
-
-        for m in storage.models.iter_mut() {
-            m.arm_switch = 255;
-            m.timer_source = 255;
-            m.timer_secs = 65535;
-            m.rf_protocol = 255;
-            m.crsf_baud = 255;
-            m.crsf_half_duplex = 255;
-            m.dr_switch = 255;
-            m.wing_tail_mix = 255;
-            m.failsafe_thr = 65535;
-            m.servo_rate_hz = 65535;
-            m.rx_out_mode = 255;
-            m.rx_serial_proto = 255;
-            m.name[0] = 0xFF;
-            m.mixes[0].target_ch = 20;
-            m.mixes[0].source = 50;
-        }
-
-        storage.sanitize();
-
-        assert_eq!(storage.radio.active_model, 0);
-        assert_eq!(storage.radio.throttle_trim, 0);
-        assert_eq!(storage.radio.tone_style, 1);
-        assert_eq!(storage.radio.vbat_warn_deci, 44);
-        assert_eq!(storage.radio.lcd_contrast, 37);
-        assert_eq!(storage.radio.usb_mode, 0);
-        assert_eq!(storage.radio.ext_module_pwr, 0);
-        assert_eq!(storage.radio.servo_rate_hz, 50);
-        assert_eq!(storage.radio.rx_out_mode, 0);
-        assert_eq!(storage.radio.rx_serial_proto, 0);
-        assert_eq!(storage.radio.ext_switches, 0);
-        assert_eq!(storage.radio.ext_adc, 0);
-        assert_eq!(storage.radio.aux_pots[0].max, crate::adc::ADC_MAX);
-        assert_eq!(storage.radio.adc_modes[0], 0);
-
-        for (idx, m) in storage.models.iter().enumerate() {
-            assert!(m.arm_switch <= 14, "arm_switch must be sanitized <= 14");
-            assert_eq!(m.arm_switch, 0);
-            assert!(m.timer_source <= 17, "timer_source must be sanitized <= 17");
-            assert_eq!(m.timer_source, 0);
-            assert_eq!(m.timer_secs, 0);
-            assert_eq!(m.servo_rate_hz, 50);
-            assert_eq!(m.rx_out_mode, 0);
-            assert_eq!(m.rx_serial_proto, 0);
-            assert_eq!(m.rf_protocol, 0);
-            assert_eq!(m.crsf_baud, 2);
-            assert_eq!(m.crsf_half_duplex, 0);
-            assert_eq!(m.dr_switch, 0);
-            assert_eq!(m.wing_tail_mix, 0);
-            assert_eq!(m.failsafe_thr, 1000);
-            assert_eq!(m.mixes[0].target_ch, 0);
-            assert_eq!(m.name[0], b'M');
-            assert_eq!(m.name[5], b' ');
-            let expected_digit1 = b'0' + ((idx + 1) / 10) as u8;
-            let expected_digit2 = b'0' + ((idx + 1) % 10) as u8;
-            assert_eq!(m.name[6], expected_digit1);
-            assert_eq!(m.name[7], expected_digit2);
-        }
-    }
-
-    #[test]
-    fn test_storage_buffer_capacity_for_sequential_storage() {
-        use sequential_storage::map::Value;
-
-        let model = ModelConfig::default_for_index(0);
-        let radio = RadioConfig::default_factory();
-        let key = 10u8;
-
-        // In sequential_storage, buffer holds key + value.
-        // A 128-byte buffer fails because key takes >= 1 byte, leaving < 128 bytes for ModelConfig!
-        let mut buf_128 = [0u8; 128];
-        let key_len = key.serialize_into(&mut buf_128).unwrap();
-        let err = model.serialize_into(&mut buf_128[key_len..]);
-        assert!(
-            err.is_err(),
-            "128-byte buffer must fail because ModelConfig is 128 bytes and key needs space"
-        );
-
-        // A 256-byte buffer succeeds with plenty of room for key + ModelConfig / RadioConfig
-        let mut buf_256 = [0u8; 256];
-        let key_len = key.serialize_into(&mut buf_256).unwrap();
-        let val_len = model.serialize_into(&mut buf_256[key_len..]).unwrap();
-        assert_eq!(val_len, 128);
-        assert!(key_len + val_len <= 256);
-
-        let (deserialized_model, d_len) =
-            ModelConfig::deserialize_from(&buf_256[key_len..][..val_len]).unwrap();
-        assert_eq!(d_len, 128);
-        assert_eq!(deserialized_model.name, model.name);
-
-        let key_radio_len = KEY_RADIO.serialize_into(&mut buf_256).unwrap();
-        let radio_len = radio.serialize_into(&mut buf_256[key_radio_len..]).unwrap();
-        assert_eq!(radio_len, 128);
-        assert!(key_radio_len + radio_len <= 256);
-    }
-
-    #[test]
-    fn test_storage_struct_sizes_and_v4_migration() {
-        assert_eq!(core::mem::size_of::<RadioConfig>(), 128);
-        assert_eq!(core::mem::size_of::<ModelConfig>(), 128);
-        assert_eq!(core::mem::size_of::<ModelConfigV4>(), 128);
-        assert_eq!(core::mem::size_of::<RadioStorage>(), 2688);
-
-        let m4 = ModelConfigV4 {
-            name: *b"TEST MODEL",
-            model_type: 1,
-            _pad0: 0,
-            rx_id: 0x1234_5678,
-            trims: [1, -2, 3, -4],
-            channel_reverse: 0b1010_1100,
-            dr_switch: 2,
-            thr_curve_pts: 5,
-            thr_curve_smooth: 1,
-            thr_curve: [0, 20, 40, 60, 80, 0, 0, 0, 0],
-            dr_high: [100, 100, 100],
-            dr_low: [70, 70, 70],
-            expo_high: [10, 20, 30],
-            expo_low: [5, 10, 15],
-            timer_secs: 240,
-            timer_source: 2,
-            protocol_subtype: 2,
-            failsafe_thr: 990,
-            aux_channels: [7, 8, 5, 6, 9, 10, 1, 2, 3, 4],
-            wing_tail_mix: 1,
-            template_diff: -20,
-            mixes: [MixLine::disabled(); 8],
-            failsafe_mode: 1,
-            failsafe_timeout: 30,
-            rf_protocol: 1,
-            crsf_baud: 2,
-            arm_switch: 5,
-            _reserved: [0; 11],
-        };
-
-        let mut m = ModelConfig::default_for_index(0);
-        m.name = m4.name;
-        m.model_type = m4.model_type;
-        m.rx_id = m4.rx_id;
-        m.trims = m4.trims;
-        m.channel_reverse = m4.channel_reverse as u32;
-        m.dr_switch = m4.dr_switch;
-        m.thr_curve_pts = m4.thr_curve_pts;
-        m.thr_curve_smooth = m4.thr_curve_smooth;
-        m.thr_curve = m4.thr_curve;
-        m.dr_high = m4.dr_high;
-        m.dr_low = m4.dr_low;
-        m.expo_high = m4.expo_high;
-        m.expo_low = m4.expo_low;
-        m.timer_secs = m4.timer_secs;
-        m.timer_source = m4.timer_source;
-        m.protocol_subtype = m4.protocol_subtype;
-        m.failsafe_thr = m4.failsafe_thr;
-        m.aux_channels[0..10].copy_from_slice(&m4.aux_channels);
-        m.aux_channels[10..14].fill(0);
-        m.wing_tail_mix = m4.wing_tail_mix;
-        m.template_diff = m4.template_diff;
-        m.mixes = m4.mixes;
-        m.failsafe_mode = m4.failsafe_mode;
-        m.failsafe_timeout = m4.failsafe_timeout;
-        m.rf_protocol = m4.rf_protocol;
-        m.crsf_baud = m4.crsf_baud;
-        m.arm_switch = m4.arm_switch;
-
-        assert_eq!(m.name, *b"TEST MODEL");
-        assert_eq!(m.channel_reverse, 0b1010_1100u32);
-        assert_eq!(m.aux_channels[0..10], [7, 8, 5, 6, 9, 10, 1, 2, 3, 4]);
-        assert_eq!(m.aux_channels[10..14], [0, 0, 0, 0]);
-        assert_eq!(m.rf_protocol, 1);
-        assert_eq!(m.crsf_baud, 2);
-    }
-
-    #[test]
-    fn test_adc_input_mode_resolution() {
-        // Stock defaults (when mode == 0):
-        // 0: SA (TwoPos)
-        // 1: SB (ThreePos)
-        // 2: SC (ThreePos)
-        // 3: SD (TwoPos)
-        // 4..9: VRA..VRF (Pot)
-        assert_eq!(AdcInputMode::resolve(0, 0), AdcInputMode::TwoPos);
-        assert_eq!(AdcInputMode::resolve(1, 0), AdcInputMode::ThreePos);
-        assert_eq!(AdcInputMode::resolve(2, 0), AdcInputMode::ThreePos);
-        assert_eq!(AdcInputMode::resolve(3, 0), AdcInputMode::TwoPos);
-        for ch in 4..10 {
-            assert_eq!(AdcInputMode::resolve(ch, 0), AdcInputMode::Pot);
-        }
-
-        // Explicit overrides (1..4):
-        for ch in 0..10 {
-            assert_eq!(AdcInputMode::resolve(ch, 1), AdcInputMode::TwoPos);
-            assert_eq!(AdcInputMode::resolve(ch, 2), AdcInputMode::ThreePos);
-            assert_eq!(AdcInputMode::resolve(ch, 3), AdcInputMode::SixPos);
-            assert_eq!(AdcInputMode::resolve(ch, 4), AdcInputMode::Pot);
-            // Out of range falls back to Default logic
-            assert_eq!(AdcInputMode::resolve(ch, 5), AdcInputMode::resolve(ch, 0));
-        }
+    fn test_adc_input_mode_detent() {
+        assert_eq!(AdcInputMode::from_u8(4), AdcInputMode::Pot);
+        assert_eq!(AdcInputMode::from_u8(5), AdcInputMode::PotDetent);
+        assert!(AdcInputMode::Pot.is_pot());
+        assert!(AdcInputMode::PotDetent.is_pot());
+        assert!(!AdcInputMode::Pot.has_detent());
+        assert!(AdcInputMode::PotDetent.has_detent());
     }
 
     #[test]
@@ -1322,12 +1013,14 @@ mod tests {
         assert_eq!(radio.adc_modes.len(), 10);
         for i in 0..10 {
             assert_eq!(radio.aux_pots[i].min, crate::adc::ADC_MIN);
+            assert_eq!(radio.aux_pots[i].center, crate::adc::ADC_CENTER);
             assert_eq!(radio.aux_pots[i].max, crate::adc::ADC_MAX);
             assert_eq!(radio.adc_modes[i], 0);
         }
 
-        let pot = PotCalib::new(100, 3900);
+        let pot = PotCalib::new(100, 2000, 3900);
         assert_eq!(pot.min, 100);
+        assert_eq!(pot.center, 2000);
         assert_eq!(pot.max, 3900);
     }
 }

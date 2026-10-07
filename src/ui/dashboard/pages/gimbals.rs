@@ -154,27 +154,123 @@ pub fn render_primary_sticks(
 }
 
 /// Render the default switch and dual pot layout (y = 46..53) for standard stock models.
-pub fn render_default_layout(
-    lcd: &mut St7567,
-    state: &InputState,
-    storage: &RadioStorage,
-) {
+pub fn render_default_layout(lcd: &mut St7567, state: &InputState, storage: &RadioStorage) {
     let text_style = MonoTextStyle::new(&FONT_6X10, BinaryColor::On);
     let text_style_small = MonoTextStyle::new(&FONT_4X6, BinaryColor::On);
     let ext_sw = storage.radio.ext_switches != 0;
 
     if ext_sw {
-        draw_switch_slot(lcd, 2, 7, "A", state.switches.sa, false, 0, text_style, text_style_small);
-        draw_switch_slot(lcd, 13, 18, "B", state.switches.sb, false, 0, text_style, text_style_small);
-        draw_switch_slot(lcd, 24, 29, "C", state.switches.sc, false, 0, text_style, text_style_small);
-        draw_switch_slot(lcd, 35, 40, "D", state.switches.sd, false, 0, text_style, text_style_small);
-        draw_switch_slot(lcd, 46, 51, "E", state.switches.se, false, 0, text_style, text_style_small);
-        draw_switch_slot(lcd, 57, 62, "F", state.switches.sf, false, 0, text_style, text_style_small);
+        draw_switch_slot(
+            lcd,
+            2,
+            7,
+            "A",
+            state.switches.sa,
+            false,
+            0,
+            text_style,
+            text_style_small,
+        );
+        draw_switch_slot(
+            lcd,
+            13,
+            18,
+            "B",
+            state.switches.sb,
+            false,
+            0,
+            text_style,
+            text_style_small,
+        );
+        draw_switch_slot(
+            lcd,
+            24,
+            29,
+            "C",
+            state.switches.sc,
+            false,
+            0,
+            text_style,
+            text_style_small,
+        );
+        draw_switch_slot(
+            lcd,
+            35,
+            40,
+            "D",
+            state.switches.sd,
+            false,
+            0,
+            text_style,
+            text_style_small,
+        );
+        draw_switch_slot(
+            lcd,
+            46,
+            51,
+            "E",
+            state.switches.se,
+            false,
+            0,
+            text_style,
+            text_style_small,
+        );
+        draw_switch_slot(
+            lcd,
+            57,
+            62,
+            "F",
+            state.switches.sf,
+            false,
+            0,
+            text_style,
+            text_style_small,
+        );
     } else {
-        draw_switch_slot(lcd, 2, 9, "A", state.switches.sa, false, 0, text_style, text_style_small);
-        draw_switch_slot(lcd, 20, 27, "B", state.switches.sb, false, 0, text_style, text_style_small);
-        draw_switch_slot(lcd, 38, 45, "C", state.switches.sc, false, 0, text_style, text_style_small);
-        draw_switch_slot(lcd, 56, 63, "D", state.switches.sd, false, 0, text_style, text_style_small);
+        draw_switch_slot(
+            lcd,
+            2,
+            9,
+            "A",
+            state.switches.sa,
+            false,
+            0,
+            text_style,
+            text_style_small,
+        );
+        draw_switch_slot(
+            lcd,
+            20,
+            27,
+            "B",
+            state.switches.sb,
+            false,
+            0,
+            text_style,
+            text_style_small,
+        );
+        draw_switch_slot(
+            lcd,
+            38,
+            45,
+            "C",
+            state.switches.sc,
+            false,
+            0,
+            text_style,
+            text_style_small,
+        );
+        draw_switch_slot(
+            lcd,
+            56,
+            63,
+            "D",
+            state.switches.sd,
+            false,
+            0,
+            text_style,
+            text_style_small,
+        );
     }
 
     Text::new("VR", Point::new(74, 52), text_style_small)
@@ -184,11 +280,7 @@ pub fn render_default_layout(
 }
 
 /// Render the adaptive switch and pot layout (y = 46..53) based on dynamic channel mappings.
-pub fn render_adaptive_layout(
-    lcd: &mut St7567,
-    state: &InputState,
-    storage: &RadioStorage,
-) {
+pub fn render_adaptive_layout(lcd: &mut St7567, state: &InputState, storage: &RadioStorage) {
     let text_style = MonoTextStyle::new(&FONT_6X10, BinaryColor::On);
     let text_style_small = MonoTextStyle::new(&FONT_4X6, BinaryColor::On);
     let ext_sw = storage.radio.ext_switches != 0;
@@ -228,11 +320,10 @@ pub fn render_adaptive_layout(
             AdcInputMode::SixPos => {
                 let raw_ch = aux_channel_raw_adc(&state.raw, ch);
                 let mode_num = crate::input::decode_switch_6pos_num(raw_ch);
-                sw_list[sw_count] =
-                    (ch_names[ch], crate::input::SwitchPos::Mid, true, mode_num);
+                sw_list[sw_count] = (ch_names[ch], crate::input::SwitchPos::Mid, true, mode_num);
                 sw_count += 1;
             }
-            AdcInputMode::Pot => {
+            AdcInputMode::Pot | AdcInputMode::PotDetent => {
                 pot_vals[pot_count] = state.aux_pots[ch];
                 pot_count += 1;
             }

@@ -235,6 +235,7 @@ impl CalibWizard {
                                     / 64) as u16;
                                 storage.radio.aux_pots[ch] = storage::PotCalib::new(
                                     center.saturating_sub(span_neg),
+                                    center,
                                     center.saturating_add(span_pos),
                                 );
                             }
