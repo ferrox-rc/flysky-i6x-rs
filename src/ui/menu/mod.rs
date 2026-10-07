@@ -33,7 +33,7 @@ pub enum MenuState {
     RadioSetup,
     InputSetup,
     RxSetup,
-    ElrsSetup,
+    CrsfSetup,
     ChannelMonitor,
     DiagAnas,
     SystemInfo,
@@ -259,8 +259,8 @@ impl MenuController {
             MenuState::RxSetup => {
                 screens::setup::update_rx_setup(self, lcd, &nav_keys, storage, buzzer);
             }
-            MenuState::ElrsSetup => {
-                screens::elrs::update(self, lcd, &nav_keys, buzzer);
+            MenuState::CrsfSetup => {
+                screens::crsf::update(self, lcd, &nav_keys, buzzer);
             }
             MenuState::ChannelMonitor => {
                 screens::channels::update_channel_monitor(self, lcd, &nav_keys, storage, rf_chs, buzzer);

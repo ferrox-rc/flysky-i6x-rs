@@ -382,7 +382,7 @@ pub fn update_rx_setup(
                 }
                 (1, 3) => {
                     // CRSF: Enter Configurator
-                    ctrl.state = MenuState::ElrsSetup;
+                    ctrl.state = MenuState::CrsfSetup;
                     ctrl.return_state = MenuState::RxSetup;
                     ctrl.selected_item = 0;
                     ctrl.scroll_offset = 0;
