@@ -519,19 +519,28 @@ pub fn process(raw: [u16; adc::NUM_CHANNELS]) -> InputState {
         _ => decode_switch_2pos(raw[9]),
     };
 
-    // External switches PC12 (SE) and PC15 (SF)
+    // External switches PC12 (SE) and PC15 (SF) (active-low GPIOs)
     let (se, sf) = if calib.ext_switches {
-        let sw_e = if raw[11] < 2048 {
-            SwitchPos::Up
-        } else {
-            SwitchPos::Down
-        };
-        let sw_f = if raw[12] < 2048 {
-            SwitchPos::Up
-        } else {
-            SwitchPos::Down
-        };
-        (sw_e, sw_f)
+        #[cfg(all(feature = "stm32", not(test)))]
+        {
+            let gpioc = unsafe { &*stm32f0xx_hal::pac::GPIOC::ptr() };
+            let idr = gpioc.idr.read().bits();
+            let sw_e = if (idr & (1 << 12)) == 0 {
+                SwitchPos::Down
+            } else {
+                SwitchPos::Up
+            };
+            let sw_f = if (idr & (1 << 15)) == 0 {
+                SwitchPos::Down
+            } else {
+                SwitchPos::Up
+            };
+            (sw_e, sw_f)
+        }
+        #[cfg(any(not(feature = "stm32"), test))]
+        {
+            (SwitchPos::Up, SwitchPos::Up)
+        }
     } else {
         (SwitchPos::Up, SwitchPos::Up)
     };
