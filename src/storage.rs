@@ -130,7 +130,8 @@ pub struct RadioConfig {
     pub ext_switches: u8,          // 114 (0: Disabled, 1: Enabled / PC12+PC15)
     pub ext_adc: u8,               // 115 (0: Disabled, 1: Enabled / Header P7 AD12-AD15)
     pub adc_modes: [u8; 10],       // 116..126: Input modes for the 10 auxiliary analog channels
-    pub _reserved: [u8; 2],        // 126..128 (2 bytes reserved, exact 128-byte guarantee)
+    pub stick_mode: u8,            // 126 (0: Mode 1, 1: Mode 2, 2: Mode 3, 3: Mode 4)
+    pub _reserved: [u8; 1],        // 127..128 (1 byte reserved, exact 128-byte guarantee)
 }
 
 impl RadioConfig {
@@ -228,7 +229,8 @@ impl RadioConfig {
             ext_switches: 0,
             ext_adc: 0,
             adc_modes: [0; 10], // Default hardware modes
-            _reserved: [0; 2],
+            stick_mode: 1,      // Mode 2 default
+            _reserved: [0; 1],
         }
     }
 
@@ -354,6 +356,16 @@ impl ModelConfig {
             crsf_half_duplex: 0,
         }
     }
+
+    #[inline(always)]
+    pub fn model_type(&self) -> crate::safety::ModelType {
+        crate::safety::ModelType::from_u8(self.model_type)
+    }
+
+    #[inline(always)]
+    pub fn set_model_type(&mut self, mtype: crate::safety::ModelType) {
+        self.model_type = mtype.to_u8();
+    }
 }
 
 /// Complete Flash storage layout containing radio settings and 20 models (2,688 bytes).
@@ -464,6 +476,9 @@ impl RadioStorage {
         }
 
         for (idx, m) in self.models.iter_mut().enumerate() {
+            if m.model_type > 4 {
+                m.model_type = 0;
+            }
             if m.rf_protocol > 1 {
                 m.rf_protocol = 0;
             }

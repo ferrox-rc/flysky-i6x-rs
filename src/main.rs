@@ -43,8 +43,8 @@ fn panic(_info: &core::panic::PanicInfo) -> ! {
 use cortex_m_rt::entry;
 
 use flysky_i6x_rs::{
-    adc, boot, buzzer, calib, chip, crsf, curve, display, input, mixer, rf, storage, time, trim,
-    ui, usb, watchdog,
+    adc, boot, buzzer, calib, chip, crsf, curve, display, input, mixer, rf, safety, storage, time,
+    trim, ui, usb, watchdog,
 };
 pub use ui::menu;
 
@@ -125,9 +125,12 @@ impl FlightPipeline {
             self.prev_armed = is_armed;
         }
 
+        let stick_mode = safety::StickMode::from_u8(storage.radio.stick_mode);
+        let controls = state.flight_controls(stick_mode);
+
         // 4. Evaluate active model throttle curve (normalized 0..MIXER_MAX)
         let thr_input =
-            ((state.sticks.throttle + mixer::MIXER_MAX) / 2).clamp(0, mixer::MIXER_MAX) as u16;
+            ((controls.throttle + mixer::MIXER_MAX) / 2).clamp(0, mixer::MIXER_MAX) as u16;
         let thr_curved = curve::evaluate_curve(
             thr_input,
             active_model.thr_curve_pts,
@@ -137,10 +140,10 @@ impl FlightPipeline {
 
         // 5. Compute all 14 channels via 4-stage pipeline (D/R, Expo, Matrix Mixer, Trims, Reversing)
         let rf_chs = mixer::compute_channels(
-            state.sticks.roll,
-            state.sticks.pitch,
+            controls.aileron,
+            controls.elevator,
             thr_curved,
-            state.sticks.yaw,
+            controls.rudder,
             &[
                 state.pots.vr1,
                 state.pots.vr2,
@@ -467,8 +470,10 @@ impl BackgroundIdleManager {
         self.prev_instant_trim_active = instant_trim_active;
 
         if !menu_active && instant_trim_triggered {
-            let delta_roll = (flight.state.sticks.roll / 40) as i8;
-            let delta_pitch = (flight.state.sticks.pitch / 40) as i8;
+            let stick_mode = safety::StickMode::from_u8(storage.radio.stick_mode);
+            let controls = flight.state.flight_controls(stick_mode);
+            let delta_roll = (controls.aileron / 40) as i8;
+            let delta_pitch = (controls.elevator / 40) as i8;
             trims.values.roll = (trims.values.roll + delta_roll).clamp(-25, 25);
             trims.values.pitch = (trims.values.pitch + delta_pitch).clamp(-25, 25);
             self.trim_dirty = true;
@@ -576,9 +581,11 @@ impl BackgroundIdleManager {
         } else {
             true
         };
+        let stick_mode = safety::StickMode::from_u8(storage.radio.stick_mode);
+        let controls = flight.state.flight_controls(stick_mode);
         let timer_running = mixer::is_timer_active(
             model.timer_source,
-            flight.state.sticks.throttle,
+            controls.throttle,
             &mut self.timer_latched,
             &flight.state.switches,
             is_armed_or_unassigned,
@@ -742,17 +749,34 @@ fn run_preflight_check(
         let state = input::read();
         let keys = boot::scan_keys();
 
-        let is_general = storage.active_model().model_type == 4;
-        let is_calibrated = storage.radio.sticks[2].min > 200;
-        let thr_unsafe = if is_general {
-            false
-        } else if is_calibrated {
-            state.sticks.throttle > -900
-        } else {
-            state.raw[2] > 1400
-        };
+        let raw_adc = [state.raw[0], state.raw[1], state.raw[2], state.raw[3]];
+        let model_type = storage.active_model().model_type();
+        let stick_mode = safety::StickMode::from_u8(storage.radio.stick_mode);
+        let cal = [
+            safety::ChannelCalibration::from_channel_calib(&storage.radio.sticks[0]),
+            safety::ChannelCalibration::from_channel_calib(&storage.radio.sticks[1]),
+            safety::ChannelCalibration::from_channel_calib(&storage.radio.sticks[2]),
+            safety::ChannelCalibration::from_channel_calib(&storage.radio.sticks[3]),
+        ];
+        let thr_hold = state.switches.sa == input::SwitchPos::Down;
 
-        let sa_unsafe = state.switches.sa != input::SwitchPos::Up;
+        let thr_result = safety::check_preflight_throttle(
+            &raw_adc,
+            Some(&cal),
+            stick_mode,
+            model_type,
+            thr_hold,
+        );
+        let thr_unsafe = thr_result.is_err();
+
+        // For helicopters, SA Down is the required Throttle Hold position.
+        // For all other models, SA Up is the safe position.
+        let is_heli = model_type == safety::ModelType::Heli;
+        let sa_unsafe = if is_heli {
+            state.switches.sa != input::SwitchPos::Down
+        } else {
+            state.switches.sa != input::SwitchPos::Up
+        };
         let sb_unsafe = state.switches.sb != input::SwitchPos::Up;
         let sc_unsafe = state.switches.sc != input::SwitchPos::Up;
         let sd_unsafe = state.switches.sd != input::SwitchPos::Up;
@@ -792,8 +816,13 @@ fn run_preflight_check(
             lcd.draw_str_6x10(16, 2, "SAFETY WARNING!", false);
             lcd.draw_hline(0, 11, 128, true);
 
-            if thr_unsafe {
-                lcd.draw_str_6x10(2, 16, "THROTTLE NOT AT IDLE!", false);
+            if let Err(err) = thr_result {
+                let msg = match err {
+                    safety::PreflightError::ThrottleHigh { .. } => "THROTTLE NOT AT IDLE!",
+                    safety::PreflightError::ThrottleNotCentered { .. } => "CENTER THROTTLE STICK!",
+                    safety::PreflightError::ThrottleHoldDisengaged => "THROTTLE HOLD OFF!",
+                };
+                lcd.draw_str_6x10(2, 16, msg, false);
             }
 
             if sw_unsafe {
@@ -820,7 +849,12 @@ fn run_preflight_check(
             }
 
             lcd.draw_hline(0, 55, 128, true);
-            lcd.draw_str_4x6(2, 57, "Lower Thr/Safe SW  [ESC]Skip", false);
+            let footer = match thr_result {
+                Err(safety::PreflightError::ThrottleNotCentered { .. }) => "Center Thr/Safe SW [ESC]Skip",
+                Err(safety::PreflightError::ThrottleHoldDisengaged) => "Hold Thr/Safe SW   [ESC]Skip",
+                _ => "Lower Thr/Safe SW  [ESC]Skip",
+            };
+            lcd.draw_str_4x6(2, 57, footer, false);
             lcd.flush();
         }
     }
