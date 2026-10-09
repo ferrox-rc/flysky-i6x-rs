@@ -242,7 +242,7 @@ impl CalibWizard {
                 lcd.clear_buffer();
                 widgets::draw_header(lcd, "CALIBRATION (2/2)");
 
-                let is_general = storage.active_model().model_type == 4;
+                let is_general = storage.active_model().model_type().is_general();
                 let stick_labels = if is_general {
                     ["1", "2", "3", "4"]
                 } else {

@@ -15,14 +15,65 @@ pub enum SwitchPos {
     Down,
 }
 
-/// Normalized stick axes (-1000 .. +1000).
-#[derive(Copy, Clone, Debug)]
-pub struct Sticks {
-    pub roll: i16,     // CH1 (AIL): -1000 (left) .. +1000 (right)
-    pub pitch: i16,    // CH2 (ELE): -1000 (down) .. +1000 (up)
-    pub throttle: i16, // CH3 (THR): -1000 (bottom/0%) .. +1000 (top/100%)
-    pub yaw: i16,      // CH4 (RUD): -1000 (left) .. +1000 (right)
+/// Normalized physical gimbal axes (-1000 .. +1000).
+/// Model-type and stick-mode agnostic hardware representation:
+/// - `rh`: Right Horizontal (PA0, index 0)
+/// - `rv`: Right Vertical   (PA1, index 1)
+/// - `lv`: Left Vertical    (PA2, index 2)
+/// - `lh`: Left Horizontal  (PA3, index 3)
+#[derive(Copy, Clone, Debug, Default)]
+pub struct Gimbals {
+    pub rh: i16,
+    pub rv: i16,
+    pub lv: i16,
+    pub lh: i16,
 }
+
+impl Gimbals {
+    /// Map physical gimbals to logical flight controls according to radio stick mode.
+    #[inline(always)]
+    pub fn to_flight_controls(&self, mode: crate::safety::StickMode) -> FlightControls {
+        use crate::safety::StickMode;
+        match mode {
+            StickMode::Mode1 => FlightControls {
+                aileron: self.rh,
+                elevator: self.lv,
+                throttle: self.rv,
+                rudder: self.lh,
+            },
+            StickMode::Mode2 => FlightControls {
+                aileron: self.rh,
+                elevator: self.rv,
+                throttle: self.lv,
+                rudder: self.lh,
+            },
+            StickMode::Mode3 => FlightControls {
+                aileron: self.lh,
+                elevator: self.lv,
+                throttle: self.rv,
+                rudder: self.rh,
+            },
+            StickMode::Mode4 => FlightControls {
+                aileron: self.lh,
+                elevator: self.rv,
+                throttle: self.lv,
+                rudder: self.rh,
+            },
+        }
+    }
+}
+
+/// Logical primary flight control axes (-1000 .. +1000).
+#[derive(Copy, Clone, Debug, Default)]
+pub struct FlightControls {
+    pub aileron: i16,  // Roll (AIL)
+    pub elevator: i16, // Pitch (ELE)
+    pub throttle: i16, // Throttle (THR)
+    pub rudder: i16,   // Yaw (RUD)
+}
+
+/// Backwards compatibility alias while migrating.
+pub type Sticks = Gimbals;
 
 /// Normalized potentiometer rotary dials and auxiliary analog inputs (-1000 .. +1000).
 #[derive(Copy, Clone, Debug)]
@@ -109,12 +160,26 @@ impl Switches {
 
 /// Full processed input snapshot.
 pub struct InputState {
-    pub sticks: Sticks,
+    pub gimbals: Gimbals,
     pub pots: Pots,
     pub switches: Switches,
     pub battery_mv: u16,
     pub aux_pots: [i16; 10],
     pub raw: [u16; adc::NUM_CHANNELS],
+}
+
+impl InputState {
+    /// Convenience accessor for flight controls given a stick mode.
+    #[inline(always)]
+    pub fn flight_controls(&self, mode: crate::safety::StickMode) -> FlightControls {
+        self.gimbals.to_flight_controls(mode)
+    }
+
+    /// Backwards compatibility accessor for physical gimbals.
+    #[inline(always)]
+    pub fn sticks(&self) -> &Gimbals {
+        &self.gimbals
+    }
 }
 
 /// Calibration data for a single analog axis.
@@ -209,10 +274,10 @@ use crate::adc::{ADC_CENTER, ADC_MAX, ADC_MIN};
 
 #[derive(Copy, Clone, Debug)]
 pub struct InputCalibration {
-    pub roll: AxisCalib,
-    pub pitch: AxisCalib,
-    pub throttle: AxisCalib,
-    pub yaw: AxisCalib,
+    pub rh: AxisCalib, // PA0: Right Horizontal
+    pub rv: AxisCalib, // PA1: Right Vertical
+    pub lv: AxisCalib, // PA2: Left Vertical
+    pub lh: AxisCalib, // PA3: Left Horizontal
     pub aux: [AxisCalib; 10], // 0..3: SA..SD, 4..5: VRA..VRB, 6..9: VRC..VRF
     pub adc_modes: [u8; 10],
     pub filtered_battery_mv: u32,
@@ -223,10 +288,10 @@ pub struct InputCalibration {
 impl InputCalibration {
     pub const fn default_factory() -> Self {
         Self {
-            roll: AxisCalib::new(ADC_MIN, ADC_CENTER, ADC_MAX, true),
-            pitch: AxisCalib::new(ADC_MIN, ADC_CENTER, ADC_MAX, true),
-            throttle: AxisCalib::new(ADC_MIN, ADC_CENTER, ADC_MAX, false),
-            yaw: AxisCalib::new(ADC_MIN, ADC_CENTER, ADC_MAX, false),
+            rh: AxisCalib::new(ADC_MIN, ADC_CENTER, ADC_MAX, true),
+            rv: AxisCalib::new(ADC_MIN, ADC_CENTER, ADC_MAX, true),
+            lv: AxisCalib::new(ADC_MIN, ADC_CENTER, ADC_MAX, false),
+            lh: AxisCalib::new(ADC_MIN, ADC_CENTER, ADC_MAX, false),
             aux: [
                 AxisCalib::new(ADC_MIN, ADC_CENTER, ADC_MAX, false), // SA
                 AxisCalib::new(ADC_MIN, ADC_CENTER, ADC_MAX, false), // SB
@@ -263,29 +328,30 @@ pub fn apply_calibration(config: &RadioConfig) {
     calib.ext_adc = config.ext_adc != 0;
     calib.adc_modes = config.adc_modes;
 
-    // Roll: PA0 (RH)
-    calib.roll.invert = true;
-    calib.roll.min = config.sticks[0].min;
-    calib.roll.center = config.sticks[0].center;
-    calib.roll.max = config.sticks[0].max;
+    // Physical Gimbals: PA0 (RH), PA1 (RV), PA2 (LV), PA3 (LH)
+    // RH: PA0
+    calib.rh.invert = true;
+    calib.rh.min = config.sticks[0].min;
+    calib.rh.center = config.sticks[0].center;
+    calib.rh.max = config.sticks[0].max;
 
-    // Pitch: PA1 (RV)
-    calib.pitch.invert = true;
-    calib.pitch.min = config.sticks[1].min;
-    calib.pitch.center = config.sticks[1].center;
-    calib.pitch.max = config.sticks[1].max;
+    // RV: PA1
+    calib.rv.invert = true;
+    calib.rv.min = config.sticks[1].min;
+    calib.rv.center = config.sticks[1].center;
+    calib.rv.max = config.sticks[1].max;
 
-    // Throttle: PA2 (LV)
-    calib.throttle.invert = false;
-    calib.throttle.min = config.sticks[2].min;
-    calib.throttle.center = config.sticks[2].center;
-    calib.throttle.max = config.sticks[2].max;
+    // LV: PA2
+    calib.lv.invert = false;
+    calib.lv.min = config.sticks[2].min;
+    calib.lv.center = config.sticks[2].center;
+    calib.lv.max = config.sticks[2].max;
 
-    // Yaw: PA3 (LH)
-    calib.yaw.invert = false;
-    calib.yaw.min = config.sticks[3].min;
-    calib.yaw.center = config.sticks[3].center;
-    calib.yaw.max = config.sticks[3].max;
+    // LH: PA3
+    calib.lh.invert = false;
+    calib.lh.min = config.sticks[3].min;
+    calib.lh.center = config.sticks[3].center;
+    calib.lh.max = config.sticks[3].max;
 
     // 10 Auxiliary Analog Channels
     for i in 0..10 {
@@ -383,12 +449,12 @@ fn aux_index_to_raw_adc(ch: usize) -> usize {
 pub fn process(raw: [u16; adc::NUM_CHANNELS]) -> InputState {
     let calib = unsafe { &mut *INPUT_MANAGER.0.get() };
 
-    // Process primary stick axes
-    let sticks = Sticks {
-        roll: calib.roll.normalize(raw[0]),
-        pitch: calib.pitch.normalize(raw[1]),
-        throttle: calib.throttle.normalize(raw[2]),
-        yaw: calib.yaw.normalize(raw[3]),
+    // Process physical gimbal axes: PA0 (RH), PA1 (RV), PA2 (LV), PA3 (LH)
+    let gimbals = Gimbals {
+        rh: calib.rh.normalize(raw[0]),
+        rv: calib.rv.normalize(raw[1]),
+        lv: calib.lv.normalize(raw[2]),
+        lh: calib.lh.normalize(raw[3]),
     };
 
     // Process auxiliary analog channels (0..9)
@@ -402,7 +468,7 @@ pub fn process(raw: [u16; adc::NUM_CHANNELS]) -> InputState {
         aux_pots[i] = match mode {
             AdcInputMode::PotDetent => calib.aux[i].normalize_detent(raw_val, DETENT_DEADBAND),
             AdcInputMode::Pot => calib.aux[i].normalize(raw_val),
-            AdcInputMode::TwoPos => {
+            AdcInputMode::TwoPos | AdcInputMode::InstantTrim => {
                 if raw_val < 2048 {
                     -1000
                 } else {
@@ -453,19 +519,28 @@ pub fn process(raw: [u16; adc::NUM_CHANNELS]) -> InputState {
         _ => decode_switch_2pos(raw[9]),
     };
 
-    // External switches PC12 (SE) and PC15 (SF)
+    // External switches PC12 (SE) and PC15 (SF) (active-low GPIOs)
     let (se, sf) = if calib.ext_switches {
-        let sw_e = if raw[11] < 2048 {
-            SwitchPos::Up
-        } else {
-            SwitchPos::Down
-        };
-        let sw_f = if raw[12] < 2048 {
-            SwitchPos::Up
-        } else {
-            SwitchPos::Down
-        };
-        (sw_e, sw_f)
+        #[cfg(all(feature = "stm32", not(test)))]
+        {
+            let gpioc = unsafe { &*stm32f0xx_hal::pac::GPIOC::ptr() };
+            let idr = gpioc.idr.read().bits();
+            let sw_e = if (idr & (1 << 12)) == 0 {
+                SwitchPos::Down
+            } else {
+                SwitchPos::Up
+            };
+            let sw_f = if (idr & (1 << 15)) == 0 {
+                SwitchPos::Down
+            } else {
+                SwitchPos::Up
+            };
+            (sw_e, sw_f)
+        }
+        #[cfg(any(not(feature = "stm32"), test))]
+        {
+            (SwitchPos::Up, SwitchPos::Up)
+        }
     } else {
         (SwitchPos::Up, SwitchPos::Up)
     };
@@ -491,7 +566,7 @@ pub fn process(raw: [u16; adc::NUM_CHANNELS]) -> InputState {
     };
 
     InputState {
-        sticks,
+        gimbals,
         pots,
         switches,
         battery_mv,

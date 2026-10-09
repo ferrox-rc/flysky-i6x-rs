@@ -84,54 +84,68 @@ pub fn render_primary_sticks(
     trims: &TrimController,
 ) {
     let mut pct_buf = [0u8; 5];
-    let is_general = storage.active_model().model_type == 4;
+    let is_general = storage.active_model().model_type().is_general();
 
-    // CH1: Roll / 1 (y = 13, text top-left y = 12)
-    let lbl1 = if is_general { "1" } else { "A" };
-    lcd.draw_str_6x10(2, 12, lbl1, false);
-    widgets::draw_channel_gauge(lcd, 12, 13, 76, 7, state.sticks.roll, trims.values.roll);
-    let p1 = format_percent(state.sticks.roll, &mut pct_buf);
-    lcd.draw_str_6x10(92, 12, p1, false);
+    let stick_mode = crate::safety::StickMode::from_u8(storage.radio.stick_mode);
 
-    // CH2: Pitch / 2 (y = 21, text top-left y = 20)
-    let lbl2 = if is_general { "2" } else { "E" };
-    lcd.draw_str_6x10(2, 20, lbl2, false);
-    widgets::draw_channel_gauge(lcd, 12, 21, 76, 7, state.sticks.pitch, trims.values.pitch);
-    let p2 = format_percent(state.sticks.pitch, &mut pct_buf);
-    lcd.draw_str_6x10(92, 20, p2, false);
-
-    // CH3: Throttle / 3 (y = 29, text top-left y = 28)
-    let lbl3 = if is_general { "3" } else { "T" };
-    lcd.draw_str_6x10(2, 28, lbl3, false);
     if is_general {
-        widgets::draw_channel_gauge(
-            lcd,
-            12,
-            29,
-            76,
-            7,
-            state.sticks.throttle,
-            trims.values.throttle,
-        );
-        let p3 = format_percent(state.sticks.throttle, &mut pct_buf);
+        // Physical Gimbals for General / Surface models: RH, RV, LV, LH
+        // 1: RH (PA0, Right Horizontal / Steering)
+        lcd.draw_str_6x10(2, 12, "RH", false);
+        widgets::draw_channel_gauge(lcd, 16, 13, 72, 7, state.gimbals.rh, trims.values.roll);
+        let p1 = format_percent(state.gimbals.rh, &mut pct_buf);
+        lcd.draw_str_6x10(92, 12, p1, false);
+
+        // 2: RV (PA1, Right Vertical)
+        lcd.draw_str_6x10(2, 20, "RV", false);
+        widgets::draw_channel_gauge(lcd, 16, 21, 72, 7, state.gimbals.rv, trims.values.pitch);
+        let p2 = format_percent(state.gimbals.rv, &mut pct_buf);
+        lcd.draw_str_6x10(92, 20, p2, false);
+
+        // 3: LV (PA2, Left Vertical / Throttle)
+        lcd.draw_str_6x10(2, 28, "LV", false);
+        widgets::draw_channel_gauge(lcd, 16, 29, 72, 7, state.gimbals.lv, trims.values.throttle);
+        let p3 = format_percent(state.gimbals.lv, &mut pct_buf);
         lcd.draw_str_6x10(92, 28, p3, false);
+
+        // 4: LH (PA3, Left Horizontal)
+        lcd.draw_str_6x10(2, 36, "LH", false);
+        widgets::draw_channel_gauge(lcd, 16, 37, 72, 7, state.gimbals.lh, trims.values.yaw);
+        let p4 = format_percent(state.gimbals.lh, &mut pct_buf);
+        lcd.draw_str_6x10(92, 36, p4, false);
     } else {
+        // Logical Flight Controls for Aircraft: A, E, T, R
+        let controls = state.flight_controls(stick_mode);
+
+        // CH1: Roll / Aileron (A)
+        lcd.draw_str_6x10(2, 12, "A", false);
+        widgets::draw_channel_gauge(lcd, 12, 13, 76, 7, controls.aileron, trims.values.roll);
+        let p1 = format_percent(controls.aileron, &mut pct_buf);
+        lcd.draw_str_6x10(92, 12, p1, false);
+
+        // CH2: Pitch / Elevator (E)
+        lcd.draw_str_6x10(2, 20, "E", false);
+        widgets::draw_channel_gauge(lcd, 12, 21, 76, 7, controls.elevator, trims.values.pitch);
+        let p2 = format_percent(controls.elevator, &mut pct_buf);
+        lcd.draw_str_6x10(92, 20, p2, false);
+
+        // CH3: Throttle (T)
+        lcd.draw_str_6x10(2, 28, "T", false);
         let thr_trim = if storage.radio.throttle_trim != 0 {
             trims.values.throttle
         } else {
             0
         };
-        widgets::draw_progress_bar(lcd, 12, 29, 76, 7, state.sticks.throttle, thr_trim);
-        let p3 = format_throttle_percent(state.sticks.throttle, &mut pct_buf);
+        widgets::draw_progress_bar(lcd, 12, 29, 76, 7, controls.throttle, thr_trim);
+        let p3 = format_throttle_percent(controls.throttle, &mut pct_buf);
         lcd.draw_str_6x10(92, 28, p3, false);
-    }
 
-    // CH4: Yaw / 4 (y = 37, text top-left y = 36)
-    let lbl4 = if is_general { "4" } else { "R" };
-    lcd.draw_str_6x10(2, 36, lbl4, false);
-    widgets::draw_channel_gauge(lcd, 12, 37, 76, 7, state.sticks.yaw, trims.values.yaw);
-    let p4 = format_percent(state.sticks.yaw, &mut pct_buf);
-    lcd.draw_str_6x10(92, 36, p4, false);
+        // CH4: Yaw / Rudder (R)
+        lcd.draw_str_6x10(2, 36, "R", false);
+        widgets::draw_channel_gauge(lcd, 12, 37, 76, 7, controls.rudder, trims.values.yaw);
+        let p4 = format_percent(controls.rudder, &mut pct_buf);
+        lcd.draw_str_6x10(92, 36, p4, false);
+    }
 }
 
 /// Render the default switch and dual pot layout (y = 46..53) for standard stock models.
@@ -172,7 +186,7 @@ pub fn render_adaptive_layout(lcd: &mut St7567, state: &InputState, storage: &Ra
     for (ch, &name) in ch_names.iter().enumerate().take(max_channels) {
         let mode = AdcInputMode::resolve(ch, storage.radio.adc_modes[ch]);
         match mode {
-            AdcInputMode::TwoPos | AdcInputMode::ThreePos => {
+            AdcInputMode::TwoPos | AdcInputMode::ThreePos | AdcInputMode::InstantTrim => {
                 let pos = match ch {
                     0 => state.switches.sa,
                     1 => state.switches.sb,

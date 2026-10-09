@@ -24,7 +24,7 @@ pub fn update_radio_setup(
         buzzer.click();
         return;
     }
-    const SETUP_ITEMS: usize = 12;
+    const SETUP_ITEMS: usize = 13;
 
     widgets::navigate_4slot_list(
         &mut ctrl.selected_item,
@@ -135,6 +135,11 @@ pub fn update_radio_setup(
             }
             11 => {
                 buzzer.click();
+                storage.radio.stick_mode = (storage.radio.stick_mode + 1) % 4;
+                storage::save_radio_config(storage);
+            }
+            12 => {
+                buzzer.click();
                 ctrl.state = MenuState::InputSetup;
                 ctrl.selected_item = 0;
                 ctrl.scroll_offset = 0;
@@ -236,6 +241,16 @@ pub fn update_radio_setup(
                 widgets::draw_list_row_right(lcd, slot, is_sel, "P7 Header:", Some(adc_str));
             }
             11 => {
+                let mode_str = match storage.radio.stick_mode {
+                    0 => "MODE 1",
+                    1 => "MODE 2",
+                    2 => "MODE 3",
+                    3 => "MODE 4",
+                    _ => "MODE 2",
+                };
+                widgets::draw_list_row_right(lcd, slot, is_sel, "Stick Mode:", Some(mode_str));
+            }
+            12 => {
                 widgets::draw_list_row_right(lcd, slot, is_sel, "Inputs", Some("[SETUP]"));
             }
             _ => {}
@@ -258,7 +273,15 @@ const AUX_NAMES: [&str; 10] = [
     "VRF (P7):",
 ];
 
-const MODE_STRS: [&str; 6] = ["DEFAULT", "2-POS", "3-POS", "6-POS", "POT", "POT-D"];
+const MODE_STRS: [&str; 7] = [
+    "DEFAULT",
+    "2-POS",
+    "3-POS",
+    "6-POS",
+    "POT",
+    "POT-D",
+    "INST-TRIM",
+];
 
 #[inline(never)]
 pub fn update_input_setup(
@@ -291,7 +314,7 @@ pub fn update_input_setup(
         let ch = ctrl.selected_item;
         if ch < INPUT_ITEMS {
             buzzer.click();
-            // Cycle: Default(0) -> 2Pos(1) -> 3Pos(2) -> 6Pos(3) -> Pot(4) -> PotDetent(5) -> Default(0)
+            // Cycle: Default(0) -> 2Pos(1) -> 3Pos(2) -> 6Pos(3) -> Pot(4) -> PotDetent(5) -> Inst-Trim -> Default(0)
             storage.radio.adc_modes[ch] = (storage.radio.adc_modes[ch] + 1) % MODE_STRS.len() as u8;
             crate::input::apply_calibration(&storage.radio);
             storage::save_radio_config(storage);

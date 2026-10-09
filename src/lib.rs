@@ -11,6 +11,7 @@ pub mod display;
 pub mod input;
 pub mod mixer;
 pub mod rf;
+pub mod safety;
 pub mod storage;
 pub mod time;
 pub mod trim;
