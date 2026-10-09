@@ -24,7 +24,7 @@ pub fn update_radio_setup(
         buzzer.click();
         return;
     }
-    const SETUP_ITEMS: usize = 11;
+    const SETUP_ITEMS: usize = 13;
 
     widgets::navigate_4slot_list(
         &mut ctrl.selected_item,
@@ -133,6 +133,17 @@ pub fn update_radio_setup(
                 crate::input::set_ext_adc_enabled(storage.radio.ext_adc != 0);
                 storage::save_radio_config(storage);
             }
+            11 => {
+                buzzer.click();
+                storage.radio.stick_mode = (storage.radio.stick_mode + 1) % 4;
+                storage::save_radio_config(storage);
+            }
+            12 => {
+                buzzer.click();
+                ctrl.state = MenuState::InputSetup;
+                ctrl.selected_item = 0;
+                ctrl.scroll_offset = 0;
+            }
             _ => {}
         }
     }
@@ -229,11 +240,101 @@ pub fn update_radio_setup(
                 };
                 widgets::draw_list_row_right(lcd, slot, is_sel, "P7 Header:", Some(adc_str));
             }
+            11 => {
+                let mode_str = match storage.radio.stick_mode {
+                    0 => "MODE 1",
+                    1 => "MODE 2",
+                    2 => "MODE 3",
+                    3 => "MODE 4",
+                    _ => "MODE 2",
+                };
+                widgets::draw_list_row_right(lcd, slot, is_sel, "Stick Mode:", Some(mode_str));
+            }
+            12 => {
+                widgets::draw_list_row_right(lcd, slot, is_sel, "Inputs", Some("[SETUP]"));
+            }
             _ => {}
         }
     }
 
     widgets::draw_footer(lcd, "[OK] Toggle/Cycle   [ESC] Back");
+}
+
+const AUX_NAMES: [&str; 10] = [
+    "SA (PA4):",
+    "SB (PA5):",
+    "SC (PB0):",
+    "SD (PB1):",
+    "VRA(PA6):",
+    "VRB(PA7):",
+    "VRC (P7):",
+    "VRD (P7):",
+    "VRE (P7):",
+    "VRF (P7):",
+];
+
+const MODE_STRS: [&str; 7] = [
+    "DEFAULT",
+    "2-POS",
+    "3-POS",
+    "6-POS",
+    "POT",
+    "POT-D",
+    "INST-TRIM",
+];
+
+#[inline(never)]
+pub fn update_input_setup(
+    ctrl: &mut MenuController,
+    lcd: &mut St7567,
+    keys: &NavKeys,
+    storage: &mut RadioStorage,
+    buzzer: &mut Buzzer,
+) {
+    if keys.cancel {
+        ctrl.state = MenuState::RadioSetup;
+        ctrl.selected_item = 11;
+        ctrl.scroll_offset = 8;
+        buzzer.click();
+        return;
+    }
+
+    const INPUT_ITEMS: usize = 10;
+
+    widgets::navigate_4slot_list(
+        &mut ctrl.selected_item,
+        &mut ctrl.scroll_offset,
+        INPUT_ITEMS,
+        keys.up,
+        keys.down,
+        buzzer,
+    );
+
+    if keys.ok {
+        let ch = ctrl.selected_item;
+        if ch < INPUT_ITEMS {
+            buzzer.click();
+            // Cycle: Default(0) -> 2Pos(1) -> 3Pos(2) -> 6Pos(3) -> Pot(4) -> PotDetent(5) -> Inst-Trim -> Default(0)
+            storage.radio.adc_modes[ch] = (storage.radio.adc_modes[ch] + 1) % MODE_STRS.len() as u8;
+            crate::input::apply_calibration(&storage.radio);
+            storage::save_radio_config(storage);
+        }
+    }
+
+    widgets::draw_header(lcd, "INPUT MODES");
+
+    for slot in 0..4 {
+        let idx = ctrl.scroll_offset + slot;
+        if idx >= INPUT_ITEMS {
+            break;
+        }
+        let is_sel = idx == ctrl.selected_item;
+        let mode_idx = (storage.radio.adc_modes[idx] as usize).min(MODE_STRS.len());
+        let mode_str = MODE_STRS[mode_idx];
+        widgets::draw_list_row_right(lcd, slot, is_sel, AUX_NAMES[idx], Some(mode_str));
+    }
+
+    widgets::draw_footer(lcd, "[OK] Cycle Mode    [ESC] Back");
 }
 
 #[inline(never)]
@@ -304,7 +405,7 @@ pub fn update_rx_setup(
                 }
                 (1, 3) => {
                     // CRSF: Enter Configurator
-                    ctrl.state = MenuState::ElrsSetup;
+                    ctrl.state = MenuState::CrsfSetup;
                     ctrl.return_state = MenuState::RxSetup;
                     ctrl.selected_item = 0;
                     ctrl.scroll_offset = 0;

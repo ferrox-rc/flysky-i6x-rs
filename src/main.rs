@@ -24,7 +24,10 @@ fn panic(_info: &core::panic::PanicInfo) -> ! {
         };
 
         if count < PANIC_MAX_CONSECUTIVE {
-            core::ptr::write_volatile(core::ptr::addr_of_mut!(PANIC_COUNT), PANIC_MAGIC | (count + 1));
+            core::ptr::write_volatile(
+                core::ptr::addr_of_mut!(PANIC_COUNT),
+                PANIC_MAGIC | (count + 1),
+            );
             // Trigger rapid Cortex-M0 warm reset (<20ms recovery vs 2.0s watchdog)
             cortex_m::peripheral::SCB::sys_reset();
         }
@@ -38,16 +41,10 @@ fn panic(_info: &core::panic::PanicInfo) -> ! {
 }
 
 use cortex_m_rt::entry;
-use embedded_graphics::{
-    mono_font::{ascii::FONT_4X6, ascii::FONT_6X10, MonoTextStyle},
-    pixelcolor::BinaryColor,
-    prelude::*,
-    text::Text,
-};
 
 use flysky_i6x_rs::{
-    adc, boot, buzzer, calib, chip, crsf, curve, display, input, mixer, rf, storage, time, trim,
-    ui, usb, watchdog,
+    adc, boot, buzzer, calib, chip, crsf, curve, display, input, mixer, rf, safety, storage, time,
+    trim, ui, usb, watchdog,
 };
 pub use ui::menu;
 
@@ -97,7 +94,7 @@ impl FlightPipeline {
         buzzer: &mut buzzer::Buzzer,
     ) -> FlightSnapshot {
         // 1. Poll continuous DMA analog and digital inputs (sub-microsecond)
-        let state = input::poll();
+        let state = input::read();
         let active_model = storage.active_model();
 
         // 2. Resynchronize arm state when active model changes or when exiting settings menu
@@ -128,9 +125,12 @@ impl FlightPipeline {
             self.prev_armed = is_armed;
         }
 
+        let stick_mode = safety::StickMode::from_u8(storage.radio.stick_mode);
+        let controls = state.flight_controls(stick_mode);
+
         // 4. Evaluate active model throttle curve (normalized 0..MIXER_MAX)
         let thr_input =
-            ((state.sticks.throttle + mixer::MIXER_MAX) / 2).clamp(0, mixer::MIXER_MAX) as u16;
+            ((controls.throttle + mixer::MIXER_MAX) / 2).clamp(0, mixer::MIXER_MAX) as u16;
         let thr_curved = curve::evaluate_curve(
             thr_input,
             active_model.thr_curve_pts,
@@ -140,10 +140,10 @@ impl FlightPipeline {
 
         // 5. Compute all 14 channels via 4-stage pipeline (D/R, Expo, Matrix Mixer, Trims, Reversing)
         let rf_chs = mixer::compute_channels(
-            state.sticks.roll,
-            state.sticks.pitch,
+            controls.aileron,
+            controls.elevator,
             thr_curved,
-            state.sticks.yaw,
+            controls.rudder,
             &[
                 state.pots.vr1,
                 state.pots.vr2,
@@ -240,6 +240,7 @@ struct BackgroundIdleManager {
     rx_id_dirty: bool,
     trim_dirty: bool,
     trim_save_cooldown_ms: u16,
+    prev_instant_trim_active: bool,
 }
 
 impl BackgroundIdleManager {
@@ -278,6 +279,7 @@ impl BackgroundIdleManager {
             rx_id_dirty: false,
             trim_dirty: false,
             trim_save_cooldown_ms: 0,
+            prev_instant_trim_active: false,
         }
     }
 
@@ -438,7 +440,85 @@ impl BackgroundIdleManager {
             buzzer.play_tone_pattern(2400, 70, 50, 2);
         }
 
-        // 7. Debounced auto-save of active model trims to Flash (inhibit while armed)
+        // 7. Instant Trim Evaluation: Check if any auxiliary channel configured as InstantTrim went active
+        let mut instant_trim_active = false;
+        let max_adc = if storage.radio.ext_adc != 0 { 10 } else { 6 };
+        for ch in 0..max_adc {
+            let mode = storage::AdcInputMode::resolve(ch, storage.radio.adc_modes[ch]);
+            if matches!(mode, storage::AdcInputMode::InstantTrim) {
+                // Active when switch is toggled down (raw reading > 2048)
+                let raw_val = flight.state.raw[match ch {
+                    0 => 4,
+                    1 => 5,
+                    2 => 8,
+                    3 => 9,
+                    4 => 6,
+                    5 => 7,
+                    6 => 11,
+                    7 => 12,
+                    8 => 13,
+                    _ => 14,
+                }];
+                if raw_val >= 2048 {
+                    instant_trim_active = true;
+                    break;
+                }
+            }
+        }
+
+        let instant_trim_triggered = instant_trim_active && !self.prev_instant_trim_active;
+        self.prev_instant_trim_active = instant_trim_active;
+
+        if !menu_active && instant_trim_triggered {
+            let stick_mode = safety::StickMode::from_u8(storage.radio.stick_mode);
+            let controls = flight.state.flight_controls(stick_mode);
+            // Apply symmetric rounding to nearest trim step (40 counts per trim step: -1000..+1000 -> -25..+25)
+            let round_step = |val: i16| -> i8 {
+                if val >= 0 {
+                    ((val + 20) / 40) as i8
+                } else {
+                    ((val - 20) / 40) as i8
+                }
+            };
+            let delta_roll = round_step(controls.aileron);
+            let delta_pitch = round_step(controls.elevator);
+            let delta_yaw = round_step(controls.rudder);
+
+            if delta_roll != 0 || delta_pitch != 0 || delta_yaw != 0 {
+                // Sticks deflected: adjust trims toward the stick deflection
+                trims.values.roll = (trims.values.roll + delta_roll).clamp(-25, 25);
+                trims.values.pitch = (trims.values.pitch + delta_pitch).clamp(-25, 25);
+                trims.values.yaw = (trims.values.yaw + delta_yaw).clamp(-25, 25);
+
+                // Set active trim indicator so the dashboard footer immediately shows the updated trim value
+                if delta_roll != 0 {
+                    trims.last_active = trim::ActiveTrim::Roll;
+                } else if delta_pitch != 0 {
+                    trims.last_active = trim::ActiveTrim::Pitch;
+                } else {
+                    trims.last_active = trim::ActiveTrim::Yaw;
+                }
+                trims.active_timer_ms = 1500;
+
+                self.trim_dirty = true;
+                self.trim_save_cooldown_ms = 1000;
+                buzzer.play_tone_pattern(2400, 60, 40, 2);
+            } else if trims.values.roll != 0 || trims.values.pitch != 0 || trims.values.yaw != 0 {
+                // Sticks centered and trims were non-zero: reset all primary flight trims back to neutral
+                trims.values.roll = 0;
+                trims.values.pitch = 0;
+                trims.values.yaw = 0;
+
+                trims.last_active = trim::ActiveTrim::Roll;
+                trims.active_timer_ms = 1500;
+
+                self.trim_dirty = true;
+                self.trim_save_cooldown_ms = 1000;
+                buzzer.trim_center();
+            }
+        }
+
+        // 8. Debounced auto-save of active model trims to Flash (inhibit while armed)
         let active_trims = [
             trims.values.roll,
             trims.values.pitch,
@@ -538,9 +618,11 @@ impl BackgroundIdleManager {
         } else {
             true
         };
+        let stick_mode = safety::StickMode::from_u8(storage.radio.stick_mode);
+        let controls = flight.state.flight_controls(stick_mode);
         let timer_running = mixer::is_timer_active(
             model.timer_source,
-            flight.state.sticks.throttle,
+            controls.throttle,
             &mut self.timer_latched,
             &flight.state.switches,
             is_armed_or_unassigned,
@@ -693,9 +775,6 @@ fn run_preflight_check(
         return;
     }
 
-    let text_style = MonoTextStyle::new(&FONT_6X10, BinaryColor::On);
-    let text_style_small = MonoTextStyle::new(&FONT_4X6, BinaryColor::On);
-
     let mut preflight_beep_timer: u32 = 0;
     let mut preflight_last_render: u32 = 0;
     let mut warned = false;
@@ -704,20 +783,37 @@ fn run_preflight_check(
         watchdog::feed();
 
         let now = time::millis();
-        let state = input::poll();
+        let state = input::read();
         let keys = boot::scan_keys();
 
-        let is_general = storage.active_model().model_type == 4;
-        let is_calibrated = storage.radio.sticks[2].min > 200;
-        let thr_unsafe = if is_general {
-            false
-        } else if is_calibrated {
-            state.sticks.throttle > -900
-        } else {
-            state.raw[2] > 1400
-        };
+        let raw_adc = [state.raw[0], state.raw[1], state.raw[2], state.raw[3]];
+        let model_type = storage.active_model().model_type();
+        let stick_mode = safety::StickMode::from_u8(storage.radio.stick_mode);
+        let cal = [
+            safety::ChannelCalibration::from_channel_calib(&storage.radio.sticks[0]),
+            safety::ChannelCalibration::from_channel_calib(&storage.radio.sticks[1]),
+            safety::ChannelCalibration::from_channel_calib(&storage.radio.sticks[2]),
+            safety::ChannelCalibration::from_channel_calib(&storage.radio.sticks[3]),
+        ];
+        let thr_hold = state.switches.sa == input::SwitchPos::Down;
 
-        let sa_unsafe = state.switches.sa != input::SwitchPos::Up;
+        let thr_result = safety::check_preflight_throttle(
+            &raw_adc,
+            Some(&cal),
+            stick_mode,
+            model_type,
+            thr_hold,
+        );
+        let thr_unsafe = thr_result.is_err();
+
+        // For helicopters, SA Down is the required Throttle Hold position.
+        // For all other models, SA Up is the safe position.
+        let is_heli = model_type == safety::ModelType::Heli;
+        let sa_unsafe = if is_heli {
+            state.switches.sa != input::SwitchPos::Down
+        } else {
+            state.switches.sa != input::SwitchPos::Up
+        };
         let sb_unsafe = state.switches.sb != input::SwitchPos::Up;
         let sc_unsafe = state.switches.sc != input::SwitchPos::Up;
         let sd_unsafe = state.switches.sd != input::SwitchPos::Up;
@@ -753,22 +849,21 @@ fn run_preflight_check(
             preflight_last_render = now;
             buzzer.tick(dt);
 
-            lcd.clear(BinaryColor::Off).ok();
-            Text::new("SAFETY WARNING!", Point::new(16, 9), text_style)
-                .draw(lcd)
-                .ok();
+            lcd.clear_buffer();
+            lcd.draw_str_6x10(16, 2, "SAFETY WARNING!", false);
             lcd.draw_hline(0, 11, 128, true);
 
-            if thr_unsafe {
-                Text::new("THROTTLE NOT AT IDLE!", Point::new(2, 23), text_style)
-                    .draw(lcd)
-                    .ok();
+            if let Err(err) = thr_result {
+                let msg = match err {
+                    safety::PreflightError::ThrottleHigh { .. } => "THROTTLE NOT AT IDLE!",
+                    safety::PreflightError::ThrottleNotCentered { .. } => "CENTER THROTTLE STICK!",
+                    safety::PreflightError::ThrottleHoldDisengaged => "THROTTLE HOLD OFF!",
+                };
+                lcd.draw_str_6x10(2, 16, msg, false);
             }
 
             if sw_unsafe {
-                Text::new("SWITCH WARNING:", Point::new(2, 34), text_style)
-                    .draw(lcd)
-                    .ok();
+                lcd.draw_str_6x10(2, 27, "SWITCH WARNING:", false);
                 let mut sw_warn = [b' '; 20];
                 let mut col = 0;
                 for &(unsafe_flag, label) in &[
@@ -786,21 +881,17 @@ fn run_preflight_check(
                         }
                     }
                 }
-                let sw_str =
-                    ui::format::ascii_as_str(&sw_warn[..col.saturating_sub(1).min(16)]);
-                Text::new(sw_str, Point::new(2, 44), text_style)
-                    .draw(lcd)
-                    .ok();
+                let sw_str = ui::format::ascii_as_str(&sw_warn[..col.saturating_sub(1).min(16)]);
+                lcd.draw_str_6x10(2, 37, sw_str, false);
             }
 
             lcd.draw_hline(0, 55, 128, true);
-            Text::new(
-                "Lower Thr/Safe SW  [ESC]Skip",
-                Point::new(2, 62),
-                text_style_small,
-            )
-            .draw(lcd)
-            .ok();
+            let footer = match thr_result {
+                Err(safety::PreflightError::ThrottleNotCentered { .. }) => "Center Thr/Safe SW [ESC]Skip",
+                Err(safety::PreflightError::ThrottleHoldDisengaged) => "Hold Thr/Safe SW   [ESC]Skip",
+                _ => "Lower Thr/Safe SW  [ESC]Skip",
+            };
+            lcd.draw_str_4x6(2, 57, footer, false);
             lcd.flush();
         }
     }
@@ -811,16 +902,10 @@ fn draw_timer_reset_modal(lcd: &mut St7567, progress_pct: u8, completed: bool) {
     lcd.fill_rect(18, 19, 92, 26, false);
     lcd.draw_rect(18, 19, 92, 26, true);
 
-    let text_style = MonoTextStyle::new(&FONT_6X10, BinaryColor::On);
-
     if completed {
-        Text::new("TIMER RESET!", Point::new(28, 35), text_style)
-            .draw(lcd)
-            .ok();
+        lcd.draw_str_6x10(28, 28, "TIMER RESET!", false);
     } else {
-        Text::new("RESET TIMER", Point::new(31, 29), text_style)
-            .draw(lcd)
-            .ok();
+        lcd.draw_str_6x10(31, 22, "RESET TIMER", false);
 
         // Progress bar container: 74 x 6, positioned at (27, 33)
         lcd.draw_rect(27, 33, 74, 6, true);
@@ -983,10 +1068,16 @@ fn main() -> ! {
 
     // 11. Pre-flight Startup Safety Check: Throttle at idle and switches in safe (UP) positions
     // Bypassed on watchdog reset to immediately resume RF control in flight
-    run_preflight_check(storage, &mut buzzer, &mut lcd, &calib_wizard, was_watchdog_reset);
+    run_preflight_check(
+        storage,
+        &mut buzzer,
+        &mut lcd,
+        &calib_wizard,
+        was_watchdog_reset,
+    );
 
     // Initialize execution tiers
-    let init_state = input::poll();
+    let init_state = input::read();
     let mut pipeline = FlightPipeline::new(storage, &init_state);
     let mut idle_manager = BackgroundIdleManager::new(&init_state, bind_on_boot);
     let mut dashboard = ui::dashboard::DashboardController::new();
@@ -1001,10 +1092,14 @@ fn main() -> ! {
         let dt_ms = (now.wrapping_sub(last_tick_ms)).min(100) as u16;
 
         let keys = boot::scan_keys();
+        let menu_active = menu_controller.is_active() || calib_wizard.is_active();
+
         if dt_ms > 0 {
             last_tick_ms = now;
             buzzer.tick(dt_ms);
-            trims.update(keys, dt_ms, &mut buzzer);
+            if !menu_active {
+                trims.update(keys, dt_ms, &mut buzzer);
+            }
 
             // Once the transmitter has been running steadily in the flight loop for >5 seconds,
             // clear the consecutive panic count.
@@ -1016,8 +1111,6 @@ fn main() -> ! {
                 }
             }
         }
-
-        let menu_active = menu_controller.is_active() || calib_wizard.is_active();
 
         // Tier 1: High-Rate Flight Pipeline Tick (multi-kHz)
         let flight_snapshot = pipeline.tick(now, storage, &trims, menu_active, &mut buzzer);

@@ -9,9 +9,6 @@ pub use crate::ui::format;
 pub use crate::ui::widgets;
 pub mod screens;
 
-use embedded_graphics::pixelcolor::BinaryColor;
-use embedded_graphics::prelude::*;
-
 use crate::adc;
 use crate::buzzer::Buzzer;
 use crate::display::St7567;
@@ -31,8 +28,9 @@ pub enum MenuState {
     AuxChannels,
     ChannelReverse,
     RadioSetup,
+    InputSetup,
     RxSetup,
-    ElrsSetup,
+    CrsfSetup,
     ChannelMonitor,
     DiagAnas,
     SystemInfo,
@@ -218,7 +216,7 @@ impl MenuController {
             return;
         }
 
-        lcd.clear(BinaryColor::Off).ok();
+        lcd.clear_buffer();
 
         match self.state {
             MenuState::Closed => {}
@@ -252,11 +250,14 @@ impl MenuController {
             MenuState::RadioSetup => {
                 screens::setup::update_radio_setup(self, lcd, &nav_keys, storage, trims, buzzer);
             }
+            MenuState::InputSetup => {
+                screens::setup::update_input_setup(self, lcd, &nav_keys, storage, buzzer);
+            }
             MenuState::RxSetup => {
                 screens::setup::update_rx_setup(self, lcd, &nav_keys, storage, buzzer);
             }
-            MenuState::ElrsSetup => {
-                screens::elrs::update(self, lcd, &nav_keys, buzzer);
+            MenuState::CrsfSetup => {
+                screens::crsf::update(self, lcd, &nav_keys, buzzer);
             }
             MenuState::ChannelMonitor => {
                 screens::channels::update_channel_monitor(self, lcd, &nav_keys, storage, rf_chs, buzzer);

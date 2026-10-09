@@ -5,6 +5,49 @@ All notable changes to the `flysky-i6x-rs` project will be documented in this fi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.22.0] - 2026-10-09
+
+### Added
+- **Complete 3-Axis Instant Trim Support ([`src/main.rs`](src/main.rs))**:
+  - Added Yaw (Rudder) to Instant Trim evaluation alongside Roll (Aileron) and Pitch (Elevator).
+  - Implemented symmetric nearest-step rounding (`((val ± 20) / 40)`) so stick deflections below 40 counts snap to their closest trim step rather than truncating to 0.
+  - Activated dashboard trim status overlay (`trims.last_active`, `trims.active_timer_ms = 1500`) upon Instant Trim activation, providing immediate visual feedback in the footer and updating trim markers across flight dashboards.
+  - Added neutral-stick reset capability: toggling Instant Trim with sticks at neutral center resets all primary flight trims to zero (`0, 0, 0`) accompanied by the center audio chime (`buzzer.trim_center()`).
+
+### Fixed
+- **External Switch Detection (SE & SF) ([`src/input.rs`](src/input.rs))**:
+  - Restored active-low digital pin sampling for external switches SE (`PC12`) and SF (`PC15`) when `ext_switches` is enabled.
+
+## [0.21.0] - 2026-10-07
+
+### Added
+- **In-Tree Bare-Metal 1bpp Glyph Tables ([`src/display/fonts.rs`](src/display/fonts.rs), [`src/display/st7567.rs`](src/display/st7567.rs))**:
+  - Implemented pixel-exact in-tree 1bpp glyph bitmap lookup tables for `4x6` micro font (`FONT_4X6_DATA`, 380 bytes) and `6x10` standard font (`FONT_6X10_DATA`, 1,140 bytes) covering printable ASCII (32..=126).
+  - Added inherent blitting routines `St7567::draw_char_4x6`, `St7567::draw_str_4x6`, `St7567::draw_char_6x10`, and `St7567::draw_str_6x10` with optional background inversion.
+  - Added unit test `test_baremetal_fonts_match_embedded_graphics` asserting 100% pixel parity across all 95 ASCII characters for both fonts.
+
+### Removed
+- **Embedded-Graphics Runtime Font & Text Subsystem**:
+  - Completely eliminated all `Text::new(...)`, `MonoTextStyle`, and `embedded-graphics` font data arrays from the runtime firmware across all UI screens, menus, widgets, calibration wizards, and status bars.
+  - Migrated UI layout coordinates strictly to integer screen space.
+  - Eliminated runtime `embedded-graphics` primitives in favor of driver rectangle routines (`draw_rect`, `fill_rect`, `draw_hline`, `draw_vline`).
+  - Achieved an **8.66 KB Flash memory reduction** (from 104,584 bytes down to 95,924 bytes text section).
+
+## [0.20.2] - 2026-10-07
+
+### Added
+- **Universal Configurable ADC Input Modes (`AdcInputMode`) ([`src/storage.rs`](src/storage.rs), [`src/input.rs`](src/input.rs), [`src/ui/menu/screens/setup.rs`](src/ui/menu/screens/setup.rs))**:
+  - Added universal configurable input decoding modes (`DEFAULT`, `2-POS`, `3-POS`, `6-POS`, `POT`, `POT-D`) for all 10 auxiliary analog channels (`SA`..`SD`, `VRA`..`VRB`, and Header P7 inputs `VRC`..`VRF`).
+  - Added dedicated **`Input Setup`** (`INPUT SETUP`) menu under `Radio Setup` to independently configure hardware roles for each auxiliary channel.
+  - Implemented `POT-D` (Pot with Detent): continuous potentiometer input with active real-time acoustic zero-crossing detent clicks (`2200 Hz`, 10 ms), providing tactile non-visual feedback for dials without mechanical center detents.
+  - Added multi-position flight mode switch decoding (`6-POS`) using resistor-ladder voltage divider decoding.
+- **Dynamic Adaptive Calibration Wizard ([`src/calib.rs`](src/calib.rs), [`src/ui/dashboard/pages/gimbals.rs`](src/ui/dashboard/pages/gimbals.rs))**:
+  - Dynamically collects all auxiliary channels configured as continuous potentiometers (`Pot` / `PotDetent`).
+  - Adapts wizard display to render single/dual full-width bars, 2-column split bars (3..4 pots), or dense matrix rows (>4 pots).
+  - Main flight gimbals dashboard dynamically reflows switch slots and rotary pot meters based on active input modes.
+- **Non-Volatile Storage Layout Expansion ([`src/storage.rs`](src/storage.rs))**:
+  - Added `aux_pots: [PotCalib; 10]` and `adc_modes: [u8; 10]` to `RadioConfig` while strictly preserving the exact 128-byte layout constraint.
+
 ## [0.20.1] - 2026-10-03
 
 ### Fixed
