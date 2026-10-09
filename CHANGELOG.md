@@ -5,6 +5,19 @@ All notable changes to the `flysky-i6x-rs` project will be documented in this fi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.22.0] - 2026-10-09
+
+### Added
+- **Complete 3-Axis Instant Trim Support ([`src/main.rs`](src/main.rs))**:
+  - Added Yaw (Rudder) to Instant Trim evaluation alongside Roll (Aileron) and Pitch (Elevator).
+  - Implemented symmetric nearest-step rounding (`((val ± 20) / 40)`) so stick deflections below 40 counts snap to their closest trim step rather than truncating to 0.
+  - Activated dashboard trim status overlay (`trims.last_active`, `trims.active_timer_ms = 1500`) upon Instant Trim activation, providing immediate visual feedback in the footer and updating trim markers across flight dashboards.
+  - Added neutral-stick reset capability: toggling Instant Trim with sticks at neutral center resets all primary flight trims to zero (`0, 0, 0`) accompanied by the center audio chime (`buzzer.trim_center()`).
+
+### Fixed
+- **External Switch Detection (SE & SF) ([`src/input.rs`](src/input.rs))**:
+  - Restored active-low digital pin sampling for external switches SE (`PC12`) and SF (`PC15`) when `ext_switches` is enabled.
+
 ## [0.21.0] - 2026-10-07
 
 ### Added
