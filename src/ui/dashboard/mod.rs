@@ -126,6 +126,7 @@ impl DashboardController {
                 let is_crsf = storage.active_model().rf_protocol == 1;
                 pages::telemetry::render(
                     lcd,
+                    storage,
                     is_crsf,
                     telem,
                     state.battery_mv,
@@ -173,5 +174,26 @@ mod tests {
         assert_eq!(dash.page, 1);
         dash.prev_page(&mut buzzer);
         assert_eq!(dash.page, 0);
+    }
+
+    #[test]
+    fn test_dashboard_custom_telemetry_render() {
+        let mut lcd = St7567::new();
+        let mut storage = RadioStorage::default_factory();
+        let telem = TelemetryData::default();
+
+        storage.radio.telem_slots = [4, 5, 6, 7]; // Custom slots: CAPACITY, TX POWER, SNR, RATE
+
+        pages::telemetry::render(
+            &mut lcd,
+            &storage,
+            false,
+            &telem,
+            4100,
+            0,
+            0,
+            false,
+            false,
+        );
     }
 }

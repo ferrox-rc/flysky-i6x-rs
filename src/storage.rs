@@ -131,7 +131,8 @@ pub struct RadioConfig {
     pub ext_adc: u8,               // 115 (0: Disabled, 1: Enabled / Header P7 AD12-AD15)
     pub adc_modes: [u8; 10],       // 116..126: Input modes for the 10 auxiliary analog channels
     pub stick_mode: u8,            // 126 (0: Mode 1, 1: Mode 2, 2: Mode 3, 3: Mode 4)
-    pub _reserved: [u8; 1],        // 127..128 (1 byte reserved, exact 128-byte guarantee)
+    pub telem_slots: [u8; 4],      // 127..131: Configurable telemetry dashboard sensor slots (1..4)
+    pub _reserved: [u8; 1],        // 131..132 (1 byte reserved)
 }
 
 impl RadioConfig {
@@ -230,6 +231,7 @@ impl RadioConfig {
             ext_adc: 0,
             adc_modes: [0; 10], // Default hardware modes
             stick_mode: 1,      // Mode 2 default
+            telem_slots: [0, 1, 2, 3], // Default: RxBat, RSSI/LQ, TxBat, Current/Link
             _reserved: [0; 1],
         }
     }
@@ -474,6 +476,11 @@ impl RadioStorage {
                 *mode = 0; // Default
             }
         }
+        for slot in self.radio.telem_slots.iter_mut() {
+            if *slot > 11 {
+                *slot = 11; // OFF
+            }
+        }
 
         for (idx, m) in self.models.iter_mut().enumerate() {
             if m.model_type > 4 {
@@ -564,9 +571,9 @@ impl RadioStorage {
     }
 }
 
-const _: () = assert!(core::mem::size_of::<RadioConfig>() == 128);
+const _: () = assert!(core::mem::size_of::<RadioConfig>() == 132);
 const _: () = assert!(core::mem::size_of::<ModelConfig>() == 128);
-const _: () = assert!(core::mem::size_of::<RadioStorage>() == 2688);
+const _: () = assert!(core::mem::size_of::<RadioStorage>() == 2692);
 
 static mut GLOBAL_STORAGE: RadioStorage = RadioStorage::empty();
 
@@ -959,25 +966,41 @@ pub fn load_storage() -> RadioStorage {
 }
 
 pub fn save_active_model(storage: &RadioStorage) -> bool {
-    let mut map = sequential_storage::map::MapStorage::new(
-        Stm32Flash,
-        storage_config(),
-        sequential_storage::cache::Cache::new_uncached(),
-    );
-    let mut buf = [0u8; 256];
-    let idx = (storage.radio.active_model as usize).min(NUM_MODELS - 1);
-    let key = KEY_MODEL_BASE + idx as u8;
-    block_on(map.store_item(&mut buf, &key, &storage.models[idx])).is_ok()
+    #[cfg(test)]
+    {
+        let _ = storage;
+        return true;
+    }
+    #[cfg(not(test))]
+    {
+        let mut map = sequential_storage::map::MapStorage::new(
+            Stm32Flash,
+            storage_config(),
+            sequential_storage::cache::Cache::new_uncached(),
+        );
+        let mut buf = [0u8; 256];
+        let idx = (storage.radio.active_model as usize).min(NUM_MODELS - 1);
+        let key = KEY_MODEL_BASE + idx as u8;
+        block_on(map.store_item(&mut buf, &key, &storage.models[idx])).is_ok()
+    }
 }
 
 pub fn save_radio_config(storage: &RadioStorage) -> bool {
-    let mut map = sequential_storage::map::MapStorage::new(
-        Stm32Flash,
-        storage_config(),
-        sequential_storage::cache::Cache::new_uncached(),
-    );
-    let mut buf = [0u8; 256];
-    block_on(map.store_item(&mut buf, &KEY_RADIO, &storage.radio)).is_ok()
+    #[cfg(test)]
+    {
+        let _ = storage;
+        return true;
+    }
+    #[cfg(not(test))]
+    {
+        let mut map = sequential_storage::map::MapStorage::new(
+            Stm32Flash,
+            storage_config(),
+            sequential_storage::cache::Cache::new_uncached(),
+        );
+        let mut buf = [0u8; 256];
+        block_on(map.store_item(&mut buf, &KEY_RADIO, &storage.radio)).is_ok()
+    }
 }
 
 pub fn save_storage(storage: &RadioStorage) -> bool {
@@ -1049,7 +1072,7 @@ mod tests {
     #[test]
     fn test_model_config_size_and_rf_power() {
         assert_eq!(core::mem::size_of::<ModelConfig>(), 128);
-        assert_eq!(core::mem::size_of::<RadioConfig>(), 128);
+        assert_eq!(core::mem::size_of::<RadioConfig>(), 132);
 
         let default_m = ModelConfig::default_for_index(0);
         assert_eq!(default_m.rf_power, 0);

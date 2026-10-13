@@ -24,7 +24,7 @@ pub fn update_radio_setup(
         buzzer.click();
         return;
     }
-    const SETUP_ITEMS: usize = 13;
+    const SETUP_ITEMS: usize = 14;
 
     widgets::navigate_4slot_list(
         &mut ctrl.selected_item,
@@ -144,6 +144,12 @@ pub fn update_radio_setup(
                 ctrl.selected_item = 0;
                 ctrl.scroll_offset = 0;
             }
+            13 => {
+                buzzer.click();
+                ctrl.state = MenuState::TelemSetup;
+                ctrl.selected_item = 0;
+                ctrl.scroll_offset = 0;
+            }
             _ => {}
         }
     }
@@ -253,6 +259,9 @@ pub fn update_radio_setup(
             12 => {
                 widgets::draw_list_row_right(lcd, slot, is_sel, "Inputs", Some("[SETUP]"));
             }
+            13 => {
+                widgets::draw_list_row_right(lcd, slot, is_sel, "Telem Page:", Some("[SETUP]"));
+            }
             _ => {}
         }
     }
@@ -335,6 +344,79 @@ pub fn update_input_setup(
     }
 
     widgets::draw_footer(lcd, "[OK] Cycle Mode    [ESC] Back");
+}
+
+pub const TELEM_SENSOR_NAMES: [&str; 12] = [
+    "RX BAT",
+    "LQ / RSSI",
+    "TX BAT",
+    "CURRENT",
+    "CAPACITY",
+    "TX POWER",
+    "SNR",
+    "PKT RATE",
+    "ANTENNA",
+    "PACKETS TX",
+    "PACKETS RX",
+    "OFF",
+];
+
+#[inline(never)]
+pub fn update_telem_setup(
+    ctrl: &mut MenuController,
+    lcd: &mut St7567,
+    keys: &NavKeys,
+    storage: &mut RadioStorage,
+    buzzer: &mut Buzzer,
+) {
+    if keys.cancel {
+        ctrl.state = MenuState::RadioSetup;
+        ctrl.selected_item = 13;
+        ctrl.scroll_offset = 10;
+        buzzer.click();
+        return;
+    }
+
+    const SLOT_COUNT: usize = 4;
+    const SLOT_NAMES: [&str; 4] = [
+        "Slot 1 (TL):",
+        "Slot 2 (TR):",
+        "Slot 3 (BL):",
+        "Slot 4 (BR):",
+    ];
+
+    widgets::navigate_4slot_list(
+        &mut ctrl.selected_item,
+        &mut ctrl.scroll_offset,
+        SLOT_COUNT,
+        keys.up,
+        keys.down,
+        buzzer,
+    );
+
+    if keys.ok {
+        let idx = ctrl.selected_item;
+        if idx < SLOT_COUNT {
+            buzzer.click();
+            let current = storage.radio.telem_slots[idx];
+            storage.radio.telem_slots[idx] = (current + 1) % (TELEM_SENSOR_NAMES.len() as u8);
+            storage::save_radio_config(storage);
+        }
+    }
+
+    widgets::draw_header(lcd, "TELEM DASH SETUP");
+
+    for slot in 0..4 {
+        let idx = ctrl.scroll_offset + slot;
+        if idx >= SLOT_COUNT {
+            break;
+        }
+        let is_sel = idx == ctrl.selected_item;
+        let sensor_idx = (storage.radio.telem_slots[idx] as usize).min(TELEM_SENSOR_NAMES.len() - 1);
+        widgets::draw_list_row_right(lcd, slot, is_sel, SLOT_NAMES[idx], Some(TELEM_SENSOR_NAMES[sensor_idx]));
+    }
+
+    widgets::draw_footer(lcd, "[OK] Cycle Sensor  [ESC] Back");
 }
 
 #[inline(never)]
