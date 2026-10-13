@@ -89,6 +89,82 @@ static mut CURRENT_MODE: UsbMode = UsbMode::Off;
 static mut LAST_POLL_MS: u32 = 0;
 static mut LAST_TELEM_STREAM_MS: u32 = 0;
 
+static mut PENDING_INIT_MODE: Option<u8> = None;
+
+/// Request deferred USB re-initialization outside deep call stacks.
+pub fn request_init(mode: u8) {
+    cortex_m::interrupt::free(|_| unsafe {
+        PENDING_INIT_MODE = Some(mode);
+    });
+}
+
+/// Retrieve and clear any pending USB re-initialization request.
+pub fn take_pending_init() -> Option<u8> {
+    cortex_m::interrupt::free(|_| unsafe {
+        PENDING_INIT_MODE.take()
+    })
+}
+
+#[inline(never)]
+unsafe fn init_bus() -> Option<&'static UsbBusAllocator<FlyskyUsbBus>> {
+    let bus = FlyskyUsbBus::new(FlyskyUsb);
+    USB_ALLOCATOR = Some(bus);
+    USB_ALLOCATOR.as_ref()
+}
+
+#[inline(never)]
+unsafe fn init_joystick(alloc: &'static UsbBusAllocator<FlyskyUsbBus>) {
+    let hid = HIDClass::new_ep_in(alloc, hid::GAMEPAD_REPORT_DESC, 10);
+    USB_HID = Some(hid);
+
+    let dev = create_device_builder(
+        alloc,
+        0x1209,
+        0x4F54, // OpenTX / EdgeTX Radio Joystick
+        "FS-i6X Joystick",
+        "FS-I6X-SIM",
+    )
+    .device_class(0x00)
+    .build();
+    USB_DEV = Some(dev);
+}
+
+#[inline(never)]
+unsafe fn init_serial(alloc: &'static UsbBusAllocator<FlyskyUsbBus>) {
+    let serial = SerialPort::new_with_store(alloc, [0u8; 128], [0u8; 512]);
+    USB_SERIAL = Some(serial);
+
+    let dev = create_device_builder(
+        alloc,
+        0x0483,
+        0x5740, // Standard STM32 VCP
+        "FS-i6X Serial",
+        "FS-I6X-VCP",
+    )
+    .device_class(0x02) // USB_CLASS_CDC
+    .build();
+    USB_DEV = Some(dev);
+}
+
+#[inline(never)]
+unsafe fn init_composite(alloc: &'static UsbBusAllocator<FlyskyUsbBus>) {
+    let hid = HIDClass::new_ep_in(alloc, hid::GAMEPAD_REPORT_DESC, 10);
+    let serial = SerialPort::new_with_store(alloc, [0u8; 128], [0u8; 512]);
+    USB_HID = Some(hid);
+    USB_SERIAL = Some(serial);
+
+    let dev = create_device_builder(
+        alloc,
+        0x1209,
+        0x4968, // EdgeTX Radio Composite
+        "FS-i6X Radio",
+        "FS-I6X-COMP",
+    )
+    .composite_with_iads()
+    .build();
+    USB_DEV = Some(dev);
+}
+
 /// Initialize the hardware USB peripheral according to the configured USB mode.
 /// Supports on-the-fly switching between modes by forcing physical disconnect and core reset.
 pub fn init(mode: u8) {
@@ -170,62 +246,16 @@ pub fn init(mode: u8) {
         cortex_m::asm::delay(48_000);
 
         // 5. Setup UsbBus allocator
-        let bus = FlyskyUsbBus::new(FlyskyUsb);
-        USB_ALLOCATOR = Some(bus);
-        let alloc = match USB_ALLOCATOR.as_ref() {
+        let alloc = match init_bus() {
             Some(a) => a,
             None => return,
         };
 
         // 6. Initialize classes based on mode
         match usb_mode {
-            UsbMode::Joystick => {
-                let hid = HIDClass::new_ep_in(alloc, hid::GAMEPAD_REPORT_DESC, 10);
-                USB_HID = Some(hid);
-
-                let dev = create_device_builder(
-                    alloc,
-                    0x1209,
-                    0x4F54, // OpenTX / EdgeTX Radio Joystick
-                    "FS-i6X Joystick",
-                    "FS-I6X-SIM",
-                )
-                .device_class(0x00)
-                .build();
-                USB_DEV = Some(dev);
-            }
-            UsbMode::Serial => {
-                let serial = SerialPort::new_with_store(alloc, [0u8; 128], [0u8; 512]);
-                USB_SERIAL = Some(serial);
-
-                let dev = create_device_builder(
-                    alloc,
-                    0x0483,
-                    0x5740, // Standard STM32 VCP
-                    "FS-i6X Serial",
-                    "FS-I6X-VCP",
-                )
-                .device_class(0x02) // USB_CLASS_CDC
-                .build();
-                USB_DEV = Some(dev);
-            }
-            UsbMode::Composite => {
-                let hid = HIDClass::new_ep_in(alloc, hid::GAMEPAD_REPORT_DESC, 10);
-                let serial = SerialPort::new_with_store(alloc, [0u8; 128], [0u8; 512]);
-                USB_HID = Some(hid);
-                USB_SERIAL = Some(serial);
-
-                let dev = create_device_builder(
-                    alloc,
-                    0x1209,
-                    0x4968, // EdgeTX Radio Composite
-                    "FS-i6X Radio",
-                    "FS-I6X-COMP",
-                )
-                .composite_with_iads()
-                .build();
-                USB_DEV = Some(dev);
-            }
+            UsbMode::Joystick => init_joystick(alloc),
+            UsbMode::Serial => init_serial(alloc),
+            UsbMode::Composite => init_composite(alloc),
             UsbMode::Off => {}
         }
 

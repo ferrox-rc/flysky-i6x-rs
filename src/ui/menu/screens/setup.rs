@@ -104,7 +104,7 @@ pub fn update_radio_setup(
                 buzzer.click();
                 storage.radio.usb_mode = (storage.radio.usb_mode + 1) % 4;
                 storage::save_radio_config(storage);
-                crate::usb::init(storage.radio.usb_mode);
+                crate::usb::request_init(storage.radio.usb_mode);
             }
             8 => {
                 buzzer.click();
@@ -552,13 +552,13 @@ pub fn update_rx_setup(
                 }
                 2 => {
                     let pwr_str = match storage.models[active_idx].rf_power {
-                        0 => "100mW (HIGH)",
+                        0 => "100mW (HI)",
                         1 => "10mW (MID)",
                         2 => "1mW (LOW)",
-                        3 => "100uW (TEST)",
-                        _ => "100mW",
+                        3 => "100uW (TST)",
+                        _ => "100mW (HI)",
                     };
-                    widgets::draw_list_row_right(lcd, slot, is_sel, "RF Power:", Some(pwr_str));
+                    widgets::draw_list_row_right(lcd, slot, is_sel, "Power:", Some(pwr_str));
                 }
                 3 => {
                     let mut hz_buf = [0u8; 8];

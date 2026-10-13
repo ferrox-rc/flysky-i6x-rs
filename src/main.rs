@@ -1089,6 +1089,11 @@ fn main() -> ! {
         // Feed watchdog at loop start to guarantee active execution
         watchdog::feed();
 
+        // Service deferred USB reconfiguration outside deep UI call stacks
+        if let Some(mode) = usb::take_pending_init() {
+            usb::init(mode);
+        }
+
         let now = time::millis();
         let dt_ms = (now.wrapping_sub(last_tick_ms)).min(100) as u16;
 
