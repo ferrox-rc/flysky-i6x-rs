@@ -1038,6 +1038,7 @@ fn main() -> ! {
     trims.values.throttle = active.trims[2];
     trims.values.yaw = active.trims[3];
     rf::set_rx_id(active.rx_id);
+    rf::set_rf_power(active.rf_power);
     rf::set_rx_settings(
         active.servo_rate_hz,
         active.rx_out_mode,

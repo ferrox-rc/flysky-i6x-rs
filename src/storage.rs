@@ -298,7 +298,7 @@ pub struct ModelConfig {
     pub expo_low: [i8; 3],      // 45..48: Low expo (-100..+100%)
     pub timer_secs: u16,        // 48..50: Countdown timer in seconds (e.g. 300 = 5 min)
     pub timer_source: u8, // 50: 0: Off, 1: THs (Thr>5%), 2: THt (Thr Latched), 3: Always On, 4..13: SA^..SDv
-    pub protocol_subtype: u8, // 51: 0: PWM, 1: PPM, 2: i-BUS, 3: S.BUS
+    pub rf_power: u8, // 51: AFHDS 2A RF power (0: 100mW, 1: 10mW, 2: 1mW, 3: 100uW)
     pub failsafe_thr: u16, // 52..54: Failsafe throttle pulse in µs (e.g. 1000)
     pub aux_channels: [u8; 14], // 54..68: Source for CH5..CH18
     pub wing_tail_mix: u8, // 68: 0: Normal, 1: Elevon/Delta, 2: V-Tail, 3: Flaperon
@@ -339,7 +339,7 @@ impl ModelConfig {
             expo_low: [0, 0, 0],
             timer_secs: 300,
             timer_source: 1,
-            protocol_subtype: 0,
+            rf_power: 0,
             failsafe_thr: 1000,
             aux_channels: [7, 8, 5, 6, 9, 10, 0, 0, 0, 0, 0, 0, 0, 0],
             wing_tail_mix: 0,
@@ -539,6 +539,9 @@ impl RadioStorage {
             }
             if m.timer_secs > 3600 {
                 m.timer_secs = 0;
+            }
+            if m.rf_power > 3 {
+                m.rf_power = 0;
             }
             if m.servo_rate_hz < 50 || m.servo_rate_hz > 400 {
                 m.servo_rate_hz = 50;
@@ -1041,5 +1044,19 @@ mod tests {
         assert_eq!(pot.min, 100);
         assert_eq!(pot.center, 2000);
         assert_eq!(pot.max, 3900);
+    }
+
+    #[test]
+    fn test_model_config_size_and_rf_power() {
+        assert_eq!(core::mem::size_of::<ModelConfig>(), 128);
+        assert_eq!(core::mem::size_of::<RadioConfig>(), 128);
+
+        let default_m = ModelConfig::default_for_index(0);
+        assert_eq!(default_m.rf_power, 0);
+
+        let mut storage = RadioStorage::default_factory();
+        storage.models[0].rf_power = 99;
+        storage.sanitize();
+        assert_eq!(storage.models[0].rf_power, 0);
     }
 }

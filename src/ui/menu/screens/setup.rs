@@ -347,9 +347,9 @@ pub fn update_rx_setup(
 ) {
     let active_idx = storage.radio.active_model as usize;
     let proto = storage.models[active_idx].rf_protocol;
-    // 0: AFHDS 2A -> 5 items (0: Proto, 1: [Bind Receiver], 2: Servo Hz, 3: RX Out, 4: Serial)
+    // 0: AFHDS 2A -> 6 items (0: Proto, 1: [Bind Receiver], 2: RF Power, 3: Servo Hz, 4: RX Out, 5: Serial)
     // 1: CRSF -> 4 items (0: Proto, 1: Baud, 2: Duplex, 3: [Configure Module])
-    let item_count = if proto == 0 { 5 } else { 4 };
+    let item_count = if proto == 0 { 6 } else { 4 };
 
     if keys.cancel {
         if ctrl.editing {
@@ -415,6 +415,14 @@ pub fn update_rx_setup(
                     return;
                 }
                 (0, 2) => {
+                    // AFHDS 2A: Cycle RF Power (0: 100mW, 1: 10mW, 2: 1mW, 3: 100uW)
+                    buzzer.click();
+                    storage.models[active_idx].rf_power =
+                        (storage.models[active_idx].rf_power + 1) % 4;
+                    crate::rf::set_rf_power(storage.models[active_idx].rf_power);
+                    storage::save_storage(storage);
+                }
+                (0, 3) => {
                     // AFHDS 2A: Cycle Servo Hz
                     buzzer.click();
                     storage.models[active_idx].servo_rate_hz =
@@ -436,7 +444,7 @@ pub fn update_rx_setup(
                     );
                     storage::save_storage(storage);
                 }
-                (0, 3) => {
+                (0, 4) => {
                     // AFHDS 2A: Toggle RX Out (PWM/PPM)
                     buzzer.click();
                     storage.models[active_idx].rx_out_mode =
@@ -452,7 +460,7 @@ pub fn update_rx_setup(
                     );
                     storage::save_storage(storage);
                 }
-                (0, 4) => {
+                (0, 5) => {
                     // AFHDS 2A: Toggle Serial Proto (i-BUS/S.BUS)
                     buzzer.click();
                     storage.models[active_idx].rx_serial_proto =
@@ -543,12 +551,22 @@ pub fn update_rx_setup(
                     widgets::draw_list_row_right(lcd, slot, is_sel, bind_str, None);
                 }
                 2 => {
+                    let pwr_str = match storage.models[active_idx].rf_power {
+                        0 => "100mW (HIGH)",
+                        1 => "10mW (MID)",
+                        2 => "1mW (LOW)",
+                        3 => "100uW (TEST)",
+                        _ => "100mW",
+                    };
+                    widgets::draw_list_row_right(lcd, slot, is_sel, "RF Power:", Some(pwr_str));
+                }
+                3 => {
                     let mut hz_buf = [0u8; 8];
                     let hz_str =
                         format_servo_hz(storage.models[active_idx].servo_rate_hz, &mut hz_buf);
                     widgets::draw_list_row_right(lcd, slot, is_sel, "Servo Hz:", Some(hz_str));
                 }
-                3 => {
+                4 => {
                     let out_str = if storage.models[active_idx].rx_out_mode == 0 {
                         "PWM"
                     } else {
@@ -556,7 +574,7 @@ pub fn update_rx_setup(
                     };
                     widgets::draw_list_row_right(lcd, slot, is_sel, "RX Out:", Some(out_str));
                 }
-                4 => {
+                5 => {
                     let serial_str = if storage.models[active_idx].rx_serial_proto == 0 {
                         "i-BUS"
                     } else {

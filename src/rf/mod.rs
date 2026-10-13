@@ -163,16 +163,29 @@ pub fn get_last_chip_id() -> u8 {
     a7105::LAST_CHIP_ID.load(Ordering::Relaxed)
 }
 
-/// Put RF frontend and A7105 into standby (silent running) during USB Joystick simulator mode.
+/// Put RF frontend and A7105 into ultra-low-power sleep (< 1 µA) during CRSF
+/// or USB Joystick simulator mode, or wake back up to standby for AFHDS 2A.
 pub fn set_silenced(silenced: bool) {
     let prev = RF_SILENCED.load(Ordering::Relaxed);
     if prev != silenced {
         RF_SILENCED.store(silenced, Ordering::Relaxed);
         if silenced {
-            a7105::strobe(a7105::STROBE_STANDBY);
+            // 1. Disable external PA and LNA frontend
             spi::set_tx_rx_mode(spi::RF_MODE_OFF);
+            // 2. Strobe A7105 into deep power-down sleep (< 1 µA, XTAL off)
+            a7105::strobe(a7105::STROBE_SLEEP);
+        } else {
+            // Wake A7105 back to standby (turns on crystal oscillator)
+            a7105::strobe(a7105::STROBE_STANDBY);
+            // Delay ~1.5 ms (72,000 cycles at 48 MHz) for XTAL oscillator and on-chip LDO to stabilize
+            cortex_m::asm::delay(72_000);
         }
     }
+}
+
+/// Set active AFHDS 2A RF power level (0: HIGH [100mW], 1: MID [10mW], 2: LOW [1mW], 3: TEST [100uW]).
+pub fn set_rf_power(power_idx: u8) {
+    with_driver_mut(|d| d.set_rf_power(power_idx));
 }
 
 /// Check if RF transmission is silenced.
