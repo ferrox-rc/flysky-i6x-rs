@@ -133,6 +133,9 @@ The main flight screen features 5 switchable display pages cycled by tapping **`
 - Flight timer configuration and state.
 
 ### Page 5/5: Dedicated Telemetry & RF Diagnostics
+Page 5/5 provides comprehensive telemetry telemetry monitoring with two distinct operating modes:
+
+#### 1. Default Telemetry Sensors View (Slots: RxBat, LQ/RSSI, TxBat, Current/Link)
 ```
 +-------------------------------------------------------------+
 | [M] MODEL 01              RF:OK               5.18V   [===] | <- Status Bar (y=0..10)
@@ -146,7 +149,7 @@ The main flight screen features 5 switchable display pages cycled by tapping **`
 +-------------------------------------------------------------+
 ```
 - **Live Signal & Diagnostics (Left Column)**:
-  - `RSSI: XX%`: Real-time signal strength from receiver telemetry.
+  - `RSSI: XX%`: Real-time signal strength from receiver telemetry (or `LQ: XX%` in CRSF mode).
   - `LINK: OK / DISC`: Binary link status indicator.
   - `TX: XXXXX`: Total 2.4 GHz RF packets transmitted since boot.
   - `RX: XXXXX`: Total telemetry frames successfully acknowledged by receiver.
@@ -155,6 +158,37 @@ The main flight screen features 5 switchable display pages cycled by tapping **`
   - `TX: X.XXV`: Live transmitter battery voltage.
   - `mRSS: XX%`: Lowest RSSI recorded during the active session (identifies signal dips or edge-of-range events).
   - `mRX: X.XXV`: Lowest flight pack voltage recorded (identifies brownout risks and servo sag).
+
+#### 2. Configurable 4-Tile Custom Dashboard (`CUSTOM TELEM`)
+When any slot in `TELEM DASH SETUP` is customized from default, Page 5/5 automatically reflows into a high-visibility 2x2 quadrant grid:
+```
++-------------------------------------------------------------+
+| [M] MODEL 01              RF:OK               5.18V   [===] | <- Status Bar (y=0..10)
+|-------------------------------------------------------------| <- Top Line (y=11)
+| RX BAT                 | LINK Q                             |
+| 14.8V                  | 100%                               |
+|------------------------+------------------------------------| <- Quadrant Divider (y=31)
+| CAP mAh                | TIMER                              |
+| 1250                   | 04:32                              |
+|-------------------------------------------------------------| <- Bottom Line (y=55)
+| P5/5                      CUSTOM TELEM                      | <- Footer Bar (y=57..62)
++-------------------------------------------------------------+
+```
+- **Grid Layout**: 4 dedicated quadrants (Top-Left: $x=4, y=14$, Top-Right: $x=68, y=14$, Bottom-Left: $x=4, y=33$, Bottom-Right: $x=68, y=33$) separated by vertical ($x=64$) and horizontal ($y=31$) divider lines.
+- **13 Selectable Sensors**: Each quadrant can be independently assigned to any of the 13 available sensors via **`Radio Setup` -> `Telem Page: [SETUP]`**:
+  1. **`RX BAT`**: Flight battery / receiver BEC voltage (`X.XXV` or `----` when disconnected).
+  2. **`LQ/RSSI`**: Link Quality (`100%` in CRSF) or RSSI percentage (`100%` in AFHDS 2A).
+  3. **`TX BAT`**: Transmitter internal battery pack voltage (`X.XXV`).
+  4. **`CURRENT`**: Real-time current consumption in Amperes (`XX.XA` in CRSF) or link state (`OK`/`DISC` in AFHDS 2A).
+  5. **`CAP mAh`**: Cumulative consumed battery capacity in milliampere-hours (`XXXXX`).
+  6. **`TX PWR`**: Transmitter RF power output in milliwatts (`XXX mW` in CRSF).
+  7. **`SNR`**: Uplink signal-to-noise ratio in decibels (`+XXdB` / `-XXdB` in CRSF).
+  8. **`PKT RATE`**: Active RF packet transmission rate (`50Hz`, `150Hz`, `250Hz`, `500Hz`, `D250`, etc.).
+  9. **`ANTENNA`**: Active receiver diversity antenna (`ANT 1` / `ANT 2` in CRSF).
+  10. **`PKTS TX`**: Total over-the-air packet transmission counter.
+  11. **`PKTS RX`**: Total telemetry acknowledgment frame counter.
+  12. **`TIMER`**: Live synchronized flight timer (`MM:SS` countdown / count-up).
+  13. **`OFF`**: Blank quadrant (`SLOT OFF`) to reduce visual clutter.
 
 ---
 
@@ -295,7 +329,7 @@ Assigns physical controls (switches `SA..SD`, pots `VRA/VRB`, modded `SE/SF` and
 - Automatically saved to non-volatile Flash upon exit.
 
 ### Submenu 8: Radio Setup (`RADIO SETUP`)
-The Radio Setup menu features a scrollable 4-item viewport with 9px row heights and automatic vertical scrolling across 12 system-level configuration parameters:
+The Radio Setup menu features a scrollable 4-item viewport with 9px row heights and automatic vertical scrolling across 14 system-level configuration parameters:
 - **`Thr Trim:`**: Toggle between `OFF (Lock)`, `IDLE`, and `LINEAR`.
 - **`Beeper:`**: Toggle audio sound between `ENABLED` and `MUTED`.
 - **`Tones:`**: Select audio notification style between **`RICH`** (melodic multi-tone chime sequences) and **`SIMPLE`** (classic single-tone buzzer beeps). Toggling gives an immediate live audio preview!
@@ -303,7 +337,7 @@ The Radio Setup menu features a scrollable 4-item viewport with 9px row heights 
 - **`BL Level:`**: Backlight brightness level from `10%` to `100%` in 10% steps (supports both stock transistors and the `PC9` hardware PWM dimming mod).
 - **`Contrast:`**: LCD Electronic Volume (EV) contrast adjustment from `20` to `50` in steps of 3 (default: **`37`** / `0x25`). Adjusting this value provides instant live visual preview on the ST7567 display and persists across reboots.
 - **`Bat Warn:`**: Low battery alarm threshold from `4.0V` to `5.0V` in 0.1V steps (default: **`4.4V`**, or 1.10V/cell for 4xAA). When battery drops below this voltage, the status bar badge flashes inverted and an audible warning chirp sounds.
-- **`USB Mode:`**: Selects active USB peripheral personality (switches on-the-fly without rebooting):
+- **`USB Mode:`**: Selects active USB peripheral personality (switches on-the-fly via decoupled state transition with zero stack recursion or hardfault risk):
   - **`OFF`** (Default): Disables USB peripheral and D+ pullup to prevent unwanted PC inputs and minimize power draw.
   - **`JOYSTICK`**: 100 Hz native USB Gamepad for flight simulators with silent RF standby (zero RF radiation, cool running).
   - **`SERIAL`**: Virtual COM Port (CDC-ACM) at 115200 baud streaming live JSON telemetry while maintaining normal RF transmission.
@@ -316,20 +350,27 @@ The Radio Setup menu features a scrollable 4-item viewport with 9px row heights 
   - Channels: `SA (PA4)`, `SB (PA5)`, `SC (PB0)`, `SD (PB1)`, `VRA (PA6)`, `VRB (PA7)`, and Header P7 inputs `VRC (P7)`, `VRD (P7)`, `VRE (P7)`, `VRF (P7)`.
   - Modes: **`DEFAULT`**, **`2-POS`**, **`3-POS`**, **`6-POS`**, **`POT`**, and **`POT-D`** (Pot with center detent click).
   - Toggling immediately reapplies calibration, adjusts the main flight dashboard layout dynamically, and enables center acoustic clicks when `POT-D` is selected.
+- **`Telem Page:`**: Opens the **Telemetry Dashboard Setup** (`TELEM DASH SETUP`) sub-screen to independently assign each quadrant of Flight Page 5/5:
+  - Slots: **`Top-L:`** (Top-Left), **`Top-R:`** (Top-Right), **`Btm-L:`** (Bottom-Left), **`Btm-R:`** (Bottom-Right).
+  - Pressing **`[OK]`** cycles through the 13 available sensors: `RX BAT`, `LQ/RSSI`, `TX BAT`, `CURRENT`, `CAP mAh`, `TX PWR`, `SNR`, `PKT RATE`, `ANTENNA`, `PKTS TX`, `PKTS RX`, `TIMER`, `OFF`.
+  - Configurations persist automatically to non-volatile storage and dynamically activate the 4-tile `CUSTOM TELEM` dashboard.
 
 ### Submenu 9: Protocol Setup (`PROTOCOL SETUP`)
 Universal RF protocol and receiver configuration, saved per-model:
 - **`Proto: AFHDS 2A`**: Uses the built-in A7105 transceiver. Configures model-specific receiver settings transmitted over the air:
   - `[Bind: XXXXXXXX]`: Displays active bound receiver ID (e.g. `[Bind: 1A2B3C4D]`). Pressing **`[OK]`** initiates over-the-air pairing.
+  - `Power:`: Transmitter RF output power: cycle through **`100mW (HI)`**, **`10mW (MID)`**, **`1mW (LOW)`**, and **`100uW (TST)`** (microwatt range test mode). Persisted per-model in storage.
   - `Servo Hz:`: PWM servo refresh rate: cycle through `50 Hz`, `60 Hz`, `100 Hz`, `150 Hz`, `200 Hz`, `250 Hz`, `300 Hz`, `350 Hz`, `400 Hz` (default: **`50 Hz`**).
     > **Servo Safety Warning**: Standard analog servos (e.g. SG90, MG90S) **MUST** be driven at 50 Hz. Feeding higher frequencies to analog servos can cause severe jitter, excessive heating, and motor burnout. Only select rates above 50 Hz when all connected servos are high-speed digital servos rated for higher frame rates.
   - `RX Out:`: Receiver output signal format: **`PWM`** (individual servo pin outputs) or **`PPM`** (composite Pulse Position Modulation stream on CH1).
   - `Serial:`: Receiver serial bus protocol: **`i-BUS`** (`0xDE`, FlySky proprietary bidirectional serial protocol) or **`S.BUS`** (`0xDD`, Futaba/FrSky inverted serial stream for flight controllers). Transmitted immediately over the air to reconfigure the receiver hardware dynamically.
-- **`Proto: CRSF`**: Drives external Crossfire, ExpressLRS, or compatible CRSF transmitter modules connected to the rear expansion bay (`PD5` TX, `PA15` RX) with hardware power control on `PC13`. Pressing **`[OK]`** cycles selection through Protocol, Baud Rate, Duplex mode, and Configure Module:
-  - `Baud:` Selectable baud rate: `115.2k (Low)`, `416.6k (TBS)`, `420k (ELRS)` (default), `921.6k (Fast)`, and `1.875M (Max)`.
-  - `Duplex:` Serial wiring topology: `Full (2W)` (standard 2-wire `PD5` TX / `PA15` RX) or `Half (1W)` (bidirectional single-wire half-duplex over `PD5` with hardware self-echo suppression).
-  - `[Configure Module]`: Opens the native TBS-Agent style configurator screen to discover devices, navigate subfolders, and configure settings.
-  - *For complete wiring pinouts, power polarity settings, live telemetry dashboard metrics, and the configurator guide, see the dedicated [CRSF Subsystem Guide](CRSF_ELRS_GUIDE.md).*
+- **`Proto: CRSF`**: Drives external Crossfire, ExpressLRS, or compatible CRSF transmitter modules connected to the rear expansion bay (`PD5` TX, `PA15` RX) with hardware power control on `PC13`.
+  - **A7105 Deep Sleep**: When CRSF protocol is selected, the internal A7105 2.4 GHz RF transceiver is automatically placed into deep sleep mode (`0x0F`), completely eliminating internal RF transmission, reducing battery consumption, and preventing thermal buildup.
+  - Pressing **`[OK]`** cycles selection through Protocol, Baud Rate, Duplex mode, and Configure Module:
+    - `Baud:` Selectable baud rate: `115.2k (Low)`, `416.6k (TBS)`, `420k (ELRS)` (default), `921.6k (Fast)`, and `1.875M (Max)`.
+    - `Duplex:` Serial wiring topology: `Full (2W)` (standard 2-wire `PD5` TX / `PA15` RX) or `Half (1W)` (bidirectional single-wire half-duplex over `PD5` with hardware self-echo suppression).
+    - `[Configure Module]`: Opens the native TBS-Agent style configurator screen to discover devices, navigate subfolders, and configure settings.
+    - *For complete wiring pinouts, power polarity settings, live telemetry dashboard metrics, and the configurator guide, see the dedicated [CRSF Subsystem Guide](CRSF_ELRS_GUIDE.md).*
 
 ### Submenu 10: Channel Monitor (`CHANNEL MONITOR`)
 - Displays live pulse widths (1000..2000 µs) across all 18 channels with 40-pixel horizontal graphic bar indicators and exact microsecond numbers.

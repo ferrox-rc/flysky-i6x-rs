@@ -183,3 +183,12 @@ This document tracks the phased implementation, historical milestones, and ongoi
 - [x] Full matrix mixer and auxiliary channel assignment (`CH5`–`CH18`) support for `SE`, `SF`, `VRC`, `VRD`, `VRE`, `VRF`.
 - [x] Dynamic 6-switch dashboard display on gimbals flight screen (`SA`–`SF`).
 - [x] Native USB Gamepad mapping of `SE` and `SF` to discrete buttons 11 and 12 for simulator use.
+
+### Phase 23: Configurable Telemetry Dashboard & RF Power Management (COMPLETED / BRANCH: `feat/custom-telemetry-page`)
+- [x] Configurable 4-tile telemetry dashboard on Flight Page 5/5 (`CUSTOM TELEM`) with 2x2 quadrant layout.
+- [x] Dedicated `TELEM DASH SETUP` screen under `Radio Setup` configuring slots `Top-L:`, `Top-R:`, `Btm-L:`, and `Btm-R:`.
+- [x] Support for 13 selectable telemetry items (`RX BAT`, `LQ/RSSI`, `TX BAT`, `CURRENT`, `CAP mAh`, `TX PWR`, `SNR`, `PKT RATE`, `ANTENNA`, `PKTS TX`, `PKTS RX`, `TIMER`, `OFF`).
+- [x] Configurable AFHDS 2A transmitter RF output power in `Protocol Setup` (`100mW (HI)`, `10mW (MID)`, `1mW (LOW)`, `100uW (TST)`).
+- [x] Automatic deep sleep power-down (`0x0F`) for the internal A7105 transceiver when operating with external CRSF/ELRS modules.
+- [x] Decoupled stack-safe USB mode switching eliminating recursion and hardfault risks.
+- [x] Automated text clearance validation asserting zero visual overlap between slot labels and sensor names.
