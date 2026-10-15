@@ -266,7 +266,7 @@ pub fn init_tim16(period_us: u16) {
         // PSC = 47 -> 48 MHz / (47 + 1) = 1 MHz = 1.0 µs per tick
         tim16.psc.write(|w| w.psc().bits(47));
         // ARR = period_us - 1 (e.g. 3850 - 1 = 3849 for 3.850 ms period)
-        tim16.arr.write(|w| w.arr().bits((period_us as u16).saturating_sub(1)));
+        tim16.arr.write(|w| w.arr().bits(period_us.saturating_sub(1)));
 
         // Clear update interrupt flag
         tim16.sr.write(|w| w.bits(0));
