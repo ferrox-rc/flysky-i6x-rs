@@ -7,6 +7,7 @@ use crate::storage::RadioStorage;
 use crate::ui::format::{ascii_as_str, format_vbat, u32_to_dec_5};
 use crate::ui::widgets;
 
+#[allow(clippy::too_many_arguments)]
 fn render_sensor_tile(
     lcd: &mut St7567,
     sensor_id: u8,
