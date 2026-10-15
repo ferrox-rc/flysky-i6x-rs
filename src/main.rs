@@ -44,7 +44,7 @@ use cortex_m_rt::entry;
 
 use flysky_i6x_rs::{
     adc, boot, buzzer, calib, chip, crsf, curve, display, input, mixer, rf, safety, storage, time,
-    trim, ui, usb, watchdog,
+    trainer, trim, ui, usb, watchdog,
 };
 pub use ui::menu;
 
@@ -139,7 +139,7 @@ impl FlightPipeline {
         );
 
         // 5. Compute all 14 channels via 4-stage pipeline (D/R, Expo, Matrix Mixer, Trims, Reversing)
-        let rf_chs = mixer::compute_channels(
+        let mut rf_chs = mixer::compute_channels(
             controls.aileron,
             controls.elevator,
             thr_curved,
@@ -158,9 +158,23 @@ impl FlightPipeline {
             storage.radio.throttle_trim,
         );
 
+        // 5b. Safety Handover: Process student PPM input if Trainer In is enabled
+        if storage.radio.is_ppm_in_enabled() {
+            let trainer_switch_active = state.switches.sd == input::SwitchPos::Down;
+            let mut handover_chs = rf_chs;
+            trainer::process_handover(trainer_switch_active, &rf_chs, &mut handover_chs);
+            rf_chs = handover_chs;
+        }
+
+        let sim_mode = usb::is_sim_mode();
+
+        // 5c. PPM Output: Update 22.5ms CPPM stream on PF10 if PPM Out is enabled
+        if !sim_mode && storage.radio.is_ppm_out_enabled() {
+            trainer::update_out_channels(&rf_chs);
+        }
+
         // 6. Publish channels to active RF subsystem
         let is_crsf = active_model.rf_protocol == 1;
-        let sim_mode = usb::is_sim_mode();
 
         if is_crsf {
             let crsf_active = !sim_mode;
@@ -1028,6 +1042,12 @@ fn main() -> ! {
     // Initialize CRSF / ExpressLRS expansion bay peripheral (USART2 & PC13)
     crsf::init(storage.radio.ext_module_pwr == 0);
 
+    // Initialize Trainer / PPM subsystem (TIM15, PF9 In, PF10 Out)
+    trainer::init(
+        storage.radio.is_ppm_out_enabled(),
+        storage.radio.is_ppm_in_enabled(),
+    );
+
     let mut trims = trim::TrimController::new();
     trims.throttle_enabled = storage.radio.throttle_trim != 0;
 
@@ -1103,6 +1123,7 @@ fn main() -> ! {
         if dt_ms > 0 {
             last_tick_ms = now;
             buzzer.tick(dt_ms);
+            trainer::tick_ms(dt_ms as u16);
             if !menu_active {
                 trims.update(keys, dt_ms, &mut buzzer);
             }

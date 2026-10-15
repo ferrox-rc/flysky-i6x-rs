@@ -14,6 +14,7 @@ pub mod rf;
 pub mod safety;
 pub mod storage;
 pub mod time;
+pub mod trainer;
 pub mod trim;
 pub mod ui;
 pub use ui::menu;

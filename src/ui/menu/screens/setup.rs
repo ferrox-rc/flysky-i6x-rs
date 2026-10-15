@@ -24,7 +24,7 @@ pub fn update_radio_setup(
         buzzer.click();
         return;
     }
-    const SETUP_ITEMS: usize = 14;
+    const SETUP_ITEMS: usize = 16;
 
     widgets::navigate_4slot_list(
         &mut ctrl.selected_item,
@@ -150,6 +150,20 @@ pub fn update_radio_setup(
                 ctrl.selected_item = 0;
                 ctrl.scroll_offset = 0;
             }
+            14 => {
+                buzzer.click();
+                let en = !storage.radio.is_ppm_out_enabled();
+                storage.radio.set_ppm_out_enabled(en);
+                crate::trainer::set_ppm_out(en);
+                storage::save_radio_config(storage);
+            }
+            15 => {
+                buzzer.click();
+                let en = !storage.radio.is_ppm_in_enabled();
+                storage.radio.set_ppm_in_enabled(en);
+                crate::trainer::set_ppm_in(en);
+                storage::save_radio_config(storage);
+            }
             _ => {}
         }
     }
@@ -261,6 +275,22 @@ pub fn update_radio_setup(
             }
             13 => {
                 widgets::draw_list_row_right(lcd, slot, is_sel, "Telem Page:", Some("[SETUP]"));
+            }
+            14 => {
+                let ppm_str = if storage.radio.is_ppm_out_enabled() {
+                    "ENABLED"
+                } else {
+                    "OFF"
+                };
+                widgets::draw_list_row_right(lcd, slot, is_sel, "PPM Out:", Some(ppm_str));
+            }
+            15 => {
+                let in_str = if storage.radio.is_ppm_in_enabled() {
+                    "ENABLED"
+                } else {
+                    "OFF"
+                };
+                widgets::draw_list_row_right(lcd, slot, is_sel, "Trainer In:", Some(in_str));
             }
             _ => {}
         }

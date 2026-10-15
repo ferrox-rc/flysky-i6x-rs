@@ -132,7 +132,7 @@ pub struct RadioConfig {
     pub adc_modes: [u8; 10],       // 116..126: Input modes for the 10 auxiliary analog channels
     pub stick_mode: u8,            // 126 (0: Mode 1, 1: Mode 2, 2: Mode 3, 3: Mode 4)
     pub telem_slots: [u8; 4],      // 127..131: Configurable telemetry dashboard sensor slots (1..4)
-    pub _reserved: [u8; 1],        // 131..132 (1 byte reserved)
+    pub trainer_config: u8,        // 131: Bit 0: PPM Out on PF10, Bit 1: PPM In on PF9
 }
 
 impl RadioConfig {
@@ -232,7 +232,39 @@ impl RadioConfig {
             adc_modes: [0; 10], // Default hardware modes
             stick_mode: 1,      // Mode 2 default
             telem_slots: [0, 1, 2, 3], // Default: RxBat, RSSI/LQ, TxBat, Current/Link
-            _reserved: [0; 1],
+            trainer_config: 0,
+        }
+    }
+
+    /// Check if PPM Output on PF10 is enabled.
+    #[inline(always)]
+    pub fn is_ppm_out_enabled(&self) -> bool {
+        (self.trainer_config & 0x01) != 0
+    }
+
+    /// Check if PPM Input on PF9 is enabled.
+    #[inline(always)]
+    pub fn is_ppm_in_enabled(&self) -> bool {
+        (self.trainer_config & 0x02) != 0
+    }
+
+    /// Set PPM Output on PF10 enabled state.
+    #[inline(always)]
+    pub fn set_ppm_out_enabled(&mut self, enabled: bool) {
+        if enabled {
+            self.trainer_config |= 0x01;
+        } else {
+            self.trainer_config &= !0x01;
+        }
+    }
+
+    /// Set PPM Input on PF9 enabled state.
+    #[inline(always)]
+    pub fn set_ppm_in_enabled(&mut self, enabled: bool) {
+        if enabled {
+            self.trainer_config |= 0x02;
+        } else {
+            self.trainer_config &= !0x02;
         }
     }
 
@@ -480,6 +512,9 @@ impl RadioStorage {
             if *slot > 12 {
                 *slot = 12; // OFF
             }
+        }
+        if self.radio.trainer_config > 3 {
+            self.radio.trainer_config = 0;
         }
 
         for (idx, m) in self.models.iter_mut().enumerate() {
@@ -1089,5 +1124,33 @@ mod tests {
         storage.radio.telem_slots = [0, 11, 12, 13];
         storage.sanitize();
         assert_eq!(storage.radio.telem_slots, [0, 11, 12, 12]);
+    }
+
+    #[test]
+    fn test_trainer_config_helpers_and_sanitize() {
+        let mut radio = RadioConfig::default_factory();
+        assert_eq!(radio.trainer_config, 0);
+        assert!(!radio.is_ppm_out_enabled());
+        assert!(!radio.is_ppm_in_enabled());
+
+        radio.set_ppm_out_enabled(true);
+        assert!(radio.is_ppm_out_enabled());
+        assert!(!radio.is_ppm_in_enabled());
+        assert_eq!(radio.trainer_config, 1);
+
+        radio.set_ppm_in_enabled(true);
+        assert!(radio.is_ppm_out_enabled());
+        assert!(radio.is_ppm_in_enabled());
+        assert_eq!(radio.trainer_config, 3);
+
+        radio.set_ppm_out_enabled(false);
+        assert!(!radio.is_ppm_out_enabled());
+        assert!(radio.is_ppm_in_enabled());
+        assert_eq!(radio.trainer_config, 2);
+
+        let mut storage = RadioStorage::default_factory();
+        storage.radio.trainer_config = 99;
+        storage.sanitize();
+        assert_eq!(storage.radio.trainer_config, 0);
     }
 }

@@ -412,4 +412,53 @@ mod tests {
             }
         }
     }
+
+    #[test]
+    fn test_radio_setup_ppm_and_trainer_toggle() {
+        let mut ctrl = MenuController::new();
+        let mut buzzer = Buzzer::new();
+        let mut lcd = St7567::new();
+        let mut storage = RadioStorage::default_factory();
+        let mut trims = crate::trim::TrimController::new();
+
+        ctrl.state = MenuState::RadioSetup;
+        ctrl.selected_item = 14;
+        ctrl.scroll_offset = 12;
+
+        assert!(!storage.radio.is_ppm_out_enabled());
+        assert!(!storage.radio.is_ppm_in_enabled());
+
+        let mut nav = NavKeys {
+            ok: true,
+            cancel: false,
+            up: false,
+            down: false,
+            bind: false,
+            sw_change: None,
+            dr_change: None,
+        };
+
+        // Press OK on slot 14 -> Toggle PPM Out ON
+        screens::setup::update_radio_setup(&mut ctrl, &mut lcd, &nav, &mut storage, &mut trims, &mut buzzer);
+        assert!(storage.radio.is_ppm_out_enabled());
+        assert!(!storage.radio.is_ppm_in_enabled());
+
+        // Move to slot 15
+        nav.ok = false;
+        nav.down = true;
+        screens::setup::update_radio_setup(&mut ctrl, &mut lcd, &nav, &mut storage, &mut trims, &mut buzzer);
+        assert_eq!(ctrl.selected_item, 15);
+
+        // Press OK on slot 15 -> Toggle Trainer In ON
+        nav.down = false;
+        nav.ok = true;
+        screens::setup::update_radio_setup(&mut ctrl, &mut lcd, &nav, &mut storage, &mut trims, &mut buzzer);
+        assert!(storage.radio.is_ppm_out_enabled());
+        assert!(storage.radio.is_ppm_in_enabled());
+
+        // Press OK again on slot 15 -> Toggle Trainer In OFF
+        screens::setup::update_radio_setup(&mut ctrl, &mut lcd, &nav, &mut storage, &mut trims, &mut buzzer);
+        assert!(storage.radio.is_ppm_out_enabled());
+        assert!(!storage.radio.is_ppm_in_enabled());
+    }
 }
