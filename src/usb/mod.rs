@@ -33,11 +33,8 @@ unsafe impl UsbPeripheral for FlyskyUsb {
     fn enable() {
         unsafe {
             // Enable USB peripheral clock in RCC_APB1ENR bit 23
-            let rcc_apb1enr = 0x4002_101C as *mut u32;
-            core::ptr::write_volatile(
-                rcc_apb1enr,
-                core::ptr::read_volatile(rcc_apb1enr) | (1 << 23),
-            );
+            let rcc = &*stm32f0xx_hal::pac::RCC::ptr();
+            rcc.apb1enr.modify(|_, w| w.usben().set_bit());
         }
     }
 
@@ -181,26 +178,21 @@ pub fn init(mode: u8) {
             SERIAL_HANDLER = SerialHandler::new();
         });
 
+        let rcc = &*stm32f0xx_hal::pac::RCC::ptr();
+        let gpioa = &*stm32f0xx_hal::pac::GPIOA::ptr();
+        let usb = &*stm32f0xx_hal::pac::USB::ptr();
+
         // 2. Ensure USB peripheral clock is enabled so BCDR and peripheral registers can be written
-        let rcc_apb1enr = 0x4002_101C as *mut u32;
-        core::ptr::write_volatile(
-            rcc_apb1enr,
-            core::ptr::read_volatile(rcc_apb1enr) | (1 << 23),
-        );
+        rcc.apb1enr.modify(|_, w| w.usben().set_bit());
 
         // 3. Disable DPPU in BCDR and drive PA11 (D-) and PA12 (D+) LOW (SE0) to force physical disconnect on host PC
-        let bcdr = 0x4000_5C58 as *mut u32;
-        core::ptr::write_volatile(bcdr, 0); // Disable DPPU
+        usb.bcdr.write(|w| w.bits(0)); // Disable DPPU
 
-        let gpioa_moder = 0x4800_0000 as *mut u32;
-        let gpioa_bsrr = 0x4800_0018 as *mut u32;
-        let moder = core::ptr::read_volatile(gpioa_moder);
         // Set PA11 (bits 23:22) and PA12 (bits 25:24) to general output (0b01) and drive LOW (SE0)
-        core::ptr::write_volatile(
-            gpioa_moder,
-            (moder & !((0b11 << 22) | (0b11 << 24))) | ((0b01 << 22) | (0b01 << 24)),
-        );
-        core::ptr::write_volatile(gpioa_bsrr, (1 << (11 + 16)) | (1 << (12 + 16)));
+        gpioa.moder.modify(|r, w| {
+            w.bits((r.bits() & !((0b11 << 22) | (0b11 << 24))) | ((0b01 << 22) | (0b01 << 24)))
+        });
+        gpioa.bsrr.write(|w| w.bits((1 << (11 + 16)) | (1 << (12 + 16))));
 
         // ~250 ms delay to guarantee host root hub detects physical disconnect, feeding watchdog throughout
         for _ in 0..25 {
@@ -209,38 +201,23 @@ pub fn init(mode: u8) {
         }
 
         // 4. Hardware peripheral reset via RCC APB1RSTR (bit 23 = USBRST)
-        let rcc_apb1rstr = 0x4002_1010 as *mut u32;
-        core::ptr::write_volatile(
-            rcc_apb1rstr,
-            core::ptr::read_volatile(rcc_apb1rstr) | (1 << 23),
-        );
+        rcc.apb1rstr.modify(|_, w| w.usbrst().set_bit());
         cortex_m::asm::delay(48_000);
-        core::ptr::write_volatile(
-            rcc_apb1rstr,
-            core::ptr::read_volatile(rcc_apb1rstr) & !(1 << 23),
-        );
+        rcc.apb1rstr.modify(|_, w| w.usbrst().clear_bit());
 
         if usb_mode == UsbMode::Off {
             // Disable USB peripheral clock
-            core::ptr::write_volatile(
-                rcc_apb1enr,
-                core::ptr::read_volatile(rcc_apb1enr) & !(1 << 23),
-            );
+            rcc.apb1enr.modify(|_, w| w.usben().clear_bit());
             // Set PA11 and PA12 as analog inputs to float pins and conserve battery
-            let moder = core::ptr::read_volatile(gpioa_moder);
-            core::ptr::write_volatile(gpioa_moder, moder | (0b11 << 22) | (0b11 << 24));
+            gpioa.moder.modify(|r, w| w.bits(r.bits() | (0b11 << 22) | (0b11 << 24)));
             return;
         }
 
         // Configure PA11 & PA12 as AF0 (USB_DM & USB_DP)
-        let gpioa_afrh = 0x4800_0024 as *mut u32;
-        let moder = core::ptr::read_volatile(gpioa_moder);
-        core::ptr::write_volatile(
-            gpioa_moder,
-            (moder & !((0b11 << 22) | (0b11 << 24))) | ((0b10 << 22) | (0b10 << 24)),
-        );
-        let afrh = core::ptr::read_volatile(gpioa_afrh);
-        core::ptr::write_volatile(gpioa_afrh, afrh & !((0xF << 12) | (0xF << 16)));
+        gpioa.moder.modify(|r, w| {
+            w.bits((r.bits() & !((0b11 << 22) | (0b11 << 24))) | ((0b10 << 22) | (0b10 << 24)))
+        });
+        gpioa.afrh.modify(|r, w| w.bits(r.bits() & !((0xF << 12) | (0xF << 16))));
 
         // Stabilization delay
         cortex_m::asm::delay(48_000);
@@ -261,13 +238,9 @@ pub fn init(mode: u8) {
 
         // 7. Configure NVIC for USB Interrupt (IRQ 31)
         // Priority 0xC0 (level 3, lowest) so RF interrupts (EXTI2_3 & TIM16 at 0x80) strictly preempt USB
-        const NVIC_IPR7: *mut u32 = 0xE000_E41C as *mut u32;
-        let ipr7 = core::ptr::read_volatile(NVIC_IPR7);
-        core::ptr::write_volatile(NVIC_IPR7, (ipr7 & !(0xFF << 24)) | (0xC0 << 24));
-
-        // Clear any pending interrupt on IRQ 31
-        const NVIC_ICPR: *mut u32 = 0xE000_E280 as *mut u32;
-        core::ptr::write_volatile(NVIC_ICPR, 1 << 31);
+        let mut cp = cortex_m::peripheral::Peripherals::steal();
+        cp.NVIC.set_priority(stm32f0xx_hal::pac::Interrupt::USB, 0xC0);
+        cortex_m::peripheral::NVIC::unpend(stm32f0xx_hal::pac::Interrupt::USB);
 
         // 8. Commit active mode and unmask USB interrupt in NVIC
         CURRENT_MODE = usb_mode;
