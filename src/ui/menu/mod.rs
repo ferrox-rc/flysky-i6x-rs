@@ -29,6 +29,7 @@ pub enum MenuState {
     ChannelReverse,
     RadioSetup,
     InputSetup,
+    TelemSetup,
     RxSetup,
     CrsfSetup,
     ChannelMonitor,
@@ -253,6 +254,9 @@ impl MenuController {
             MenuState::InputSetup => {
                 screens::setup::update_input_setup(self, lcd, &nav_keys, storage, buzzer);
             }
+            MenuState::TelemSetup => {
+                screens::setup::update_telem_setup(self, lcd, &nav_keys, storage, buzzer);
+            }
             MenuState::RxSetup => {
                 screens::setup::update_rx_setup(self, lcd, &nav_keys, storage, buzzer);
             }
@@ -306,5 +310,106 @@ mod tests {
         assert_eq!(ctrl.scroll_offset, 5);
         assert!(!ctrl.editing);
         assert!(ctrl.waiting_release);
+    }
+
+    #[test]
+    fn test_telem_setup_navigation_and_cycling() {
+        let mut ctrl = MenuController::new();
+        let mut buzzer = Buzzer::new();
+        let mut lcd = St7567::new();
+        let mut storage = RadioStorage::default_factory();
+
+        ctrl.state = MenuState::TelemSetup;
+        ctrl.selected_item = 0;
+        ctrl.scroll_offset = 0;
+
+        assert_eq!(storage.radio.telem_slots, [0, 1, 2, 3]);
+
+        let mut nav = NavKeys {
+            ok: true,
+            cancel: false,
+            up: false,
+            down: false,
+            bind: false,
+            sw_change: None,
+            dr_change: None,
+        };
+
+        // Press OK on slot 0 -> cycle to 1 (LQ / RSSI)
+        screens::setup::update_telem_setup(&mut ctrl, &mut lcd, &nav, &mut storage, &mut buzzer);
+        assert_eq!(storage.radio.telem_slots[0], 1);
+
+        // Move down to slot 1
+        nav.ok = false;
+        nav.down = true;
+        screens::setup::update_telem_setup(&mut ctrl, &mut lcd, &nav, &mut storage, &mut buzzer);
+        assert_eq!(ctrl.selected_item, 1);
+
+        // Press OK on slot 1 -> cycle to 2 (TX BAT)
+        nav.down = false;
+        nav.ok = true;
+        screens::setup::update_telem_setup(&mut ctrl, &mut lcd, &nav, &mut storage, &mut buzzer);
+        assert_eq!(storage.radio.telem_slots[1], 2);
+
+        // Press Cancel -> return to RadioSetup with item 13 selected
+        nav.ok = false;
+        nav.cancel = true;
+        screens::setup::update_telem_setup(&mut ctrl, &mut lcd, &nav, &mut storage, &mut buzzer);
+        assert_eq!(ctrl.state, MenuState::RadioSetup);
+        assert_eq!(ctrl.selected_item, 13);
+    }
+
+    #[test]
+    fn test_telem_setup_full_cycle_and_timer() {
+        let mut ctrl = MenuController::new();
+        let mut buzzer = Buzzer::new();
+        let mut lcd = St7567::new();
+        let mut storage = RadioStorage::default_factory();
+
+        ctrl.state = MenuState::TelemSetup;
+        ctrl.selected_item = 0;
+        ctrl.scroll_offset = 0;
+
+        let nav = NavKeys {
+            ok: true,
+            cancel: false,
+            up: false,
+            down: false,
+            bind: false,
+            sw_change: None,
+            dr_change: None,
+        };
+
+        // Cycle through all 13 sensor slots on slot 0: starts at 0
+        for expected in 1..=12 {
+            screens::setup::update_telem_setup(&mut ctrl, &mut lcd, &nav, &mut storage, &mut buzzer);
+            assert_eq!(storage.radio.telem_slots[0], expected);
+        }
+        // Slot 11 is TIMER, Slot 12 is OFF
+        assert_eq!(screens::setup::TELEM_SENSOR_NAMES[11], "TIMER");
+        assert_eq!(screens::setup::TELEM_SENSOR_NAMES[12], "OFF");
+
+        // Next cycle wraps back to 0 (RX BAT)
+        screens::setup::update_telem_setup(&mut ctrl, &mut lcd, &nav, &mut storage, &mut buzzer);
+        assert_eq!(storage.radio.telem_slots[0], 0);
+        assert_eq!(screens::setup::TELEM_SENSOR_NAMES[0], "RX BAT");
+    }
+
+    #[test]
+    fn test_telem_setup_no_text_overlap() {
+        for slot in screens::setup::SLOT_NAMES {
+            let label_end_x = 4 + (slot.len() * 6);
+            for sensor in screens::setup::TELEM_SENSOR_NAMES {
+                let val_start_x = 124 - (sensor.len() * 6);
+                assert!(
+                    val_start_x > label_end_x,
+                    "Sensor '{}' (starts at x={}) overlaps slot '{}' (ends at x={})",
+                    sensor,
+                    val_start_x,
+                    slot,
+                    label_end_x
+                );
+            }
+        }
     }
 }

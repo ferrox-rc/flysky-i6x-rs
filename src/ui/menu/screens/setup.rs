@@ -24,7 +24,7 @@ pub fn update_radio_setup(
         buzzer.click();
         return;
     }
-    const SETUP_ITEMS: usize = 13;
+    const SETUP_ITEMS: usize = 14;
 
     widgets::navigate_4slot_list(
         &mut ctrl.selected_item,
@@ -104,7 +104,7 @@ pub fn update_radio_setup(
                 buzzer.click();
                 storage.radio.usb_mode = (storage.radio.usb_mode + 1) % 4;
                 storage::save_radio_config(storage);
-                crate::usb::init(storage.radio.usb_mode);
+                crate::usb::request_init(storage.radio.usb_mode);
             }
             8 => {
                 buzzer.click();
@@ -141,6 +141,12 @@ pub fn update_radio_setup(
             12 => {
                 buzzer.click();
                 ctrl.state = MenuState::InputSetup;
+                ctrl.selected_item = 0;
+                ctrl.scroll_offset = 0;
+            }
+            13 => {
+                buzzer.click();
+                ctrl.state = MenuState::TelemSetup;
                 ctrl.selected_item = 0;
                 ctrl.scroll_offset = 0;
             }
@@ -253,6 +259,9 @@ pub fn update_radio_setup(
             12 => {
                 widgets::draw_list_row_right(lcd, slot, is_sel, "Inputs", Some("[SETUP]"));
             }
+            13 => {
+                widgets::draw_list_row_right(lcd, slot, is_sel, "Telem Page:", Some("[SETUP]"));
+            }
             _ => {}
         }
     }
@@ -337,6 +346,81 @@ pub fn update_input_setup(
     widgets::draw_footer(lcd, "[OK] Cycle Mode    [ESC] Back");
 }
 
+pub const TELEM_SENSOR_NAMES: [&str; 13] = [
+    "RX BAT",
+    "LQ/RSSI",
+    "TX BAT",
+    "CURRENT",
+    "CAP mAh",
+    "TX PWR",
+    "SNR",
+    "PKT RATE",
+    "ANTENNA",
+    "PKTS TX",
+    "PKTS RX",
+    "TIMER",
+    "OFF",
+];
+
+pub const SLOT_NAMES: [&str; 4] = [
+    "Top-L:",
+    "Top-R:",
+    "Btm-L:",
+    "Btm-R:",
+];
+
+#[inline(never)]
+pub fn update_telem_setup(
+    ctrl: &mut MenuController,
+    lcd: &mut St7567,
+    keys: &NavKeys,
+    storage: &mut RadioStorage,
+    buzzer: &mut Buzzer,
+) {
+    if keys.cancel {
+        ctrl.state = MenuState::RadioSetup;
+        ctrl.selected_item = 13;
+        ctrl.scroll_offset = 10;
+        buzzer.click();
+        return;
+    }
+
+    const SLOT_COUNT: usize = 4;
+
+    widgets::navigate_4slot_list(
+        &mut ctrl.selected_item,
+        &mut ctrl.scroll_offset,
+        SLOT_COUNT,
+        keys.up,
+        keys.down,
+        buzzer,
+    );
+
+    if keys.ok {
+        let idx = ctrl.selected_item;
+        if idx < SLOT_COUNT {
+            buzzer.click();
+            let current = storage.radio.telem_slots[idx];
+            storage.radio.telem_slots[idx] = (current + 1) % (TELEM_SENSOR_NAMES.len() as u8);
+            storage::save_radio_config(storage);
+        }
+    }
+
+    widgets::draw_header(lcd, "TELEM DASH SETUP");
+
+    for slot in 0..4 {
+        let idx = ctrl.scroll_offset + slot;
+        if idx >= SLOT_COUNT {
+            break;
+        }
+        let is_sel = idx == ctrl.selected_item;
+        let sensor_idx = (storage.radio.telem_slots[idx] as usize).min(TELEM_SENSOR_NAMES.len() - 1);
+        widgets::draw_list_row_right(lcd, slot, is_sel, SLOT_NAMES[idx], Some(TELEM_SENSOR_NAMES[sensor_idx]));
+    }
+
+    widgets::draw_footer(lcd, "[OK] Cycle Sensor  [ESC] Back");
+}
+
 #[inline(never)]
 pub fn update_rx_setup(
     ctrl: &mut MenuController,
@@ -347,9 +431,9 @@ pub fn update_rx_setup(
 ) {
     let active_idx = storage.radio.active_model as usize;
     let proto = storage.models[active_idx].rf_protocol;
-    // 0: AFHDS 2A -> 5 items (0: Proto, 1: [Bind Receiver], 2: Servo Hz, 3: RX Out, 4: Serial)
+    // 0: AFHDS 2A -> 6 items (0: Proto, 1: [Bind Receiver], 2: RF Power, 3: Servo Hz, 4: RX Out, 5: Serial)
     // 1: CRSF -> 4 items (0: Proto, 1: Baud, 2: Duplex, 3: [Configure Module])
-    let item_count = if proto == 0 { 5 } else { 4 };
+    let item_count = if proto == 0 { 6 } else { 4 };
 
     if keys.cancel {
         if ctrl.editing {
@@ -415,6 +499,14 @@ pub fn update_rx_setup(
                     return;
                 }
                 (0, 2) => {
+                    // AFHDS 2A: Cycle RF Power (0: 100mW, 1: 10mW, 2: 1mW, 3: 100uW)
+                    buzzer.click();
+                    storage.models[active_idx].rf_power =
+                        (storage.models[active_idx].rf_power + 1) % 4;
+                    crate::rf::set_rf_power(storage.models[active_idx].rf_power);
+                    storage::save_storage(storage);
+                }
+                (0, 3) => {
                     // AFHDS 2A: Cycle Servo Hz
                     buzzer.click();
                     storage.models[active_idx].servo_rate_hz =
@@ -436,7 +528,7 @@ pub fn update_rx_setup(
                     );
                     storage::save_storage(storage);
                 }
-                (0, 3) => {
+                (0, 4) => {
                     // AFHDS 2A: Toggle RX Out (PWM/PPM)
                     buzzer.click();
                     storage.models[active_idx].rx_out_mode =
@@ -452,7 +544,7 @@ pub fn update_rx_setup(
                     );
                     storage::save_storage(storage);
                 }
-                (0, 4) => {
+                (0, 5) => {
                     // AFHDS 2A: Toggle Serial Proto (i-BUS/S.BUS)
                     buzzer.click();
                     storage.models[active_idx].rx_serial_proto =
@@ -543,12 +635,22 @@ pub fn update_rx_setup(
                     widgets::draw_list_row_right(lcd, slot, is_sel, bind_str, None);
                 }
                 2 => {
+                    let pwr_str = match storage.models[active_idx].rf_power {
+                        0 => "100mW (HI)",
+                        1 => "10mW (MID)",
+                        2 => "1mW (LOW)",
+                        3 => "100uW (TST)",
+                        _ => "100mW (HI)",
+                    };
+                    widgets::draw_list_row_right(lcd, slot, is_sel, "Power:", Some(pwr_str));
+                }
+                3 => {
                     let mut hz_buf = [0u8; 8];
                     let hz_str =
                         format_servo_hz(storage.models[active_idx].servo_rate_hz, &mut hz_buf);
                     widgets::draw_list_row_right(lcd, slot, is_sel, "Servo Hz:", Some(hz_str));
                 }
-                3 => {
+                4 => {
                     let out_str = if storage.models[active_idx].rx_out_mode == 0 {
                         "PWM"
                     } else {
@@ -556,7 +658,7 @@ pub fn update_rx_setup(
                     };
                     widgets::draw_list_row_right(lcd, slot, is_sel, "RX Out:", Some(out_str));
                 }
-                4 => {
+                5 => {
                     let serial_str = if storage.models[active_idx].rx_serial_proto == 0 {
                         "i-BUS"
                     } else {

@@ -5,6 +5,30 @@ All notable changes to the `flysky-i6x-rs` project will be documented in this fi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.23.0] - 2026-10-15
+
+### Added
+- **Configurable 4-Tile Telemetry Dashboard (`CUSTOM TELEM`) ([`src/ui/dashboard/pages/telemetry.rs`](src/ui/dashboard/pages/telemetry.rs), [`src/ui/dashboard/mod.rs`](src/ui/dashboard/mod.rs))**:
+  - Implemented high-visibility 2x2 quadrant telemetry dashboard on Flight Page 5/5 (`CUSTOM TELEM`) with centered vertical ($x=64$) and horizontal ($y=31$) divider lines.
+  - Dynamically activates whenever telemetry slots are configured, retaining the legacy sensor list view when default slots are kept.
+  - Added support for 13 selectable telemetry items: `RX BAT`, `LQ/RSSI`, `TX BAT`, `CURRENT`, `CAP mAh`, `TX PWR`, `SNR`, `PKT RATE`, `ANTENNA`, `PKTS TX`, `PKTS RX`, `TIMER`, and `OFF`.
+  - Added live flight timer rendering (`TIMER`) within the telemetry dashboard, displaying `MM:SS` countdown or count-up directly within any quadrant.
+- **Dedicated Telemetry Dashboard Setup Menu ([`src/ui/menu/screens/setup.rs`](src/ui/menu/screens/setup.rs))**:
+  - Added **`TELEM DASH SETUP`** configuration menu accessible directly from `Radio Setup` (item 13).
+  - Configures four quadrant slots: `Top-L:`, `Top-R:`, `Btm-L:`, and `Btm-R:`.
+  - Resolved text overlap and guaranteed $\ge 36\text{ px}$ layout clearance across all slot label and sensor name combinations.
+  - Added automated host tests `test_telem_setup_no_text_overlap` and `test_telem_setup_full_cycle_and_timer` validating clearance and 13-item cycling.
+- **AFHDS 2A Transmitter RF Power Configuration ([`src/ui/menu/screens/setup.rs`](src/ui/menu/screens/setup.rs), [`src/storage.rs`](src/storage.rs), [`src/rf/mod.rs`](src/rf/mod.rs))**:
+  - Added per-model configurable RF output power under `Protocol Setup`: `100mW (HI)`, `10mW (MID)`, `1mW (LOW)`, and `100uW (TST)` (range-test mode).
+  - Persisted in `ModelConfig.rf_power` without modifying the strict 128-byte model struct size.
+- **A7105 Transceiver Deep Sleep Power-Down ([`src/rf/mod.rs`](src/rf/mod.rs), [`src/main.rs`](src/main.rs))**:
+  - Automatically commands internal A7105 transceiver into deep sleep mode (`0x0F`) when operating in CRSF / ExpressLRS protocol mode.
+  - Eliminates unwanted 2.4 GHz internal RF emissions, reduces total radio power consumption, and protects battery runtime.
+
+### Fixed
+- **USB Mode Switch Safety & Stack Overflow Elimination ([`src/usb/mod.rs`](src/usb/mod.rs), [`src/main.rs`](src/main.rs))**:
+  - Decoupled USB peripheral state transitions into deferred event signaling, eliminating recursive stack growth and avoiding Cortex-M0 hardfaults during rapid mode switching.
+
 ## [0.22.0] - 2026-10-09
 
 ### Added

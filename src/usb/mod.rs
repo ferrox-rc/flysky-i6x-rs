@@ -89,15 +89,97 @@ static mut CURRENT_MODE: UsbMode = UsbMode::Off;
 static mut LAST_POLL_MS: u32 = 0;
 static mut LAST_TELEM_STREAM_MS: u32 = 0;
 
+static mut PENDING_INIT_MODE: Option<u8> = None;
+
+/// Request deferred USB re-initialization outside deep call stacks.
+pub fn request_init(mode: u8) {
+    cortex_m::interrupt::free(|_| unsafe {
+        PENDING_INIT_MODE = Some(mode);
+    });
+}
+
+/// Retrieve and clear any pending USB re-initialization request.
+pub fn take_pending_init() -> Option<u8> {
+    cortex_m::interrupt::free(|_| unsafe {
+        PENDING_INIT_MODE.take()
+    })
+}
+
+#[inline(never)]
+unsafe fn init_bus() -> Option<&'static UsbBusAllocator<FlyskyUsbBus>> {
+    let bus = FlyskyUsbBus::new(FlyskyUsb);
+    USB_ALLOCATOR = Some(bus);
+    USB_ALLOCATOR.as_ref()
+}
+
+#[inline(never)]
+unsafe fn init_joystick(alloc: &'static UsbBusAllocator<FlyskyUsbBus>) {
+    let hid = HIDClass::new_ep_in(alloc, hid::GAMEPAD_REPORT_DESC, 10);
+    USB_HID = Some(hid);
+
+    let dev = create_device_builder(
+        alloc,
+        0x1209,
+        0x4F54, // OpenTX / EdgeTX Radio Joystick
+        "FS-i6X Joystick",
+        "FS-I6X-SIM",
+    )
+    .device_class(0x00)
+    .build();
+    USB_DEV = Some(dev);
+}
+
+#[inline(never)]
+unsafe fn init_serial(alloc: &'static UsbBusAllocator<FlyskyUsbBus>) {
+    let serial = SerialPort::new_with_store(alloc, [0u8; 128], [0u8; 512]);
+    USB_SERIAL = Some(serial);
+
+    let dev = create_device_builder(
+        alloc,
+        0x0483,
+        0x5740, // Standard STM32 VCP
+        "FS-i6X Serial",
+        "FS-I6X-VCP",
+    )
+    .device_class(0x02) // USB_CLASS_CDC
+    .build();
+    USB_DEV = Some(dev);
+}
+
+#[inline(never)]
+unsafe fn init_composite(alloc: &'static UsbBusAllocator<FlyskyUsbBus>) {
+    let hid = HIDClass::new_ep_in(alloc, hid::GAMEPAD_REPORT_DESC, 10);
+    let serial = SerialPort::new_with_store(alloc, [0u8; 128], [0u8; 512]);
+    USB_HID = Some(hid);
+    USB_SERIAL = Some(serial);
+
+    let dev = create_device_builder(
+        alloc,
+        0x1209,
+        0x4968, // EdgeTX Radio Composite
+        "FS-i6X Radio",
+        "FS-I6X-COMP",
+    )
+    .composite_with_iads()
+    .build();
+    USB_DEV = Some(dev);
+}
+
 /// Initialize the hardware USB peripheral according to the configured USB mode.
 /// Supports on-the-fly switching between modes by forcing physical disconnect and core reset.
 pub fn init(mode: u8) {
     let usb_mode = UsbMode::from_u8(mode);
     unsafe {
-        CURRENT_MODE = usb_mode;
-
-        // 1. Mask USB interrupt in NVIC during disconnect & reconfiguration
+        // 1. Immediately deactivate USB processing in ISR and main thread, and mask NVIC
         cortex_m::peripheral::NVIC::mask(stm32f0xx_hal::pac::Interrupt::USB);
+        cortex_m::interrupt::free(|_| {
+            CURRENT_MODE = UsbMode::Off;
+            USB_DEV = None;
+            USB_HID = None;
+            USB_SERIAL = None;
+            USB_ALLOCATOR = None;
+            SERIAL_HANDLER = SerialHandler::new();
+        });
 
         // 2. Ensure USB peripheral clock is enabled so BCDR and peripheral registers can be written
         let rcc_apb1enr = 0x4002_101C as *mut u32;
@@ -119,7 +201,12 @@ pub fn init(mode: u8) {
             (moder & !((0b11 << 22) | (0b11 << 24))) | ((0b01 << 22) | (0b01 << 24)),
         );
         core::ptr::write_volatile(gpioa_bsrr, (1 << (11 + 16)) | (1 << (12 + 16)));
-        cortex_m::asm::delay(4_000_000); // ~250 ms delay to guarantee host root hub detects physical disconnect
+
+        // ~250 ms delay to guarantee host root hub detects physical disconnect, feeding watchdog throughout
+        for _ in 0..25 {
+            cortex_m::asm::delay(160_000); // 10 ms at 48 MHz
+            crate::watchdog::feed();
+        }
 
         // 4. Hardware peripheral reset via RCC APB1RSTR (bit 23 = USBRST)
         let rcc_apb1rstr = 0x4002_1010 as *mut u32;
@@ -132,13 +219,6 @@ pub fn init(mode: u8) {
             rcc_apb1rstr,
             core::ptr::read_volatile(rcc_apb1rstr) & !(1 << 23),
         );
-
-        // 5. Drop existing USB stack instances
-        USB_DEV = None;
-        USB_HID = None;
-        USB_SERIAL = None;
-        USB_ALLOCATOR = None;
-        SERIAL_HANDLER = SerialHandler::new();
 
         if usb_mode == UsbMode::Off {
             // Disable USB peripheral clock
@@ -165,67 +245,21 @@ pub fn init(mode: u8) {
         // Stabilization delay
         cortex_m::asm::delay(48_000);
 
-        // 6. Setup UsbBus allocator
-        let bus = FlyskyUsbBus::new(FlyskyUsb);
-        USB_ALLOCATOR = Some(bus);
-        let alloc = match USB_ALLOCATOR.as_ref() {
+        // 5. Setup UsbBus allocator
+        let alloc = match init_bus() {
             Some(a) => a,
             None => return,
         };
 
-        // 7. Initialize classes based on mode
+        // 6. Initialize classes based on mode
         match usb_mode {
-            UsbMode::Joystick => {
-                let hid = HIDClass::new_ep_in(alloc, hid::GAMEPAD_REPORT_DESC, 10);
-                USB_HID = Some(hid);
-
-                let dev = create_device_builder(
-                    alloc,
-                    0x1209,
-                    0x4F54, // OpenTX / EdgeTX Radio Joystick
-                    "FS-i6X Joystick",
-                    "FS-I6X-SIM",
-                )
-                .device_class(0x00)
-                .build();
-                USB_DEV = Some(dev);
-            }
-            UsbMode::Serial => {
-                let serial = SerialPort::new_with_store(alloc, [0u8; 128], [0u8; 512]);
-                USB_SERIAL = Some(serial);
-
-                let dev = create_device_builder(
-                    alloc,
-                    0x0483,
-                    0x5740, // Standard STM32 VCP
-                    "FS-i6X Serial",
-                    "FS-I6X-VCP",
-                )
-                .device_class(0x02) // USB_CLASS_CDC
-                .build();
-                USB_DEV = Some(dev);
-            }
-            UsbMode::Composite => {
-                let hid = HIDClass::new_ep_in(alloc, hid::GAMEPAD_REPORT_DESC, 10);
-                let serial = SerialPort::new_with_store(alloc, [0u8; 128], [0u8; 512]);
-                USB_HID = Some(hid);
-                USB_SERIAL = Some(serial);
-
-                let dev = create_device_builder(
-                    alloc,
-                    0x1209,
-                    0x4968, // EdgeTX Radio Composite
-                    "FS-i6X Radio",
-                    "FS-I6X-COMP",
-                )
-                .composite_with_iads()
-                .build();
-                USB_DEV = Some(dev);
-            }
+            UsbMode::Joystick => init_joystick(alloc),
+            UsbMode::Serial => init_serial(alloc),
+            UsbMode::Composite => init_composite(alloc),
             UsbMode::Off => {}
         }
 
-        // 8. Configure NVIC for USB Interrupt (IRQ 31)
+        // 7. Configure NVIC for USB Interrupt (IRQ 31)
         // Priority 0xC0 (level 3, lowest) so RF interrupts (EXTI2_3 & TIM16 at 0x80) strictly preempt USB
         const NVIC_IPR7: *mut u32 = 0xE000_E41C as *mut u32;
         let ipr7 = core::ptr::read_volatile(NVIC_IPR7);
@@ -235,7 +269,8 @@ pub fn init(mode: u8) {
         const NVIC_ICPR: *mut u32 = 0xE000_E280 as *mut u32;
         core::ptr::write_volatile(NVIC_ICPR, 1 << 31);
 
-        // Unmask USB interrupt in NVIC
+        // 8. Commit active mode and unmask USB interrupt in NVIC
+        CURRENT_MODE = usb_mode;
         cortex_m::peripheral::NVIC::unmask(stm32f0xx_hal::pac::Interrupt::USB);
     }
 }
