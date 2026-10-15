@@ -15,6 +15,7 @@ fn render_sensor_tile(
     is_crsf: bool,
     telem: &TelemetryData,
     battery_mv: u16,
+    timer_str: Option<&str>,
 ) {
     let ct = crsf::get_telemetry();
     match sensor_id {
@@ -186,6 +187,11 @@ fn render_sensor_tile(
             u32_to_dec_5(telem.packets_received, &mut buf);
             lcd.draw_str_6x10(x, y + 7, ascii_as_str(&buf), false);
         }
+        11 => {
+            // TIMER
+            lcd.draw_str_4x6(x, y, "TIMER", false);
+            lcd.draw_str_6x10(x, y + 7, timer_str.unwrap_or("00:00"), false);
+        }
         _ => {
             // OFF
             lcd.draw_str_4x6(x, y, "SLOT OFF", false);
@@ -205,6 +211,7 @@ pub fn render(
     min_rx_v_mv: u16,
     telem_seen: bool,
     is_binding: bool,
+    timer_str: Option<&str>,
 ) {
     let slots = storage.radio.telem_slots;
     let is_custom = slots != [0, 1, 2, 3];
@@ -212,13 +219,13 @@ pub fn render(
     if is_custom {
         // Render 4 custom configurable telemetry tiles (2x2 grid)
         // Tile 0 (Top-Left): x=4, y=14
-        render_sensor_tile(lcd, slots[0], 4, 14, is_crsf, telem, battery_mv);
+        render_sensor_tile(lcd, slots[0], 4, 14, is_crsf, telem, battery_mv, timer_str);
         // Tile 1 (Top-Right): x=68, y=14
-        render_sensor_tile(lcd, slots[1], 68, 14, is_crsf, telem, battery_mv);
+        render_sensor_tile(lcd, slots[1], 68, 14, is_crsf, telem, battery_mv, timer_str);
         // Tile 2 (Bottom-Left): x=4, y=33
-        render_sensor_tile(lcd, slots[2], 4, 33, is_crsf, telem, battery_mv);
+        render_sensor_tile(lcd, slots[2], 4, 33, is_crsf, telem, battery_mv, timer_str);
         // Tile 3 (Bottom-Right): x=68, y=33
-        render_sensor_tile(lcd, slots[3], 68, 33, is_crsf, telem, battery_mv);
+        render_sensor_tile(lcd, slots[3], 68, 33, is_crsf, telem, battery_mv, timer_str);
 
         // Grid divider lines
         lcd.draw_vline(64, 12, 42, true);

@@ -346,19 +346,27 @@ pub fn update_input_setup(
     widgets::draw_footer(lcd, "[OK] Cycle Mode    [ESC] Back");
 }
 
-pub const TELEM_SENSOR_NAMES: [&str; 12] = [
+pub const TELEM_SENSOR_NAMES: [&str; 13] = [
     "RX BAT",
-    "LQ / RSSI",
+    "LQ/RSSI",
     "TX BAT",
     "CURRENT",
-    "CAPACITY",
-    "TX POWER",
+    "CAP mAh",
+    "TX PWR",
     "SNR",
     "PKT RATE",
     "ANTENNA",
-    "PACKETS TX",
-    "PACKETS RX",
+    "PKTS TX",
+    "PKTS RX",
+    "TIMER",
     "OFF",
+];
+
+pub const SLOT_NAMES: [&str; 4] = [
+    "Top-L:",
+    "Top-R:",
+    "Btm-L:",
+    "Btm-R:",
 ];
 
 #[inline(never)]
@@ -378,12 +386,6 @@ pub fn update_telem_setup(
     }
 
     const SLOT_COUNT: usize = 4;
-    const SLOT_NAMES: [&str; 4] = [
-        "Slot 1 (TL):",
-        "Slot 2 (TR):",
-        "Slot 3 (BL):",
-        "Slot 4 (BR):",
-    ];
 
     widgets::navigate_4slot_list(
         &mut ctrl.selected_item,

@@ -134,6 +134,7 @@ impl DashboardController {
                     self.min_rx_v_mv,
                     self.telem_seen,
                     is_binding,
+                    timer_str,
                 );
             }
         }
@@ -182,7 +183,7 @@ mod tests {
         let mut storage = RadioStorage::default_factory();
         let telem = TelemetryData::default();
 
-        storage.radio.telem_slots = [4, 5, 6, 7]; // Custom slots: CAPACITY, TX POWER, SNR, RATE
+        storage.radio.telem_slots = [4, 5, 6, 11]; // Custom slots: CAPACITY, TX POWER, SNR, TIMER
 
         pages::telemetry::render(
             &mut lcd,
@@ -194,6 +195,7 @@ mod tests {
             0,
             false,
             false,
+            Some("05:32"),
         );
     }
 }

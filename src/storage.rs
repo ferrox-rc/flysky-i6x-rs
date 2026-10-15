@@ -477,8 +477,8 @@ impl RadioStorage {
             }
         }
         for slot in self.radio.telem_slots.iter_mut() {
-            if *slot > 11 {
-                *slot = 11; // OFF
+            if *slot > 12 {
+                *slot = 12; // OFF
             }
         }
 
@@ -1081,5 +1081,13 @@ mod tests {
         storage.models[0].rf_power = 99;
         storage.sanitize();
         assert_eq!(storage.models[0].rf_power, 0);
+    }
+
+    #[test]
+    fn test_telem_slots_sanitize() {
+        let mut storage = RadioStorage::default_factory();
+        storage.radio.telem_slots = [0, 11, 12, 13];
+        storage.sanitize();
+        assert_eq!(storage.radio.telem_slots, [0, 11, 12, 12]);
     }
 }
