@@ -70,7 +70,7 @@ impl PpmDecoder {
             self.in_sync = true;
             self.current_ch = 0;
         } else if self.in_sync {
-            if pulse_us >= MIN_VALID_PULSE_US && pulse_us <= MAX_VALID_PULSE_US {
+            if (MIN_VALID_PULSE_US..=MAX_VALID_PULSE_US).contains(&pulse_us) {
                 if self.current_ch < MAX_PPM_IN_CHANNELS {
                     self.temp_channels[self.current_ch] = pulse_us.clamp(988, 2012);
                     self.current_ch += 1;
