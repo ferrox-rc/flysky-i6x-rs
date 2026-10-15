@@ -131,7 +131,8 @@ pub struct RadioConfig {
     pub ext_adc: u8,               // 115 (0: Disabled, 1: Enabled / Header P7 AD12-AD15)
     pub adc_modes: [u8; 10],       // 116..126: Input modes for the 10 auxiliary analog channels
     pub stick_mode: u8,            // 126 (0: Mode 1, 1: Mode 2, 2: Mode 3, 3: Mode 4)
-    pub _reserved: [u8; 1],        // 127..128 (1 byte reserved, exact 128-byte guarantee)
+    pub telem_slots: [u8; 4],      // 127..131: Configurable telemetry dashboard sensor slots (1..4)
+    pub _reserved: [u8; 1],        // 131..132 (1 byte reserved)
 }
 
 impl RadioConfig {
@@ -230,6 +231,7 @@ impl RadioConfig {
             ext_adc: 0,
             adc_modes: [0; 10], // Default hardware modes
             stick_mode: 1,      // Mode 2 default
+            telem_slots: [0, 1, 2, 3], // Default: RxBat, RSSI/LQ, TxBat, Current/Link
             _reserved: [0; 1],
         }
     }
@@ -298,7 +300,7 @@ pub struct ModelConfig {
     pub expo_low: [i8; 3],      // 45..48: Low expo (-100..+100%)
     pub timer_secs: u16,        // 48..50: Countdown timer in seconds (e.g. 300 = 5 min)
     pub timer_source: u8, // 50: 0: Off, 1: THs (Thr>5%), 2: THt (Thr Latched), 3: Always On, 4..13: SA^..SDv
-    pub protocol_subtype: u8, // 51: 0: PWM, 1: PPM, 2: i-BUS, 3: S.BUS
+    pub rf_power: u8, // 51: AFHDS 2A RF power (0: 100mW, 1: 10mW, 2: 1mW, 3: 100uW)
     pub failsafe_thr: u16, // 52..54: Failsafe throttle pulse in µs (e.g. 1000)
     pub aux_channels: [u8; 14], // 54..68: Source for CH5..CH18
     pub wing_tail_mix: u8, // 68: 0: Normal, 1: Elevon/Delta, 2: V-Tail, 3: Flaperon
@@ -339,7 +341,7 @@ impl ModelConfig {
             expo_low: [0, 0, 0],
             timer_secs: 300,
             timer_source: 1,
-            protocol_subtype: 0,
+            rf_power: 0,
             failsafe_thr: 1000,
             aux_channels: [7, 8, 5, 6, 9, 10, 0, 0, 0, 0, 0, 0, 0, 0],
             wing_tail_mix: 0,
@@ -474,6 +476,11 @@ impl RadioStorage {
                 *mode = 0; // Default
             }
         }
+        for slot in self.radio.telem_slots.iter_mut() {
+            if *slot > 12 {
+                *slot = 12; // OFF
+            }
+        }
 
         for (idx, m) in self.models.iter_mut().enumerate() {
             if m.model_type > 4 {
@@ -540,6 +547,9 @@ impl RadioStorage {
             if m.timer_secs > 3600 {
                 m.timer_secs = 0;
             }
+            if m.rf_power > 3 {
+                m.rf_power = 0;
+            }
             if m.servo_rate_hz < 50 || m.servo_rate_hz > 400 {
                 m.servo_rate_hz = 50;
             }
@@ -561,9 +571,9 @@ impl RadioStorage {
     }
 }
 
-const _: () = assert!(core::mem::size_of::<RadioConfig>() == 128);
+const _: () = assert!(core::mem::size_of::<RadioConfig>() == 132);
 const _: () = assert!(core::mem::size_of::<ModelConfig>() == 128);
-const _: () = assert!(core::mem::size_of::<RadioStorage>() == 2688);
+const _: () = assert!(core::mem::size_of::<RadioStorage>() == 2692);
 
 static mut GLOBAL_STORAGE: RadioStorage = RadioStorage::empty();
 
@@ -956,25 +966,41 @@ pub fn load_storage() -> RadioStorage {
 }
 
 pub fn save_active_model(storage: &RadioStorage) -> bool {
-    let mut map = sequential_storage::map::MapStorage::new(
-        Stm32Flash,
-        storage_config(),
-        sequential_storage::cache::Cache::new_uncached(),
-    );
-    let mut buf = [0u8; 256];
-    let idx = (storage.radio.active_model as usize).min(NUM_MODELS - 1);
-    let key = KEY_MODEL_BASE + idx as u8;
-    block_on(map.store_item(&mut buf, &key, &storage.models[idx])).is_ok()
+    #[cfg(test)]
+    {
+        let _ = storage;
+        return true;
+    }
+    #[cfg(not(test))]
+    {
+        let mut map = sequential_storage::map::MapStorage::new(
+            Stm32Flash,
+            storage_config(),
+            sequential_storage::cache::Cache::new_uncached(),
+        );
+        let mut buf = [0u8; 256];
+        let idx = (storage.radio.active_model as usize).min(NUM_MODELS - 1);
+        let key = KEY_MODEL_BASE + idx as u8;
+        block_on(map.store_item(&mut buf, &key, &storage.models[idx])).is_ok()
+    }
 }
 
 pub fn save_radio_config(storage: &RadioStorage) -> bool {
-    let mut map = sequential_storage::map::MapStorage::new(
-        Stm32Flash,
-        storage_config(),
-        sequential_storage::cache::Cache::new_uncached(),
-    );
-    let mut buf = [0u8; 256];
-    block_on(map.store_item(&mut buf, &KEY_RADIO, &storage.radio)).is_ok()
+    #[cfg(test)]
+    {
+        let _ = storage;
+        return true;
+    }
+    #[cfg(not(test))]
+    {
+        let mut map = sequential_storage::map::MapStorage::new(
+            Stm32Flash,
+            storage_config(),
+            sequential_storage::cache::Cache::new_uncached(),
+        );
+        let mut buf = [0u8; 256];
+        block_on(map.store_item(&mut buf, &KEY_RADIO, &storage.radio)).is_ok()
+    }
 }
 
 pub fn save_storage(storage: &RadioStorage) -> bool {
@@ -1041,5 +1067,27 @@ mod tests {
         assert_eq!(pot.min, 100);
         assert_eq!(pot.center, 2000);
         assert_eq!(pot.max, 3900);
+    }
+
+    #[test]
+    fn test_model_config_size_and_rf_power() {
+        assert_eq!(core::mem::size_of::<ModelConfig>(), 128);
+        assert_eq!(core::mem::size_of::<RadioConfig>(), 132);
+
+        let default_m = ModelConfig::default_for_index(0);
+        assert_eq!(default_m.rf_power, 0);
+
+        let mut storage = RadioStorage::default_factory();
+        storage.models[0].rf_power = 99;
+        storage.sanitize();
+        assert_eq!(storage.models[0].rf_power, 0);
+    }
+
+    #[test]
+    fn test_telem_slots_sanitize() {
+        let mut storage = RadioStorage::default_factory();
+        storage.radio.telem_slots = [0, 11, 12, 13];
+        storage.sanitize();
+        assert_eq!(storage.radio.telem_slots, [0, 11, 12, 12]);
     }
 }

@@ -66,7 +66,9 @@ pub struct RadioConfig {
     pub ext_switches: u8,          // 114 (0: Disabled, 1: Enabled / PC12+PC15)
     pub ext_adc: u8,               // 115 (0: Disabled, 1: Enabled / Header P7 AD12-AD15)
     pub adc_modes: [u8; 10],       // 116..126: Input modes for the 10 auxiliary analog channels
-    pub _reserved: [u8; 2],        // 126..128 (2 bytes reserved, exact 128-byte guarantee)
+    pub stick_mode: u8,            // 126: (0: Mode 1, 1: Mode 2, 2: Mode 3, 3: Mode 4)
+    pub telem_slots: [u8; 4],      // 127..131: Configurable telemetry dashboard sensor slots (1..4)
+    pub _reserved: [u8; 1],        // 131..132 (1 byte reserved, exact 132-byte layout)
 }
 
 /// A single freeform mix rule in the matrix mixer (6 bytes)
@@ -97,29 +99,29 @@ pub struct ModelConfig {
     pub dr_low: [u8; 3],           // Low rates: AIL, ELE, RUD (30..100%)
     pub expo_high: [i8; 3],        // High expo (-100..+100%)
     pub expo_low: [i8; 3],         // Low expo (-100..+100%)
-    pub timer_secs: u16,           // 46..48: Countdown timer in seconds (e.g. 300 = 5 min)
-    pub timer_source: u8,          // 48: 0: Off, 1: THs (Thr>5%), 2: THt (Thr Latched), 3: Always On, 4..13: SA^..SDv
-    pub protocol_subtype: u8,      // 49: 0: PWM, 1: PPM, 2: i-BUS, 3: S.BUS
-    pub failsafe_thr: u16,         // 50..52: Failsafe throttle pulse in µs (e.g. 1000)
-    pub aux_channels: [u8; 14],    // 52..66: Source for CH5..CH18
-    pub wing_tail_mix: u8,         // 66: 0: Normal, 1: Elevon/Delta, 2: V-Tail, 3: Flaperon
-    pub template_diff: i8,         // 67: Differential / mix ratio (-100..+100)
-    pub mixes: [MixLine; 8],       // 68..116: 8 freeform mix rules (8 * 6 = 48 bytes)
-    pub failsafe_mode: u8,         // 116: 0: Hold last, 1: Custom pulses
-    pub failsafe_timeout: u8,      // 117: 10..50 (1.0s..5.0s)
-    pub rf_protocol: u8,           // 118: 0: AFHDS 2A, 1: CRSF / ELRS
-    pub crsf_baud: u8,             // 119: 0: 420k, 1: 416.6k, 2: 115.2k, 3: 921.6k
+    pub timer_secs: u16,           // 48..50: Countdown timer in seconds (e.g. 300 = 5 min)
+    pub timer_source: u8,          // 50: 0: Off, 1: THs (Thr>5%), 2: THt (Thr Latched), 3: Always On, 4..13: SA^..SDv
+    pub rf_power: u8,              // 51: AFHDS 2A RF power (0: 100mW, 1: 10mW, 2: 1mW, 3: 100uW)
+    pub failsafe_thr: u16,         // 52..54: Failsafe throttle pulse in µs (e.g. 1000)
+    pub aux_channels: [u8; 14],    // 54..68: Source for CH5..CH18
+    pub wing_tail_mix: u8,         // 68: 0: Normal, 1: Elevon/Delta, 2: V-Tail, 3: Flaperon
+    pub template_diff: i8,         // 69: Differential / mix ratio (-100..+100)
+    pub mixes: [MixLine; 8],       // 70..118: 8 freeform mix rules (8 * 6 = 48 bytes)
+    pub failsafe_mode: u8,         // 118: 0: Hold last, 1: Custom pulses
+    pub failsafe_timeout: u8,      // 119: 10..50 (1.0s..5.0s)
+    pub rf_protocol: u8,           // 120: 0: AFHDS 2A, 1: CRSF / ELRS
+    pub crsf_baud: u8,             // 121: 0: 115.2k, 1: 416.6k, 2: 420k, 3: 921.6k, 4: 1.875M
     pub arm_switch: u8,            // 122: 0: None, 1: SA^, 2: SAv, 3: SB^, 4: SB-, 5: SBv, 6: SC^, 7: SC-, 8: SCv, 9: SD^, 10: SDv
-    pub rx_out_mode: u8,           // 123: 0: PWM, 1: PPM
+    pub rx_out_mode: u8,           // 123: 0: PWM, 1: PPM (default 0)
     pub servo_rate_hz: u16,        // 124..126: 50..400 Hz (default 50 Hz for analog servo safety)
-    pub rx_serial_proto: u8,       // 126: 0: i-BUS, 1: S.BUS
-    pub _reserved: [u8; 1],        // 127..128: 1 reserved byte (Total: 128 bytes)
+    pub rx_serial_proto: u8,       // 126: 0: i-BUS, 1: S.BUS (default 0)
+    pub crsf_half_duplex: u8,      // 127: 0: Full-Duplex (2-Wire), 1: Half-Duplex (1-Wire)
 }
 
-/// Unified Flash image layout (exactly 2,688 bytes in memory)
+/// Unified Flash image layout (exactly 2,692 bytes in memory)
 #[repr(C)]
 pub struct RadioStorage {
-    pub radio: RadioConfig,                // 128 bytes
+    pub radio: RadioConfig,                // 132 bytes
     pub models: [ModelConfig; NUM_MODELS], // 20 * 128 = 2,560 bytes
 }
 ```
