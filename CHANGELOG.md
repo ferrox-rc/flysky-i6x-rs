@@ -5,6 +5,23 @@ All notable changes to the `flysky-i6x-rs` project will be documented in this fi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.24.0] - 2026-10-16
+
+### Added
+- **Unified `ferrox` Core Architecture & `src/hw/` HAL Isolation ([`src/lib.rs`](src/lib.rs), [`src/hw/mod.rs`](src/hw/mod.rs))**:
+  - Unified the core crate name (`ferrox`) and 100% of shared flight control, protocol, storage, mixer, UI, and USB modules across `flysky-i6x-rs` and `flysky-i6s-rs`.
+  - Isolated all board-specific constants, peripheral pin definitions, key matrix scanning, external switch GPIOs (`PC12`/`PC15`), and P7 ADC pins (`PC2`..`PC5`) inside `src/hw/`.
+- **Hardware `TIM15` Trainer Subsystem (CPPM Output & Student Input Capture) ([`src/trainer.rs`](src/trainer.rs), [`src/main.rs`](src/main.rs), [`src/ui/menu/screens/setup.rs`](src/ui/menu/screens/setup.rs))**:
+  - Unified `TIM15` (1 MHz / 1 µs resolution) trainer driver supporting both 8-channel CPPM Output on `PF10` (`TIM15_CH2`, 22.5 ms frame, 300 µs sync pulse) and CPPM Student Input Capture on `PF9` (`TIM15_CH1`, `TIM15` IRQ 20).
+  - Implemented instructor handover switch: holding **`SD` Down (`SDv`)** when `Trainer In` is enabled and a valid student PPM stream is present (< 100 ms age) overrides primary flight axes (`CH1..CH4`).
+  - Enforced mutual exclusion between `PPM Out` (item 14) and `Trainer In` (item 15) in `Radio Setup`.
+- **Expanded Radio Storage Layout (`RadioConfig` v5 140 Bytes) ([`src/storage.rs`](src/storage.rs))**:
+  - Expanded `RadioConfig` to 140 bytes (4-byte aligned, `0..140`) to accommodate `trainer_mode`, rear button assignments, SWD mode, and switch sound toggles without breaking storage compaction. Total `RadioStorage` size is exactly 2,700 bytes.
+- **5 Ascending CRSF Baud Rates & Single-Wire Half-Duplex (`HDSEL`) ([`src/crsf/uart.rs`](src/crsf/uart.rs), [`src/ui/menu/screens/setup.rs`](src/ui/menu/screens/setup.rs))**:
+  - Standardized 5 ascending CRSF baud rates (`0 = 115.2k`, `1 = 416.6k`, `2 = 420k`, `3 = 921.6k`, `4 = 1.875M`) and per-model `Duplex: Full (2W) / Half (1W)` selection in `Protocol Setup`.
+- **Expanded Host Test Suite**:
+  - Suite features **122 host unit tests** verifying core logic, storage serialization, input decoding, calibration, mixer math, and UI layouts under single-threaded test execution (`-- --test-threads=1`).
+
 ## [0.23.0] - 2026-10-15
 
 ### Added

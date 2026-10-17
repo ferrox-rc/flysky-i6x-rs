@@ -1,10 +1,10 @@
 [package]
 name = "flysky-i6x-rs"
-version = "0.23.0"
+version = "0.24.0"
 edition = "2021"
 
 [lib]
-name = "flysky_i6x_rs"
+name = "ferrox"
 path = "src/lib.rs"
 
 [[bin]]

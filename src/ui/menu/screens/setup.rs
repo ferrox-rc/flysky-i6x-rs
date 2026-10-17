@@ -24,12 +24,11 @@ pub fn update_radio_setup(
         buzzer.click();
         return;
     }
-    const SETUP_ITEMS: usize = 14;
 
     widgets::navigate_4slot_list(
         &mut ctrl.selected_item,
         &mut ctrl.scroll_offset,
-        SETUP_ITEMS,
+        crate::hw::SETUP_ITEMS,
         keys.up,
         keys.down,
         buzzer,
@@ -106,51 +105,12 @@ pub fn update_radio_setup(
                 storage::save_radio_config(storage);
                 crate::usb::request_init(storage.radio.usb_mode);
             }
-            8 => {
-                buzzer.click();
-                storage.radio.ext_module_pwr = if storage.radio.ext_module_pwr == 0 {
-                    1
-                } else {
-                    0
-                };
-                crate::crsf::set_power_polarity(storage.radio.ext_module_pwr == 0);
-                storage::save_radio_config(storage);
+            idx => {
+                crate::hw::handle_board_setup_ok(idx, ctrl, storage, trims, buzzer);
+                if ctrl.state != MenuState::RadioSetup {
+                    return;
+                }
             }
-            9 => {
-                buzzer.click();
-                storage.radio.ext_switches = if storage.radio.ext_switches == 0 {
-                    1
-                } else {
-                    0
-                };
-                crate::input::set_ext_switches_enabled(storage.radio.ext_switches != 0);
-                storage::save_radio_config(storage);
-            }
-            10 => {
-                buzzer.click();
-                storage.radio.ext_adc = if storage.radio.ext_adc == 0 { 1 } else { 0 };
-                crate::adc::set_p7_enabled(storage.radio.ext_adc != 0);
-                crate::input::set_ext_adc_enabled(storage.radio.ext_adc != 0);
-                storage::save_radio_config(storage);
-            }
-            11 => {
-                buzzer.click();
-                storage.radio.stick_mode = (storage.radio.stick_mode + 1) % 4;
-                storage::save_radio_config(storage);
-            }
-            12 => {
-                buzzer.click();
-                ctrl.state = MenuState::InputSetup;
-                ctrl.selected_item = 0;
-                ctrl.scroll_offset = 0;
-            }
-            13 => {
-                buzzer.click();
-                ctrl.state = MenuState::TelemSetup;
-                ctrl.selected_item = 0;
-                ctrl.scroll_offset = 0;
-            }
-            _ => {}
         }
     }
 
@@ -158,7 +118,7 @@ pub fn update_radio_setup(
 
     for slot in 0..4 {
         let idx = ctrl.scroll_offset + slot;
-        if idx >= SETUP_ITEMS {
+        if idx >= crate::hw::SETUP_ITEMS {
             break;
         }
         let is_sel = idx == ctrl.selected_item;
@@ -222,65 +182,14 @@ pub fn update_radio_setup(
                 };
                 widgets::draw_list_row_right(lcd, slot, is_sel, "USB Mode:", Some(usb_str));
             }
-            8 => {
-                let pwr_str = if storage.radio.ext_module_pwr == 0 {
-                    "HIGH (N)"
-                } else {
-                    "LOW (P)"
-                };
-                widgets::draw_list_row_right(lcd, slot, is_sel, "PC13 Pwr:", Some(pwr_str));
+            idx => {
+                crate::hw::draw_board_setup_row(lcd, slot, idx, is_sel, storage);
             }
-            9 => {
-                let sw_str = if storage.radio.ext_switches != 0 {
-                    "PC12+PC15"
-                } else {
-                    "OFF"
-                };
-                widgets::draw_list_row_right(lcd, slot, is_sel, "Ext Sw:", Some(sw_str));
-            }
-            10 => {
-                let adc_str = if storage.radio.ext_adc != 0 {
-                    "AD12-AD15"
-                } else {
-                    "OFF"
-                };
-                widgets::draw_list_row_right(lcd, slot, is_sel, "P7 Header:", Some(adc_str));
-            }
-            11 => {
-                let mode_str = match storage.radio.stick_mode {
-                    0 => "MODE 1",
-                    1 => "MODE 2",
-                    2 => "MODE 3",
-                    3 => "MODE 4",
-                    _ => "MODE 2",
-                };
-                widgets::draw_list_row_right(lcd, slot, is_sel, "Stick Mode:", Some(mode_str));
-            }
-            12 => {
-                widgets::draw_list_row_right(lcd, slot, is_sel, "Inputs", Some("[SETUP]"));
-            }
-            13 => {
-                widgets::draw_list_row_right(lcd, slot, is_sel, "Telem Page:", Some("[SETUP]"));
-            }
-            _ => {}
         }
     }
 
     widgets::draw_footer(lcd, "[OK] Toggle/Cycle   [ESC] Back");
 }
-
-const AUX_NAMES: [&str; 10] = [
-    "SA (PA4):",
-    "SB (PA5):",
-    "SC (PB0):",
-    "SD (PB1):",
-    "VRA(PA6):",
-    "VRB(PA7):",
-    "VRC (P7):",
-    "VRD (P7):",
-    "VRE (P7):",
-    "VRF (P7):",
-];
 
 const MODE_STRS: [&str; 7] = [
     "DEFAULT",
@@ -302,18 +211,18 @@ pub fn update_input_setup(
 ) {
     if keys.cancel {
         ctrl.state = MenuState::RadioSetup;
-        ctrl.selected_item = 11;
-        ctrl.scroll_offset = 8;
+        ctrl.selected_item = crate::hw::INPUT_SETUP_RETURN.0;
+        ctrl.scroll_offset = crate::hw::INPUT_SETUP_RETURN.1;
         buzzer.click();
         return;
     }
 
-    const INPUT_ITEMS: usize = 10;
+    let input_items = crate::hw::input_setup_items(storage);
 
     widgets::navigate_4slot_list(
         &mut ctrl.selected_item,
         &mut ctrl.scroll_offset,
-        INPUT_ITEMS,
+        input_items,
         keys.up,
         keys.down,
         buzzer,
@@ -321,10 +230,12 @@ pub fn update_input_setup(
 
     if keys.ok {
         let ch = ctrl.selected_item;
-        if ch < INPUT_ITEMS {
+        if ch < input_items {
             buzzer.click();
-            // Cycle: Default(0) -> 2Pos(1) -> 3Pos(2) -> 6Pos(3) -> Pot(4) -> PotDetent(5) -> Inst-Trim -> Default(0)
-            storage.radio.adc_modes[ch] = (storage.radio.adc_modes[ch] + 1) % MODE_STRS.len() as u8;
+            let current = storage.radio.get_adc_mode_val(ch);
+            storage
+                .radio
+                .set_adc_mode_val(ch, (current + 1) % (MODE_STRS.len() as u8));
             crate::input::apply_calibration(&storage.radio);
             storage::save_radio_config(storage);
         }
@@ -334,13 +245,13 @@ pub fn update_input_setup(
 
     for slot in 0..4 {
         let idx = ctrl.scroll_offset + slot;
-        if idx >= INPUT_ITEMS {
+        if idx >= input_items {
             break;
         }
         let is_sel = idx == ctrl.selected_item;
-        let mode_idx = (storage.radio.adc_modes[idx] as usize).min(MODE_STRS.len());
+        let mode_idx = (storage.radio.get_adc_mode_val(idx) as usize).min(MODE_STRS.len() - 1);
         let mode_str = MODE_STRS[mode_idx];
-        widgets::draw_list_row_right(lcd, slot, is_sel, AUX_NAMES[idx], Some(mode_str));
+        widgets::draw_list_row_right(lcd, slot, is_sel, crate::hw::AUX_NAMES[idx], Some(mode_str));
     }
 
     widgets::draw_footer(lcd, "[OK] Cycle Mode    [ESC] Back");
@@ -379,8 +290,8 @@ pub fn update_telem_setup(
 ) {
     if keys.cancel {
         ctrl.state = MenuState::RadioSetup;
-        ctrl.selected_item = 13;
-        ctrl.scroll_offset = 10;
+        ctrl.selected_item = crate::hw::TELEM_SETUP_RETURN.0;
+        ctrl.scroll_offset = crate::hw::TELEM_SETUP_RETURN.1;
         buzzer.click();
         return;
     }
@@ -415,7 +326,13 @@ pub fn update_telem_setup(
         }
         let is_sel = idx == ctrl.selected_item;
         let sensor_idx = (storage.radio.telem_slots[idx] as usize).min(TELEM_SENSOR_NAMES.len() - 1);
-        widgets::draw_list_row_right(lcd, slot, is_sel, SLOT_NAMES[idx], Some(TELEM_SENSOR_NAMES[sensor_idx]));
+        widgets::draw_list_row_right(
+            lcd,
+            slot,
+            is_sel,
+            SLOT_NAMES[idx],
+            Some(TELEM_SENSOR_NAMES[sensor_idx]),
+        );
     }
 
     widgets::draw_footer(lcd, "[OK] Cycle Sensor  [ESC] Back");
@@ -575,7 +492,7 @@ pub fn update_rx_setup(
                 }
             }
             1 => {
-                // Baud Rate (CRSF only): 0 = 420k, 1 = 416.6k, 2 = 115.2k, 3 = 921.6k, 4 = 1.875M
+                // Baud Rate (CRSF only): 0 = 115.2k, 1 = 416.6k, 2 = 420k, 3 = 921.6k, 4 = 1.875M
                 if keys.up {
                     storage.models[active_idx].crsf_baud =
                         (storage.models[active_idx].crsf_baud + 1) % 5;
@@ -708,7 +625,7 @@ pub fn update_rx_setup(
             (3, true) => "[921.6k (Fast)]",
             (4, false) => "1.875M (Max)",
             (4, true) => "[1.875M (Max)]",
-            _ => "416.6k (TBS)",
+            _ => "420k (ELRS)",
         };
         widgets::draw_list_row_right(lcd, 1, sel_baud, "Baud:", Some(baud_val));
 

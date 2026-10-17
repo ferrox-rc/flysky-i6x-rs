@@ -329,7 +329,7 @@ Assigns physical controls (switches `SA..SD`, pots `VRA/VRB`, modded `SE/SF` and
 - Automatically saved to non-volatile Flash upon exit.
 
 ### Submenu 8: Radio Setup (`RADIO SETUP`)
-The Radio Setup menu features a scrollable 4-item viewport with 9px row heights and automatic vertical scrolling across 14 system-level configuration parameters:
+The Radio Setup menu features a scrollable 4-item viewport with 9px row heights and automatic vertical scrolling across **16** system-level configuration parameters:
 - **`Thr Trim:`**: Toggle between `OFF (Lock)`, `IDLE`, and `LINEAR`.
 - **`Beeper:`**: Toggle audio sound between `ENABLED` and `MUTED`.
 - **`Tones:`**: Select audio notification style between **`RICH`** (melodic multi-tone chime sequences) and **`SIMPLE`** (classic single-tone buzzer beeps). Toggling gives an immediate live audio preview!
@@ -350,6 +350,8 @@ The Radio Setup menu features a scrollable 4-item viewport with 9px row heights 
   - Channels: `SA (PA4)`, `SB (PA5)`, `SC (PB0)`, `SD (PB1)`, `VRA (PA6)`, `VRB (PA7)`, and Header P7 inputs `VRC (P7)`, `VRD (P7)`, `VRE (P7)`, `VRF (P7)`.
   - Modes: **`DEFAULT`**, **`2-POS`**, **`3-POS`**, **`6-POS`**, **`POT`**, and **`POT-D`** (Pot with center detent click).
   - Toggling immediately reapplies calibration, adjusts the main flight dashboard layout dynamically, and enables center acoustic clicks when `POT-D` is selected.
+- **`PPM Out:`**: Configures 8-channel CPPM trainer frame output on `PF10` (`TIM15_CH2`): `OFF` or `ON (PF10)`. Mutually exclusive with `Trainer In`.
+- **`Trainer In:`**: Configures CPPM student trainer input capture on `PF9` (`TIM15_CH1`): `OFF` or `ON (SD DN)`. When enabled and a valid student PPM stream is received (< 100 ms age), holding **`SD` Down (`SDv`)** overrides primary flight controls (`CH1..CH4`). Mutually exclusive with `PPM Out`.
 - **`Telem Page:`**: Opens the **Telemetry Dashboard Setup** (`TELEM DASH SETUP`) sub-screen to independently assign each quadrant of Flight Page 5/5:
   - Slots: **`Top-L:`** (Top-Left), **`Top-R:`** (Top-Right), **`Btm-L:`** (Bottom-Left), **`Btm-R:`** (Bottom-Right).
   - Pressing **`[OK]`** cycles through the 13 available sensors: `RX BAT`, `LQ/RSSI`, `TX BAT`, `CURRENT`, `CAP mAh`, `TX PWR`, `SNR`, `PKT RATE`, `ANTENNA`, `PKTS TX`, `PKTS RX`, `TIMER`, `OFF`.

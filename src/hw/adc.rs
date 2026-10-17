@@ -2,7 +2,8 @@
 //!
 //! Standard Samples (CH0..CH10):
 //! - CH0..CH3: PA0..PA3 (Gimbals: RV, RH, LV, LH)
-//! - CH4, CH5: PA4, PA5 (Switches SA, SB)
+//! - CH4:      PA4      (Switch SA)
+//! - CH5:      PA5      (Switch SB)
 //! - CH6:      PA6      (Potentiometer VR1 / VRA)
 //! - CH7:      PA7      (Potentiometer VR2 / VRB)
 //! - CH8:      PB0      (Switch SC)
@@ -30,9 +31,7 @@ pub const ADC_MAX: u16 = 4095;
 
 use core::cell::UnsafeCell;
 
-#[cfg(not(test))]
 struct AdcDmaBuffer(UnsafeCell<[u16; NUM_CHANNELS]>);
-#[cfg(not(test))]
 unsafe impl Sync for AdcDmaBuffer {}
 
 struct AdcChannelCount(UnsafeCell<usize>);
@@ -45,7 +44,6 @@ static SCAN_CHANNELS: AdcChannelCount = AdcChannelCount(UnsafeCell::new(NUM_STD_
 #[cfg(not(test))]
 static ADC_RAW_BUFFER: AdcDmaBuffer = AdcDmaBuffer(UnsafeCell::new([0; NUM_CHANNELS]));
 /// Stable snapshot of latest completed conversion sequence.
-#[cfg(not(test))]
 static LATEST_ADC_SNAPSHOT: AdcDmaBuffer = AdcDmaBuffer(UnsafeCell::new([2048; NUM_CHANNELS]));
 
 #[cfg(not(test))]
@@ -106,11 +104,22 @@ pub fn wait_first_conversion() {
 
 /// Initialize GPIO analog pins, ADC1, and DMA1 Channel 1 for single-sequence scan.
 pub fn init(p7_enabled: bool) {
+    unsafe {
+        *SCAN_CHANNELS.0.get() = if p7_enabled {
+            NUM_CHANNELS
+        } else {
+            NUM_STD_CHANNELS
+        };
+    }
+
     #[cfg(not(test))]
     unsafe {
-        let ch_count = if p7_enabled { NUM_CHANNELS } else { NUM_STD_CHANNELS };
+        let ch_count = if p7_enabled {
+            NUM_CHANNELS
+        } else {
+            NUM_STD_CHANNELS
+        };
         let chselr = if p7_enabled { 0xF7FF } else { 0x07FF };
-        *SCAN_CHANNELS.0.get() = ch_count;
 
         let rcc = &*pac::RCC::ptr();
         let gpioa = &*pac::GPIOA::ptr();
@@ -121,10 +130,14 @@ pub fn init(p7_enabled: bool) {
 
         // 1. Enable GPIOA, GPIOB, GPIOC, DMA1 in RCC_AHBENR
         rcc.ahbenr.modify(|_, w| {
-            w.dmaen().set_bit()
-             .iopaen().set_bit()
-             .iopben().set_bit()
-             .iopcen().set_bit()
+            w.dmaen()
+                .set_bit()
+                .iopaen()
+                .set_bit()
+                .iopben()
+                .set_bit()
+                .iopcen()
+                .set_bit()
         });
 
         // 2. Enable ADC1 clock in RCC_APB2ENR
@@ -132,15 +145,21 @@ pub fn init(p7_enabled: bool) {
 
         // 3. Configure Pins as Analog Mode (MODER = 11, PUPDR = 00):
         // PA0..PA7: (only touch bits [15:0] so USB, UART, Buzzer on PA8..PA15 are untouched)
-        gpioa.moder.modify(|r, w| w.bits((r.bits() & !0x0000_FFFF) | 0x0000_FFFF));
+        gpioa
+            .moder
+            .modify(|r, w| w.bits((r.bits() & !0x0000_FFFF) | 0x0000_FFFF));
         gpioa.pupdr.modify(|r, w| w.bits(r.bits() & !0x0000_FFFF));
 
         // PB0, PB1: (pins 0 and 1, bits [3:0])
-        gpiob.moder.modify(|r, w| w.bits((r.bits() & !0x0000_000F) | 0x0000_000F));
+        gpiob
+            .moder
+            .modify(|r, w| w.bits((r.bits() & !0x0000_000F) | 0x0000_000F));
         gpiob.pupdr.modify(|r, w| w.bits(r.bits() & !0x0000_000F));
 
         // PC0 (battery) and PC2..PC5 (AD12..AD15 on Header P7): (MODER = 11, PUPDR = 00)
-        gpioc.moder.modify(|r, w| w.bits((r.bits() & !0x0000_0FF3) | 0x0000_0FF3));
+        gpioc
+            .moder
+            .modify(|r, w| w.bits((r.bits() & !0x0000_0FF3) | 0x0000_0FF3));
         gpioc.pupdr.modify(|r, w| w.bits(r.bits() & !0x0000_0FF3));
 
         // 4. ADC Clock Selection: Synchronous PCLK/4 (CKMODE = 10 in CFGR2)
@@ -169,7 +188,8 @@ pub fn init(p7_enabled: bool) {
         // 9. Configure DMA1 Channel 1:
         let ch1 = &dma.ch1;
         ch1.cr.write(|w| w.bits(0));
-        ch1.par.write(|w| w.bits(core::ptr::addr_of!((*pac::ADC::ptr()).dr) as u32));
+        ch1.par
+            .write(|w| w.bits(core::ptr::addr_of!((*pac::ADC::ptr()).dr) as u32));
         ch1.mar.write(|w| w.bits(ADC_RAW_BUFFER.0.get() as u32));
         ch1.ndtr.write(|w| w.ndt().bits(ch_count as u16));
         ch1.cr.write(|w| w.bits(DMA_CCR_VAL));
@@ -177,15 +197,25 @@ pub fn init(p7_enabled: bool) {
         // 10. Start first conversion sequence
         adc.cr.modify(|_, w| w.adstart().set_bit());
     }
-    #[cfg(test)]
-    let _ = p7_enabled;
 }
 
 /// Enable or disable 15-channel scanning for P7 header AD12..AD15 at runtime.
 pub fn set_p7_enabled(enabled: bool) {
+    unsafe {
+        *SCAN_CHANNELS.0.get() = if enabled {
+            NUM_CHANNELS
+        } else {
+            NUM_STD_CHANNELS
+        };
+    }
+
     #[cfg(not(test))]
     unsafe {
-        let ch_count = if enabled { NUM_CHANNELS } else { NUM_STD_CHANNELS };
+        let ch_count = if enabled {
+            NUM_CHANNELS
+        } else {
+            NUM_STD_CHANNELS
+        };
         let chselr = if enabled { 0xF7FF } else { 0x07FF };
 
         let adc = &*pac::ADC::ptr();
@@ -205,7 +235,6 @@ pub fn set_p7_enabled(enabled: bool) {
 
         // 3. Update active scan channel selection and count
         adc.chselr.write(|w| w.bits(chselr));
-        *SCAN_CHANNELS.0.get() = ch_count;
 
         // 4. Clear DMA & ADC flags
         dma.ifcr.write(|w| w.bits(0x0F));
@@ -218,13 +247,23 @@ pub fn set_p7_enabled(enabled: bool) {
         // 6. Restart conversion
         adc.cr.modify(|_, w| w.adstart().set_bit());
     }
-    #[cfg(test)]
-    let _ = enabled;
 }
 
 /// Check if P7 header 15-channel scanning is currently active.
 pub fn is_p7_enabled() -> bool {
     unsafe { *SCAN_CHANNELS.0.get() == NUM_CHANNELS }
+}
+
+/// Alias for unified hardware API: enable or disable extended ADC scanning.
+#[inline(always)]
+pub fn set_ext_adc_enabled(enabled: bool) {
+    set_p7_enabled(enabled);
+}
+
+/// Alias for unified hardware API: check if extended ADC scanning is active.
+#[inline(always)]
+pub fn is_ext_adc_enabled() -> bool {
+    is_p7_enabled()
 }
 
 /// Read a safe, synchronized snapshot of the latest raw ADC values.
@@ -267,7 +306,14 @@ pub fn read_raw() -> [u16; NUM_CHANNELS] {
         *snap_ptr
     }
     #[cfg(test)]
-    {
-        [ADC_CENTER; NUM_CHANNELS]
+    unsafe {
+        *LATEST_ADC_SNAPSHOT.0.get()
+    }
+}
+
+#[cfg(test)]
+pub fn set_test_adc_snapshot(snapshot: [u16; NUM_CHANNELS]) {
+    unsafe {
+        *LATEST_ADC_SNAPSHOT.0.get() = snapshot;
     }
 }

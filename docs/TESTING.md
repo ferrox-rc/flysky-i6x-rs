@@ -28,7 +28,7 @@ To achieve **instant, sub-millisecond local feedback** with zero hardware requir
                    +----------------------+----------------------+
                    |                                             |
             Target Build                                  Host Test Build
-   (cargo build --release)                             (cargo test-host)
+   (cargo build --release)                             (cargo test-host (runs `cargo test --lib --target x86_64-unknown-linux-gnu -- --test-threads=1`))
                    |                                             |
         Target: thumbv6m-none-eabi                   Target: x86_64 / host OS
         Profile: #![no_std]                          Profile: std enabled
@@ -56,17 +56,17 @@ test-host = "test --lib --target x86_64-unknown-linux-gnu -- --test-threads=1"
 
 ```bash
 # Run all host unit tests (sub-millisecond execution)
-cargo test-host
+cargo test-host (runs `cargo test --lib --target x86_64-unknown-linux-gnu -- --test-threads=1`)
 
 # Run only CRSF protocol and state machine tests
-cargo test-host crsf
+cargo test-host (runs `cargo test --lib --target x86_64-unknown-linux-gnu -- --test-threads=1`) crsf
 
 # Run only mixer and curve tests
-cargo test-host mixer
-cargo test-host curve
+cargo test-host (runs `cargo test --lib --target x86_64-unknown-linux-gnu -- --test-threads=1`) mixer
+cargo test-host (runs `cargo test --lib --target x86_64-unknown-linux-gnu -- --test-threads=1`) curve
 
 # Run tests with unsuppressed console output
-cargo test-host -- --nocapture
+cargo test-host (runs `cargo test --lib --target x86_64-unknown-linux-gnu -- --test-threads=1`) -- --nocapture
 ```
 
 ### Why `--test-threads=1` is Mandatory
@@ -241,7 +241,7 @@ Every contribution, bug fix, or feature branch must pass the **Dual Verification
 
 ```bash
 # 1. Run all host unit tests (must pass 88/88 tests with 0 failures)
-cargo test-host
+cargo test-host (runs `cargo test --lib --target x86_64-unknown-linux-gnu -- --test-threads=1`)
 
 # 2. Compile bare-metal firmware (must produce 0 warnings and 0 errors)
 cargo build --release --target thumbv6m-none-eabi
@@ -255,7 +255,7 @@ cargo size --release --target thumbv6m-none-eabi -- -A
 In continuous integration environments, both checks can be executed in sequence:
 ```yaml
 - name: Run Host Unit Tests
-  run: cargo test-host
+  run: cargo test-host (runs `cargo test --lib --target x86_64-unknown-linux-gnu -- --test-threads=1`)
 
 - name: Build Bare-Metal Firmware
   run: cargo build --release --target thumbv6m-none-eabi

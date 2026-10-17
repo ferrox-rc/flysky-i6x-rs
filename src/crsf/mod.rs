@@ -7,7 +7,7 @@
 #![allow(static_mut_refs)]
 
 pub mod protocol;
-pub mod uart;
+pub use crate::hw::uart;
 
 use protocol::{build_channels_frame, parse_telemetry_frame, CrsfTelemetry, CRSF_RC_FRAME_SIZE};
 

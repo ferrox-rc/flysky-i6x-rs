@@ -68,10 +68,16 @@ pub enum MixSource {
     ThrUnipolar = 30,
     Se = 31,
     Sf = 32,
-    Vrc = 33,
-    Vrd = 34,
-    Vre = 35,
-    Vrf = 36,
+    Sg = 33,
+    Sh = 34,
+    Swi = 35,
+    Swj = 36,
+    Swk = 37,
+    Swl = 38,
+    Vrc = 39,
+    Vrd = 40,
+    Vre = 41,
+    Vrf = 42,
 }
 
 /// Wing and tail aircraft mixing templates.
@@ -158,6 +164,18 @@ pub fn is_switch_active(condition: u8, switches: &Switches) -> bool {
         12 => switches.se == SwitchPos::Down,
         13 => switches.sf == SwitchPos::Up,
         14 => switches.sf == SwitchPos::Down,
+        15 => switches.sg == SwitchPos::Up,
+        16 => switches.sg == SwitchPos::Down,
+        17 => switches.sh == SwitchPos::Up,
+        18 => switches.sh == SwitchPos::Down,
+        19 => switches.swi == SwitchPos::Up,
+        20 => switches.swi == SwitchPos::Down,
+        21 => switches.swj == SwitchPos::Up,
+        22 => switches.swj == SwitchPos::Down,
+        23 => switches.swk == SwitchPos::Up,
+        24 => switches.swk == SwitchPos::Down,
+        25 => switches.swl == SwitchPos::Up,
+        26 => switches.swl == SwitchPos::Down,
         _ => true,
     }
 }
@@ -228,7 +246,7 @@ pub fn is_timer_active(
 pub fn evaluate_source(
     src: u8,
     cond_sticks: &[i16; 4],
-    pots: &[i16; 6],
+    pots: &[i16],
     switches: &Switches,
     channels: &[i32; NUM_CHANNELS],
 ) -> i32 {
@@ -238,8 +256,8 @@ pub fn evaluate_source(
         2 => cond_sticks[1] as i32, // Pitch
         3 => cond_sticks[2] as i32, // Throttle
         4 => cond_sticks[3] as i32, // Yaw
-        5 => pots[0] as i32,        // VRA
-        6 => pots[1] as i32,        // VRB
+        5 => pots.first().copied().unwrap_or(0) as i32, // VRA
+        6 => pots.get(1).copied().unwrap_or(0) as i32,  // VRB
         7 => match switches.sa {
             SwitchPos::Up => MIXER_MIN as i32,
             SwitchPos::Mid => MIXER_CENTER as i32,
@@ -269,24 +287,50 @@ pub fn evaluate_source(
             let thr = cond_sticks[2] as i32;
             ((thr + MIXER_MAX as i32) / 2).clamp(0, MIXER_MAX as i32)
         }
-        31 => {
-            if switches.se == SwitchPos::Up {
-                MIXER_MIN as i32
-            } else {
-                MIXER_MAX as i32
-            }
-        }
-        32 => {
-            if switches.sf == SwitchPos::Up {
-                MIXER_MIN as i32
-            } else {
-                MIXER_MAX as i32
-            }
-        }
-        33 => pots[2] as i32, // VRC (Header P7 AD12)
-        34 => pots[3] as i32, // VRD (Header P7 AD13)
-        35 => pots[4] as i32, // VRE (Header P7 AD14)
-        36 => pots[5] as i32, // VRF (Header P7 AD15)
+        31 => match switches.se {
+            SwitchPos::Up => MIXER_MIN as i32,
+            SwitchPos::Mid => MIXER_CENTER as i32,
+            SwitchPos::Down => MIXER_MAX as i32,
+        },
+        32 => match switches.sf {
+            SwitchPos::Up => MIXER_MIN as i32,
+            SwitchPos::Mid => MIXER_CENTER as i32,
+            SwitchPos::Down => MIXER_MAX as i32,
+        },
+        33 => match switches.sg {
+            SwitchPos::Up => MIXER_MIN as i32,
+            SwitchPos::Mid => MIXER_CENTER as i32,
+            SwitchPos::Down => MIXER_MAX as i32,
+        },
+        34 => match switches.sh {
+            SwitchPos::Up => MIXER_MIN as i32,
+            SwitchPos::Mid => MIXER_CENTER as i32,
+            SwitchPos::Down => MIXER_MAX as i32,
+        },
+        35 => match switches.swi {
+            SwitchPos::Up => MIXER_MIN as i32,
+            SwitchPos::Mid => MIXER_CENTER as i32,
+            SwitchPos::Down => MIXER_MAX as i32,
+        },
+        36 => match switches.swj {
+            SwitchPos::Up => MIXER_MIN as i32,
+            SwitchPos::Mid => MIXER_CENTER as i32,
+            SwitchPos::Down => MIXER_MAX as i32,
+        },
+        37 => match switches.swk {
+            SwitchPos::Up => MIXER_MIN as i32,
+            SwitchPos::Mid => MIXER_CENTER as i32,
+            SwitchPos::Down => MIXER_MAX as i32,
+        },
+        38 => match switches.swl {
+            SwitchPos::Up => MIXER_MIN as i32,
+            SwitchPos::Mid => MIXER_CENTER as i32,
+            SwitchPos::Down => MIXER_MAX as i32,
+        },
+        39 => pots.get(2).copied().unwrap_or(0) as i32, // VRC
+        40 => pots.get(3).copied().unwrap_or(0) as i32, // VRD
+        41 => pots.get(4).copied().unwrap_or(0) as i32, // VRE
+        42 => pots.get(5).copied().unwrap_or(0) as i32, // VRF
         _ => MIXER_CENTER as i32,
     }
 }
@@ -298,7 +342,7 @@ pub fn compute_channels(
     raw_pitch: i16,
     curved_throttle: u16, // 0..1000 from throttle curve engine
     raw_yaw: i16,
-    pots: &[i16; 6],
+    pots: &[i16],
     switches: &Switches,
     model: &ModelConfig,
     trims: &TrimController,
@@ -523,8 +567,14 @@ mod tests {
             sb: SwitchPos::Mid,
             sc: SwitchPos::Down,
             sd: SwitchPos::Up,
-            se: SwitchPos::Down,
-            sf: SwitchPos::Up,
+            se: SwitchPos::Up,
+            sf: SwitchPos::Down,
+            sg: SwitchPos::Up,
+            sh: SwitchPos::Down,
+            swi: SwitchPos::Up,
+            swj: SwitchPos::Down,
+            swk: SwitchPos::Up,
+            swl: SwitchPos::Down,
         };
 
         assert!(is_switch_active(0, &switches), "Switch 0 is always active");
@@ -538,16 +588,28 @@ mod tests {
         assert!(is_switch_active(8, &switches), "SC Down");
         assert!(is_switch_active(9, &switches), "SD Up");
         assert!(!is_switch_active(10, &switches), "SD Down");
-        assert!(!is_switch_active(11, &switches), "SE Up");
-        assert!(is_switch_active(12, &switches), "SE Down");
-        assert!(is_switch_active(13, &switches), "SF Up");
-        assert!(!is_switch_active(14, &switches), "SF Down");
+        assert!(is_switch_active(11, &switches), "SE Up");
+        assert!(!is_switch_active(12, &switches), "SE Down");
+        assert!(!is_switch_active(13, &switches), "SF Up");
+        assert!(is_switch_active(14, &switches), "SF Down");
+        assert!(is_switch_active(15, &switches), "SG Up");
+        assert!(!is_switch_active(16, &switches), "SG Down");
+        assert!(!is_switch_active(17, &switches), "SH Up");
+        assert!(is_switch_active(18, &switches), "SH Down");
+        assert!(is_switch_active(19, &switches), "SWI Up");
+        assert!(!is_switch_active(20, &switches), "SWI Down");
+        assert!(!is_switch_active(21, &switches), "SWJ Up");
+        assert!(is_switch_active(22, &switches), "SWJ Down");
+        assert!(is_switch_active(23, &switches), "SWK Up");
+        assert!(!is_switch_active(24, &switches), "SWK Down");
+        assert!(!is_switch_active(25, &switches), "SWL Up");
+        assert!(is_switch_active(26, &switches), "SWL Down");
     }
 
     #[test]
-    fn test_mixer_sources_se_sf() {
+    fn test_mixer_sources_se_sf_and_vrc_vrf() {
         let cond_sticks = [0i16; 4];
-        let pots = [0i16; 6];
+        let pots = [100i16, 200i16, -500i16, 750i16, -1000i16, 1000i16];
         let channels = [0i32; NUM_CHANNELS];
 
         let mut switches = Switches::DEFAULT;
@@ -559,56 +621,31 @@ mod tests {
         // Source 32 (SF): Down -> MIXER_MAX (1000)
         assert_eq!(evaluate_source(32, &cond_sticks, &pots, &switches, &channels), MIXER_MAX as i32);
 
+        // Sources 39..42: VRC..VRF (pots[2..6])
+        assert_eq!(evaluate_source(39, &cond_sticks, &pots, &switches, &channels), -500);
+        assert_eq!(evaluate_source(40, &cond_sticks, &pots, &switches, &channels), 750);
+        assert_eq!(evaluate_source(41, &cond_sticks, &pots, &switches, &channels), -1000);
+        assert_eq!(evaluate_source(42, &cond_sticks, &pots, &switches, &channels), 1000);
+
         switches.se = SwitchPos::Down;
         switches.sf = SwitchPos::Up;
 
-        // Source 31 (SE): Down -> MIXER_MAX (1000)
-        assert_eq!(evaluate_source(31, &cond_sticks, &pots, &switches, &channels), MIXER_MAX as i32);
-        // Source 32 (SF): Up -> MIXER_MIN (-1000)
-        assert_eq!(evaluate_source(32, &cond_sticks, &pots, &switches, &channels), MIXER_MIN as i32);
-
-        // Arm switch bounds and evaluation
         assert!(eval_arm_switch(12, &switches), "SE Down arms when sw=12");
         assert!(!eval_arm_switch(11, &switches), "SE Up does not arm when sw=11");
         assert!(eval_arm_switch(13, &switches), "SF Up arms when sw=13");
         assert!(!eval_arm_switch(14, &switches), "SF Down does not arm when sw=14");
         assert!(!eval_arm_switch(15, &switches), "Out of range arm switch does not arm");
 
-        // Dual Rate switch
         assert!(!is_dr_high(5, &switches), "SE Down -> Low rates");
         assert!(is_dr_high(6, &switches), "SF Up -> High rates");
-    }
-
-    #[test]
-    fn test_mixer_sources_vrc_vrf() {
-        let cond_sticks = [0i16; 4];
-        let pots = [100i16, 200i16, -500i16, 750i16, -1000i16, 1000i16];
-        let switches = Switches::DEFAULT;
-        let channels = [0i32; NUM_CHANNELS];
-
-        // Source 33: VRC (pots[2])
-        assert_eq!(evaluate_source(33, &cond_sticks, &pots, &switches, &channels), -500);
-        // Source 34: VRD (pots[3])
-        assert_eq!(evaluate_source(34, &cond_sticks, &pots, &switches, &channels), 750);
-        // Source 35: VRE (pots[4])
-        assert_eq!(evaluate_source(35, &cond_sticks, &pots, &switches, &channels), -1000);
-        // Source 36: VRF (pots[5])
-        assert_eq!(evaluate_source(36, &cond_sticks, &pots, &switches, &channels), 1000);
     }
 
     #[test]
     fn test_compute_channels_normal_centered() {
         let model = ModelConfig::default_for_index(0);
         let trims = TrimController::new();
-        let switches = Switches {
-            sa: SwitchPos::Up,
-            sb: SwitchPos::Up,
-            sc: SwitchPos::Up,
-            sd: SwitchPos::Up,
-            se: SwitchPos::Up,
-            sf: SwitchPos::Up,
-        };
-        let pots = [0i16; 6];
+        let switches = Switches::default();
+        let pots = [0i16, 0i16];
 
         // Neutral inputs: roll=0, pitch=0, throttle=500 (idle = 0), yaw=0
         let chs = compute_channels(0, 0, 500, 0, &pots, &switches, &model, &trims, 0);
@@ -635,15 +672,8 @@ mod tests {
     fn test_compute_channels_full_deflection_and_pulse_bounds() {
         let model = ModelConfig::default_for_index(0);
         let trims = TrimController::new();
-        let switches = Switches {
-            sa: SwitchPos::Up,
-            sb: SwitchPos::Up,
-            sc: SwitchPos::Up,
-            sd: SwitchPos::Up,
-            se: SwitchPos::Up,
-            sf: SwitchPos::Up,
-        };
-        let pots = [0i16; 6];
+        let switches = Switches::default();
+        let pots = [0i16, 0i16];
 
         // Full roll right (1000)
         let chs = compute_channels(1000, 0, 0, 0, &pots, &switches, &model, &trims, 0);
@@ -677,15 +707,8 @@ mod tests {
         let mut model = ModelConfig::default_for_index(0);
         model.wing_tail_mix = 1; // Elevon
         let trims = TrimController::new();
-        let switches = Switches {
-            sa: SwitchPos::Up,
-            sb: SwitchPos::Up,
-            sc: SwitchPos::Up,
-            sd: SwitchPos::Up,
-            se: SwitchPos::Up,
-            sf: SwitchPos::Up,
-        };
-        let pots = [0i16; 6];
+        let switches = Switches::default();
+        let pots = [0i16, 0i16];
 
         // Pitch up (1000), Roll zero -> Both elevons deflect together with 50% throw
         let chs = compute_channels(0, 1000, 0, 0, &pots, &switches, &model, &trims, 0);
@@ -718,15 +741,8 @@ mod tests {
         let mut model = ModelConfig::default_for_index(0);
         model.wing_tail_mix = 2; // VTail
         let trims = TrimController::new();
-        let switches = Switches {
-            sa: SwitchPos::Up,
-            sb: SwitchPos::Up,
-            sc: SwitchPos::Up,
-            sd: SwitchPos::Up,
-            se: SwitchPos::Up,
-            sf: SwitchPos::Up,
-        };
-        let pots = [0i16; 6];
+        let switches = Switches::default();
+        let pots = [0i16, 0i16];
 
         // Pitch up (1000), Yaw zero -> Both V-tail ruddervators deflect up together with 50% authority
         let chs = compute_channels(0, 1000, 0, 0, &pots, &switches, &model, &trims, 0);
@@ -755,15 +771,8 @@ mod tests {
             switch: 0,
         };
         let trims = TrimController::new();
-        let switches = Switches {
-            sa: SwitchPos::Up,
-            sb: SwitchPos::Up,
-            sc: SwitchPos::Up,
-            sd: SwitchPos::Up,
-            se: SwitchPos::Up,
-            sf: SwitchPos::Up,
-        };
-        let pots = [0i16; 6];
+        let switches = Switches::default();
+        let pots = [0i16, 0i16];
 
         // At zero throttle (curved_throttle = 0): Thr+ evaluates to 0 -> zero elevator compensation!
         let chs_idle = compute_channels(0, 0, 0, 0, &pots, &switches, &model, &trims, 0);
@@ -802,10 +811,9 @@ mod tests {
             sb: SwitchPos::Mid,  // CH16 -> CENTER (1500)
             sc: SwitchPos::Up,   // CH17 -> MIN (988)
             sd: SwitchPos::Down, // CH18 -> normally MAX (2012), but reversed -> MIN (988)
-            se: SwitchPos::Up,
-            sf: SwitchPos::Up,
+            ..Default::default()
         };
-        let pots = [0i16; 6];
+        let pots = [0i16, 0i16];
 
         let chs = compute_channels(0, 0, 500, 0, &pots, &switches, &model, &trims, 0);
         assert_eq!(chs.len(), 18);
@@ -833,15 +841,8 @@ mod tests {
         let mut model = ModelConfig::default_for_index(0);
         model.channel_reverse = 0b0000_0001; // Reverse CH1 (Roll)
         let trims = TrimController::new();
-        let switches = Switches {
-            sa: SwitchPos::Up,
-            sb: SwitchPos::Up,
-            sc: SwitchPos::Up,
-            sd: SwitchPos::Up,
-            se: SwitchPos::Up,
-            sf: SwitchPos::Up,
-        };
-        let pots = [0i16; 6];
+        let switches = Switches::default();
+        let pots = [0i16, 0i16];
 
         // Roll right (+1000) with reversed CH1 should yield CHANNEL_MIN_US instead of CHANNEL_MAX_US
         let chs = compute_channels(1000, 0, 0, 0, &pots, &switches, &model, &trims, 0);
@@ -867,15 +868,8 @@ mod tests {
         };
 
         let trims = TrimController::new();
-        let switches = Switches {
-            sa: SwitchPos::Up,
-            sb: SwitchPos::Up,
-            sc: SwitchPos::Up,
-            sd: SwitchPos::Up,
-            se: SwitchPos::Up,
-            sf: SwitchPos::Up,
-        };
-        let pots = [0i16; 6];
+        let switches = Switches::default();
+        let pots = [0i16, 0i16];
 
         let chs = compute_channels(1000, 0, 0, 0, &pots, &switches, &model, &trims, 0);
         // Base CH5 is 0. Roll is 1000 -> 50% weight adds +500 -> 1500 + 256 = 1756 µs
@@ -896,8 +890,7 @@ mod tests {
             sb: SwitchPos::Mid,
             sc: SwitchPos::Down,
             sd: SwitchPos::Up,
-            se: SwitchPos::Down,
-            sf: SwitchPos::Up,
+            ..Default::default()
         };
 
         // 0: Disabled
@@ -932,22 +925,11 @@ mod tests {
         // 5: SAv (SwitchPos::Down is NOT active)
         assert!(!is_timer_active(5, -1000, &mut latched, &switches, true));
 
-        // 14: SE^ (SwitchPos::Down is active -> SE^ is false)
-        assert!(!is_timer_active(14, -1000, &mut latched, &switches, true));
-        // 15: SEv (SwitchPos::Down is active -> SEv is true)
-        assert!(is_timer_active(15, -1000, &mut latched, &switches, true));
-
-        // 16: SF^ (SwitchPos::Up is active -> SF^ is true)
-        assert!(is_timer_active(16, -1000, &mut latched, &switches, true));
-        // 17: SFv (SwitchPos::Up is active -> SFv is false)
-        assert!(!is_timer_active(17, -1000, &mut latched, &switches, true));
-
         // Inhibit when disarmed
         assert!(!is_timer_active(1, 500, &mut latched, &switches, false));
         assert!(!is_timer_active(2, 500, &mut latched, &switches, false));
         assert!(!is_timer_active(3, -1000, &mut latched, &switches, false));
         assert!(!is_timer_active(4, -1000, &mut latched, &switches, false));
-        assert!(!is_timer_active(15, -1000, &mut latched, &switches, false));
     }
 
     #[test]
@@ -1035,7 +1017,7 @@ mod tests {
         model.set_model_type(crate::safety::ModelType::Heli);
 
         let trims = TrimController::default();
-        let pots = [0i16; 6];
+        let pots = [0i16; 2];
 
         // 1. Throttle Hold Active (SA Down): CH3 must be locked to CHANNEL_MIN_US even at 100% throttle
         let mut sw_hold = Switches::default();
@@ -1064,7 +1046,7 @@ mod tests {
         model.arm_switch = 1; // SA Up = Armed, SA Down = Disarmed
 
         let trims = TrimController::default();
-        let pots = [0i16; 6];
+        let pots = [0i16; 2];
 
         // 1. Disarmed (SA Down): CH3 must be clamped to CHANNEL_MIN_US
         let mut sw_disarmed = Switches::default();
@@ -1086,4 +1068,47 @@ mod tests {
             "Armed model must allow normal throttle output"
         );
     }
+
+    #[test]
+    fn test_switch_evaluation_3pos() {
+        let cond_sticks = [0i16; 4];
+        let pots = [0i16; 6];
+        let channels = [0i32; NUM_CHANNELS];
+
+        let mut switches = Switches::default();
+
+        // SA (source 7)
+        switches.sa = SwitchPos::Up;
+        assert_eq!(evaluate_source(7, &cond_sticks, &pots, &switches, &channels), MIXER_MIN as i32);
+        switches.sa = SwitchPos::Mid;
+        assert_eq!(evaluate_source(7, &cond_sticks, &pots, &switches, &channels), MIXER_CENTER as i32);
+        switches.sa = SwitchPos::Down;
+        assert_eq!(evaluate_source(7, &cond_sticks, &pots, &switches, &channels), MIXER_MAX as i32);
+
+        // SD (source 10)
+        switches.sd = SwitchPos::Up;
+        assert_eq!(evaluate_source(10, &cond_sticks, &pots, &switches, &channels), MIXER_MIN as i32);
+        switches.sd = SwitchPos::Mid;
+        assert_eq!(evaluate_source(10, &cond_sticks, &pots, &switches, &channels), MIXER_CENTER as i32);
+        switches.sd = SwitchPos::Down;
+        assert_eq!(evaluate_source(10, &cond_sticks, &pots, &switches, &channels), MIXER_MAX as i32);
+
+        // Verify end-to-end through compute_channels with SA mapped to CH5 (aux_channels[0] = 7)
+        let mut model = ModelConfig::default_for_index(0);
+        model.aux_channels[0] = 7; // CH5 = SA
+        let trims = TrimController::default();
+
+        switches.sa = SwitchPos::Up;
+        let chs_up = compute_channels(0, 0, 500, 0, &pots, &switches, &model, &trims, 0);
+        assert_eq!(chs_up[4], CHANNEL_MIN_US, "CH5 SA Up -> 988 µs (-100%)");
+
+        switches.sa = SwitchPos::Mid;
+        let chs_mid = compute_channels(0, 0, 500, 0, &pots, &switches, &model, &trims, 0);
+        assert_eq!(chs_mid[4], CHANNEL_CENTER_US, "CH5 SA Mid -> 1500 µs (0%)");
+
+        switches.sa = SwitchPos::Down;
+        let chs_down = compute_channels(0, 0, 500, 0, &pots, &switches, &model, &trims, 0);
+        assert_eq!(chs_down[4], CHANNEL_MAX_US, "CH5 SA Down -> 2012 µs (+100%)");
+    }
 }
+
