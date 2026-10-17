@@ -220,13 +220,14 @@ impl MenuController {
             && (self.state == MenuState::AuxChannels
                 || (self.state == MenuState::MixerLineEdit && self.selected_item == 1));
         let mut pot_change = None;
+        let vra_mode = storage.radio.get_raw_adc_mode(4);
+        let vrb_mode = storage.radio.get_raw_adc_mode(5);
+
         if is_source_selection {
-            if crate::hw::HAS_JOG_WHEELS {
-                if pots.vr1.abs() >= 300 {
-                    pot_change = Some(5); // MixSource::Vra
-                } else if pots.vr2.abs() >= 300 {
-                    pot_change = Some(6); // MixSource::Vrb
-                }
+            if crate::hw::HAS_JOG_WHEELS && vra_mode == crate::storage::AdcInputMode::Default && pots.vr1.abs() >= 300 {
+                pot_change = Some(5); // MixSource::Vra
+            } else if crate::hw::HAS_JOG_WHEELS && vrb_mode == crate::storage::AdcInputMode::Default && pots.vr2.abs() >= 300 {
+                pot_change = Some(6); // MixSource::Vrb
             } else if (pots.vr1 - self.prev_vr1).abs() >= 300 {
                 pot_change = Some(5); // MixSource::Vra
                 self.prev_vr1 = pots.vr1;
@@ -234,20 +235,68 @@ impl MenuController {
                 pot_change = Some(6); // MixSource::Vrb
                 self.prev_vr2 = pots.vr2;
             }
-        } else {
-            self.prev_vr1 = pots.vr1;
-            self.prev_vr2 = pots.vr2;
         }
 
-        // Spring-Loaded Jog Wheels (VRA / VRB) Jog-Shuttle Navigation (FS-i6S)
-        if crate::hw::HAS_JOG_WHEELS && !is_source_selection {
-            let current_dir: i8 = if pots.vr1 > 300 || pots.vr2 > 300 {
-                1
-            } else if pots.vr1 < -300 || pots.vr2 < -300 {
-                -1
-            } else {
-                0
-            };
+        // Jog Wheel / Potentiometer Navigation
+        // 1. Spring-Loaded Jog Wheels (AdcInputMode::Default):
+        //    Deflection > 300: scroll DOWN / increment
+        //    Deflection < -300: scroll UP / decrement
+        //    Release into [-300, 300]: stops immediately without overshoot.
+        // 2. Continuous / Detented Potentiometers (AdcInputMode::Pot / PotDetent):
+        //    Relative rotation: delta >= 150 -> scroll DOWN 1 step, delta <= -150 -> scroll UP 1 step.
+        //    Stationary in detent/middle: delta == 0 -> no scrolling.
+        // 3. Switch Modes (TwoPos, ThreePos, SixPos, InstantTrim):
+        //    Ignored for menu navigation (avoids hijacking menu when switches are toggled).
+        // 4. InputSetup Screen:
+        //    Paused while actively configuring input types to prevent runaway cursor jumping.
+        if crate::hw::HAS_JOG_WHEELS && !is_source_selection && self.state != MenuState::InputSetup {
+            let mut current_dir: i8 = 0;
+
+            // Check VRA (Channel 4)
+            match vra_mode {
+                crate::storage::AdcInputMode::Default => {
+                    if pots.vr1 > 300 {
+                        current_dir = 1;
+                    } else if pots.vr1 < -300 {
+                        current_dir = -1;
+                    }
+                }
+                crate::storage::AdcInputMode::Pot | crate::storage::AdcInputMode::PotDetent => {
+                    let d = pots.vr1 - self.prev_vr1;
+                    if d >= 150 {
+                        down_pressed = true;
+                        self.prev_vr1 = pots.vr1;
+                    } else if d <= -150 {
+                        up_pressed = true;
+                        self.prev_vr1 = pots.vr1;
+                    }
+                }
+                _ => {}
+            }
+
+            // Check VRB (Channel 5) if VRA is centered / inactive
+            if current_dir == 0 {
+                match vrb_mode {
+                    crate::storage::AdcInputMode::Default => {
+                        if pots.vr2 > 300 {
+                            current_dir = 1;
+                        } else if pots.vr2 < -300 {
+                            current_dir = -1;
+                        }
+                    }
+                    crate::storage::AdcInputMode::Pot | crate::storage::AdcInputMode::PotDetent => {
+                        let d = pots.vr2 - self.prev_vr2;
+                        if d >= 150 {
+                            down_pressed = true;
+                            self.prev_vr2 = pots.vr2;
+                        } else if d <= -150 {
+                            up_pressed = true;
+                            self.prev_vr2 = pots.vr2;
+                        }
+                    }
+                    _ => {}
+                }
+            }
 
             if current_dir != 0 {
                 if self.jog_deflection_dir != current_dir {
@@ -273,6 +322,19 @@ impl MenuController {
                 self.jog_deflection_dir = 0;
                 self.jog_repeat_timer_ms = 0;
             }
+
+            // Keep baseline tracking for spring jog wheels
+            if vra_mode == crate::storage::AdcInputMode::Default {
+                self.prev_vr1 = pots.vr1;
+            }
+            if vrb_mode == crate::storage::AdcInputMode::Default {
+                self.prev_vr2 = pots.vr2;
+            }
+        } else {
+            self.prev_vr1 = pots.vr1;
+            self.prev_vr2 = pots.vr2;
+            self.jog_deflection_dir = 0;
+            self.jog_repeat_timer_ms = 0;
         }
 
         let sw_change = switches.detect_condition_change(&self.prev_switches);
@@ -496,6 +558,163 @@ mod tests {
             &mut buzzer,
         );
         assert_eq!(ctrl.selected_item, 1);
+    }
+
+    #[test]
+    fn test_continuous_pot_detent_rotary_navigation() {
+        if !crate::hw::HAS_JOG_WHEELS {
+            return;
+        }
+        let mut ctrl = MenuController::new();
+        let mut buzzer = Buzzer::new();
+        let mut lcd = St7567::new();
+        let mut storage = RadioStorage::default_factory();
+        let mut trims = TrimController::new();
+        let switches = crate::input::Switches::new();
+        let raw_adc = [2048u16; adc::NUM_CHANNELS];
+        let rf_chs = [1500u16; crate::mixer::NUM_CHANNELS];
+
+        // Configure VRA (channel 4) as PotDetent (index 5)
+        storage.radio.adc_modes[4] = 5;
+
+        ctrl.open(&mut buzzer);
+        assert_eq!(ctrl.selected_item, 0);
+
+        let mut pots = crate::input::Pots::default();
+        // Frame 1: establishes baseline prev_vr1 = 0
+        ctrl.update(
+            &mut lcd,
+            0,
+            &switches,
+            &pots,
+            &mut storage,
+            &mut trims,
+            &raw_adc,
+            &rf_chs,
+            &mut buzzer,
+        );
+        assert_eq!(ctrl.selected_item, 0);
+
+        // Turn VRA clockwise by +160 counts -> triggers DOWN step to 1
+        pots.vr1 = 160;
+        ctrl.update(
+            &mut lcd,
+            0,
+            &switches,
+            &pots,
+            &mut storage,
+            &mut trims,
+            &raw_adc,
+            &rf_chs,
+            &mut buzzer,
+        );
+        assert_eq!(ctrl.selected_item, 1);
+
+        // Stationary at 160 counts: no further movement! Position remains 1!
+        ctrl.update(
+            &mut lcd,
+            0,
+            &switches,
+            &pots,
+            &mut storage,
+            &mut trims,
+            &raw_adc,
+            &rf_chs,
+            &mut buzzer,
+        );
+        assert_eq!(ctrl.selected_item, 1);
+
+        // Turn VRA counter-clockwise to -50 counts (delta = -210) -> triggers UP step to 0
+        pots.vr1 = -50;
+        ctrl.update(
+            &mut lcd,
+            0,
+            &switches,
+            &pots,
+            &mut storage,
+            &mut trims,
+            &raw_adc,
+            &rf_chs,
+            &mut buzzer,
+        );
+        assert_eq!(ctrl.selected_item, 0);
+    }
+
+    #[test]
+    fn test_input_setup_cycling_does_not_trigger_jog_scroll() {
+        if !crate::hw::HAS_JOG_WHEELS {
+            return;
+        }
+        let mut ctrl = MenuController::new();
+        let mut buzzer = Buzzer::new();
+        let mut lcd = St7567::new();
+        let mut storage = RadioStorage::default_factory();
+        let mut trims = TrimController::new();
+        let switches = crate::input::Switches::new();
+        let raw_adc = [2048u16; adc::NUM_CHANNELS];
+        let rf_chs = [1500u16; crate::mixer::NUM_CHANNELS];
+
+        ctrl.state = MenuState::InputSetup;
+        ctrl.selected_item = 4; // VRA
+
+        let mut pots = crate::input::Pots::default();
+        // Even if VRA outputs full +1000 deflection (as happens when switched to 2-POS or Pot-D)
+        pots.vr1 = 1000;
+
+        ctrl.update(
+            &mut lcd,
+            0,
+            &switches,
+            &pots,
+            &mut storage,
+            &mut trims,
+            &raw_adc,
+            &rf_chs,
+            &mut buzzer,
+        );
+
+        // Position MUST stay rock-solid at 4, preventing runaway cursor jumping
+        assert_eq!(ctrl.selected_item, 4);
+    }
+
+    #[test]
+    fn test_switch_mode_on_pot_does_not_trigger_jog_scroll() {
+        if !crate::hw::HAS_JOG_WHEELS {
+            return;
+        }
+        let mut ctrl = MenuController::new();
+        let mut buzzer = Buzzer::new();
+        let mut lcd = St7567::new();
+        let mut storage = RadioStorage::default_factory();
+        let mut trims = TrimController::new();
+        let switches = crate::input::Switches::new();
+        let raw_adc = [2048u16; adc::NUM_CHANNELS];
+        let rf_chs = [1500u16; crate::mixer::NUM_CHANNELS];
+
+        // Configure VRA as a TwoPos switch (1)
+        storage.radio.adc_modes[4] = 1;
+
+        ctrl.open(&mut buzzer);
+        assert_eq!(ctrl.selected_item, 0);
+
+        let mut pots = crate::input::Pots::default();
+        // In flight/main menu, switch is toggled ON (+1000)
+        pots.vr1 = 1000;
+
+        ctrl.update(
+            &mut lcd,
+            0,
+            &switches,
+            &pots,
+            &mut storage,
+            &mut trims,
+            &raw_adc,
+            &rf_chs,
+            &mut buzzer,
+        );
+
+        // TwoPos switch MUST NOT be treated as a held jog wheel
+        assert_eq!(ctrl.selected_item, 0);
     }
 
     #[test]

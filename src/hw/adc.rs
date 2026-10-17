@@ -2,7 +2,8 @@
 //!
 //! Standard Samples (CH0..CH10):
 //! - CH0..CH3: PA0..PA3 (Gimbals: RV, RH, LV, LH)
-//! - CH4, CH5: PA4, PA5 (Switches SA, SB)
+//! - CH4:      PA4      (Switch SA)
+//! - CH5:      PA5      (Switch SB)
 //! - CH6:      PA6      (Potentiometer VR1 / VRA)
 //! - CH7:      PA7      (Potentiometer VR2 / VRB)
 //! - CH8:      PB0      (Switch SC)
