@@ -107,7 +107,7 @@ impl SerialHandler {
                 self.stream_enabled = false;
                 self.cmd_len = 0;
                 self.last_was_cr = false;
-                write_all(serial, b"\r\n[Stream paused]\r\ni6x> ");
+                write_all(serial, crate::hw::CLI_PAUSE_PROMPT);
                 continue;
             }
 
@@ -121,7 +121,7 @@ impl SerialHandler {
                         self.cmd_len = 0;
                     }
                     if !self.stream_enabled {
-                        write_all(serial, b"i6x> ");
+                        write_all(serial, crate::hw::CLI_PROMPT);
                     }
                 }
             } else if b == 0x08 || b == 0x7F {
@@ -159,22 +159,12 @@ impl SerialHandler {
         if cmd.eq_ignore_ascii_case("help") {
             write_all(
                 serial,
-                b"Commands:\r\n  help      - Show this help\r\n  status    - Firmware & battery info\r\n  channels  - Dump RF channel values (CH1..CH18)\r\n  telem     - Dump single telemetry frame\r\n  stream    - Start continuous telemetry streaming (any key to stop)\r\n  reboot    - Reboot transmitter\r\n",
+                b"Commands:\r\n  help      - Show this help\r\n  status    - Firmware & battery info\r\n  channels  - Dump RF channel values (CH1..CH18)\r\n  telem     - Dump single telemetry frame\r\n  stream    - Start continuous telemetry streaming (any key to stop)\r\n  dfu       - Reboot into STM32 factory ROM DFU bootloader\r\n  reboot    - Reboot transmitter\r\n",
             );
         } else if cmd.eq_ignore_ascii_case("status") {
-            write_all(
-                serial,
-                concat!(
-                    "FlySky FS-i6X Rust Firmware ",
-                    env!("FIRMWARE_VERSION"),
-                    " (",
-                    env!("GIT_HASH"),
-                    ")\r\n"
-                )
-                .as_bytes(),
-            );
+            write_all(serial, crate::hw::STATUS_BANNER);
             if crate::crsf::is_enabled() {
-                write_all(serial, b"Protocol: CRSF / ExpressLRS (PD5 UART active)\r\n");
+                write_all(serial, crate::hw::CRSF_UART_STATUS);
             } else {
                 write_all(serial, b"Protocol: AFHDS 2A (A7105 SPI active)\r\n");
             }
@@ -219,6 +209,12 @@ impl SerialHandler {
         } else if cmd.eq_ignore_ascii_case("telem off") {
             self.stream_enabled = false;
             write_all(serial, b"Telemetry streaming disabled\r\n");
+        } else if cmd.eq_ignore_ascii_case("dfu")
+            || cmd.eq_ignore_ascii_case("reboot bootloader")
+            || cmd.eq_ignore_ascii_case("reboot-bootloader")
+        {
+            write_all(serial, b"Rebooting to STM32 DFU bootloader...\r\n");
+            crate::boot::reboot_to_dfu();
         } else if cmd.eq_ignore_ascii_case("reboot") {
             write_all(serial, b"Rebooting...\r\n");
             cortex_m::peripheral::SCB::sys_reset();

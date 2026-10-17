@@ -1,4 +1,4 @@
-//! Settings and Diagnostics Menu Subsystem for FlySky FS-i6X.
+//! Settings and Diagnostics Menu Subsystem.
 //!
 //! Provides navigation, 20-model memory management, channel reversing,
 //! 5/9-point throttle curve editing with real-time spline visualization,
@@ -46,6 +46,7 @@ pub struct NavKeys {
     pub bind: bool,
     pub sw_change: Option<u8>,
     pub dr_change: Option<u8>,
+    pub pot_change: Option<u8>,
 }
 
 pub struct MenuController {
@@ -67,6 +68,10 @@ pub struct MenuController {
     down_hold_ms: u16,
     repeat_timer_ms: u16,
     prev_switches: crate::input::Switches,
+    prev_vr1: i16,
+    prev_vr2: i16,
+    jog_repeat_timer_ms: u16,
+    jog_deflection_dir: i8,
 }
 
 impl Default for MenuController {
@@ -95,7 +100,11 @@ impl MenuController {
             up_hold_ms: 0,
             down_hold_ms: 0,
             repeat_timer_ms: 0,
-            prev_switches: crate::input::Switches::DEFAULT,
+            prev_switches: crate::input::Switches::new(),
+            prev_vr1: 0,
+            prev_vr2: 0,
+            jog_repeat_timer_ms: 0,
+            jog_deflection_dir: 0,
         }
     }
 
@@ -142,12 +151,19 @@ impl MenuController {
         lcd: &mut St7567,
         keys: u16,
         switches: &crate::input::Switches,
+        pots: &crate::input::Pots,
         storage: &mut RadioStorage,
         trims: &mut TrimController,
         raw_adc: &[u16; adc::NUM_CHANNELS],
         rf_chs: &[u16; crate::mixer::NUM_CHANNELS],
         buzzer: &mut Buzzer,
     ) {
+        // Initialize jog wheel tracking positions on first update after menu opened
+        if self.prev_keys == 0xFFFF {
+            self.prev_vr1 = pots.vr1;
+            self.prev_vr2 = pots.vr2;
+        }
+
         // Key release tracking (bit 10: OK, bit 11: Cancel, bit 9: Up, bit 8: Down, bit 12: Bind)
         if self.waiting_release
             && (keys & ((1 << 8) | (1 << 9) | (1 << 10) | (1 << 11) | (1 << 12))) == 0
@@ -199,6 +215,66 @@ impl MenuController {
             self.repeat_timer_ms = 0;
         }
 
+        // Potentiometer / Jog Wheel auto-detection during source assignment
+        let is_source_selection = self.editing
+            && (self.state == MenuState::AuxChannels
+                || (self.state == MenuState::MixerLineEdit && self.selected_item == 1));
+        let mut pot_change = None;
+        if is_source_selection {
+            if crate::hw::HAS_JOG_WHEELS {
+                if pots.vr1.abs() >= 300 {
+                    pot_change = Some(5); // MixSource::Vra
+                } else if pots.vr2.abs() >= 300 {
+                    pot_change = Some(6); // MixSource::Vrb
+                }
+            } else if (pots.vr1 - self.prev_vr1).abs() >= 300 {
+                pot_change = Some(5); // MixSource::Vra
+                self.prev_vr1 = pots.vr1;
+            } else if (pots.vr2 - self.prev_vr2).abs() >= 300 {
+                pot_change = Some(6); // MixSource::Vrb
+                self.prev_vr2 = pots.vr2;
+            }
+        } else {
+            self.prev_vr1 = pots.vr1;
+            self.prev_vr2 = pots.vr2;
+        }
+
+        // Spring-Loaded Jog Wheels (VRA / VRB) Jog-Shuttle Navigation (FS-i6S)
+        if crate::hw::HAS_JOG_WHEELS && !is_source_selection {
+            let current_dir: i8 = if pots.vr1 > 300 || pots.vr2 > 300 {
+                1
+            } else if pots.vr1 < -300 || pots.vr2 < -300 {
+                -1
+            } else {
+                0
+            };
+
+            if current_dir != 0 {
+                if self.jog_deflection_dir != current_dir {
+                    if current_dir == 1 {
+                        down_pressed = true;
+                    } else {
+                        up_pressed = true;
+                    }
+                    self.jog_deflection_dir = current_dir;
+                    self.jog_repeat_timer_ms = 0;
+                } else {
+                    self.jog_repeat_timer_ms = self.jog_repeat_timer_ms.saturating_add(33);
+                    if self.jog_repeat_timer_ms >= 350 {
+                        if current_dir == 1 {
+                            down_pressed = true;
+                        } else {
+                            up_pressed = true;
+                        }
+                        self.jog_repeat_timer_ms = 350 - 240;
+                    }
+                }
+            } else {
+                self.jog_deflection_dir = 0;
+                self.jog_repeat_timer_ms = 0;
+            }
+        }
+
         let sw_change = switches.detect_condition_change(&self.prev_switches);
         let dr_change = switches.detect_dr_switch_change(&self.prev_switches);
         self.prev_switches = *switches;
@@ -211,6 +287,7 @@ impl MenuController {
             bind: (newly_pressed & (1 << 12)) != 0,
             sw_change,
             dr_change,
+            pot_change,
         };
 
         if self.state == MenuState::Closed {
@@ -264,7 +341,9 @@ impl MenuController {
                 screens::crsf::update(self, lcd, &nav_keys, buzzer);
             }
             MenuState::ChannelMonitor => {
-                screens::channels::update_channel_monitor(self, lcd, &nav_keys, storage, rf_chs, buzzer);
+                screens::channels::update_channel_monitor(
+                    self, lcd, &nav_keys, storage, rf_chs, buzzer,
+                );
             }
             MenuState::DiagAnas => {
                 screens::diag::update_diag_anas(self, lcd, &nav_keys, raw_adc, switches, buzzer);
@@ -313,6 +392,173 @@ mod tests {
     }
 
     #[test]
+    fn test_jog_wheel_menu_navigation() {
+        if !crate::hw::HAS_JOG_WHEELS {
+            return;
+        }
+        let mut ctrl = MenuController::new();
+        let mut buzzer = Buzzer::new();
+        let mut lcd = St7567::new();
+        let mut storage = RadioStorage::default_factory();
+        let mut trims = TrimController::new();
+        let switches = crate::input::Switches::new();
+        let raw_adc = [2048u16; adc::NUM_CHANNELS];
+        let rf_chs = [1500u16; crate::mixer::NUM_CHANNELS];
+
+        ctrl.open(&mut buzzer);
+        assert_eq!(ctrl.selected_item, 0);
+
+        let mut pots = crate::input::Pots::default();
+        ctrl.update(
+            &mut lcd,
+            0,
+            &switches,
+            &pots,
+            &mut storage,
+            &mut trims,
+            &raw_adc,
+            &rf_chs,
+            &mut buzzer,
+        );
+        assert_eq!(ctrl.selected_item, 0);
+
+        // Deflecting VR1 clockwise (> 300 counts) triggers DOWN
+        pots.vr1 = 350;
+        ctrl.update(
+            &mut lcd,
+            0,
+            &switches,
+            &pots,
+            &mut storage,
+            &mut trims,
+            &raw_adc,
+            &rf_chs,
+            &mut buzzer,
+        );
+        assert_eq!(ctrl.selected_item, 1);
+
+        // Spring returns VR1 back to center (0 counts) -> position remains UNCHANGED!
+        pots.vr1 = 0;
+        ctrl.update(
+            &mut lcd,
+            0,
+            &switches,
+            &pots,
+            &mut storage,
+            &mut trims,
+            &raw_adc,
+            &rf_chs,
+            &mut buzzer,
+        );
+        assert_eq!(ctrl.selected_item, 1);
+
+        // Deflecting VR2 clockwise (> 300 counts) triggers DOWN again
+        pots.vr2 = 350;
+        ctrl.update(
+            &mut lcd,
+            0,
+            &switches,
+            &pots,
+            &mut storage,
+            &mut trims,
+            &raw_adc,
+            &rf_chs,
+            &mut buzzer,
+        );
+        assert_eq!(ctrl.selected_item, 2);
+
+        // Spring returns VR2 back to center (0 counts) -> position remains UNCHANGED!
+        pots.vr2 = 0;
+        ctrl.update(
+            &mut lcd,
+            0,
+            &switches,
+            &pots,
+            &mut storage,
+            &mut trims,
+            &raw_adc,
+            &rf_chs,
+            &mut buzzer,
+        );
+        assert_eq!(ctrl.selected_item, 2);
+
+        // Deflecting VR1 counter-clockwise (< -300 counts) triggers UP
+        pots.vr1 = -350;
+        ctrl.update(
+            &mut lcd,
+            0,
+            &switches,
+            &pots,
+            &mut storage,
+            &mut trims,
+            &raw_adc,
+            &rf_chs,
+            &mut buzzer,
+        );
+        assert_eq!(ctrl.selected_item, 1);
+    }
+
+    #[test]
+    fn test_pot_auto_assignment_in_aux_channels() {
+        let mut ctrl = MenuController::new();
+        let mut buzzer = Buzzer::new();
+        let mut lcd = St7567::new();
+        let mut storage = RadioStorage::default_factory();
+        let mut trims = TrimController::new();
+        let switches = crate::input::Switches::new();
+        let raw_adc = [2048u16; adc::NUM_CHANNELS];
+        let rf_chs = [1500u16; crate::mixer::NUM_CHANNELS];
+
+        ctrl.state = MenuState::AuxChannels;
+        ctrl.selected_item = 0; // CH5
+        ctrl.editing = true;
+
+        let mut pots = crate::input::Pots::default();
+        ctrl.update(
+            &mut lcd,
+            0,
+            &switches,
+            &pots,
+            &mut storage,
+            &mut trims,
+            &raw_adc,
+            &rf_chs,
+            &mut buzzer,
+        );
+
+        // Deflect VR1 past 300 counts -> auto-assigns MixSource::Vra (5)
+        pots.vr1 = 350;
+        ctrl.update(
+            &mut lcd,
+            0,
+            &switches,
+            &pots,
+            &mut storage,
+            &mut trims,
+            &raw_adc,
+            &rf_chs,
+            &mut buzzer,
+        );
+        assert_eq!(storage.models[0].aux_channels[0], 5);
+
+        // Neutralize VR1 within deadband/delta, deflect VR2 past 300 counts -> auto-assigns MixSource::Vrb (6)
+        pots.vr1 = 100;
+        pots.vr2 = 350;
+        ctrl.update(
+            &mut lcd,
+            0,
+            &switches,
+            &pots,
+            &mut storage,
+            &mut trims,
+            &raw_adc,
+            &rf_chs,
+            &mut buzzer,
+        );
+        assert_eq!(storage.models[0].aux_channels[0], 6);
+    }
+
+    #[test]
     fn test_telem_setup_navigation_and_cycling() {
         let mut ctrl = MenuController::new();
         let mut buzzer = Buzzer::new();
@@ -333,6 +579,7 @@ mod tests {
             bind: false,
             sw_change: None,
             dr_change: None,
+            pot_change: None,
         };
 
         // Press OK on slot 0 -> cycle to 1 (LQ / RSSI)
@@ -351,12 +598,12 @@ mod tests {
         screens::setup::update_telem_setup(&mut ctrl, &mut lcd, &nav, &mut storage, &mut buzzer);
         assert_eq!(storage.radio.telem_slots[1], 2);
 
-        // Press Cancel -> return to RadioSetup with item 13 selected
+        // Press Cancel -> return to RadioSetup
         nav.ok = false;
         nav.cancel = true;
         screens::setup::update_telem_setup(&mut ctrl, &mut lcd, &nav, &mut storage, &mut buzzer);
         assert_eq!(ctrl.state, MenuState::RadioSetup);
-        assert_eq!(ctrl.selected_item, 13);
+        assert_eq!(ctrl.selected_item, crate::hw::TELEM_SETUP_RETURN.0);
     }
 
     #[test]
@@ -378,6 +625,7 @@ mod tests {
             bind: false,
             sw_change: None,
             dr_change: None,
+            pot_change: None,
         };
 
         // Cycle through all 13 sensor slots on slot 0: starts at 0
@@ -422,8 +670,8 @@ mod tests {
         let mut trims = crate::trim::TrimController::new();
 
         ctrl.state = MenuState::RadioSetup;
-        ctrl.selected_item = 14;
-        ctrl.scroll_offset = 12;
+        ctrl.selected_item = crate::hw::PPM_OUT_SETUP_IDX;
+        ctrl.scroll_offset = crate::hw::PPM_OUT_SETUP_IDX.saturating_sub(2);
 
         assert!(!storage.radio.is_ppm_out_enabled());
         assert!(!storage.radio.is_ppm_in_enabled());
@@ -436,27 +684,28 @@ mod tests {
             bind: false,
             sw_change: None,
             dr_change: None,
+            pot_change: None,
         };
 
-        // Press OK on slot 14 -> Toggle PPM Out ON
+        // Press OK on PPM Out -> Toggle PPM Out ON
         screens::setup::update_radio_setup(&mut ctrl, &mut lcd, &nav, &mut storage, &mut trims, &mut buzzer);
         assert!(storage.radio.is_ppm_out_enabled());
         assert!(!storage.radio.is_ppm_in_enabled());
 
-        // Move to slot 15
+        // Move to Trainer In
         nav.ok = false;
         nav.down = true;
         screens::setup::update_radio_setup(&mut ctrl, &mut lcd, &nav, &mut storage, &mut trims, &mut buzzer);
-        assert_eq!(ctrl.selected_item, 15);
+        assert_eq!(ctrl.selected_item, crate::hw::PPM_OUT_SETUP_IDX + 1);
 
-        // Press OK on slot 15 -> Toggle Trainer In ON
+        // Press OK on Trainer In -> Toggle Trainer In ON
         nav.down = false;
         nav.ok = true;
         screens::setup::update_radio_setup(&mut ctrl, &mut lcd, &nav, &mut storage, &mut trims, &mut buzzer);
         assert!(storage.radio.is_ppm_out_enabled());
         assert!(storage.radio.is_ppm_in_enabled());
 
-        // Press OK again on slot 15 -> Toggle Trainer In OFF
+        // Press OK again on Trainer In -> Toggle Trainer In OFF
         screens::setup::update_radio_setup(&mut ctrl, &mut lcd, &nav, &mut storage, &mut trims, &mut buzzer);
         assert!(storage.radio.is_ppm_out_enabled());
         assert!(!storage.radio.is_ppm_in_enabled());

@@ -1,4 +1,4 @@
-//! USB Subsystem for FlySky FS-i6X.
+//! USB Subsystem for FlySky Transmitters.
 //!
 //! Orchestrates the STM32F072 USB Full-Speed (12 Mbps) peripheral,
 //! HID Gamepad class (for flight simulators), and CDC-ACM Virtual COM Port (telemetry/CLI).
@@ -20,7 +20,7 @@ use usb_device::{
 use usbd_hid::hid_class::HIDClass;
 use usbd_serial::SerialPort;
 
-/// Hardware USB peripheral mapping for STM32F072 on FlySky FS-i6X.
+/// Hardware USB peripheral mapping for STM32F072.
 pub struct FlyskyUsb;
 
 unsafe impl UsbPeripheral for FlyskyUsb {
@@ -118,8 +118,8 @@ unsafe fn init_joystick(alloc: &'static UsbBusAllocator<FlyskyUsbBus>) {
         alloc,
         0x1209,
         0x4F54, // OpenTX / EdgeTX Radio Joystick
-        "FS-i6X Joystick",
-        "FS-I6X-SIM",
+        crate::hw::USB_PRODUCT_JOYSTICK,
+        crate::hw::USB_SERIAL_JOYSTICK,
     )
     .device_class(0x00)
     .build();
@@ -135,8 +135,8 @@ unsafe fn init_serial(alloc: &'static UsbBusAllocator<FlyskyUsbBus>) {
         alloc,
         0x0483,
         0x5740, // Standard STM32 VCP
-        "FS-i6X Serial",
-        "FS-I6X-VCP",
+        crate::hw::USB_PRODUCT_SERIAL,
+        crate::hw::USB_SERIAL_SERIAL,
     )
     .device_class(0x02) // USB_CLASS_CDC
     .build();
@@ -154,8 +154,8 @@ unsafe fn init_composite(alloc: &'static UsbBusAllocator<FlyskyUsbBus>) {
         alloc,
         0x1209,
         0x4968, // EdgeTX Radio Composite
-        "FS-i6X Radio",
-        "FS-I6X-COMP",
+        crate::hw::USB_PRODUCT_COMPOSITE,
+        crate::hw::USB_SERIAL_COMPOSITE,
     )
     .composite_with_iads()
     .build();

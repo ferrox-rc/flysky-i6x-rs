@@ -6,7 +6,7 @@ This document tracks the phased implementation, historical milestones, and ongoi
 
 ## Current Firmware Footprint
 
-- **Firmware Footprint (v0.20.0)**: **~110.5 KB Flash ROM** (leaving ~9.5 KB / ~7.9% headroom out of 120 KB partition) and **~8.9 KB static RAM** (leaving >7.0 KB stack safety margin in 16 KB SRAM).
+- **Firmware Footprint (v0.24.0)**: **~110.1 KB Flash ROM** (.text = 104,632, .data = 8,064; leaving ~9.9 KB / ~8.2% headroom out of 120 KB partition) and **~8.9 KB static RAM** (.data = 8,064, .bss = 1,032; leaving >7.0 KB stack safety margin in 16 KB SRAM). Unit tests: **122 passed**.
 - **Authoritative Budget & Breakdown**: For exact section sizes (`.text`, `.rodata`, `.data`, `.bss`), partition layouts, and stack guarantees, see [ARCHITECTURE.md (Memory Footprint)](ARCHITECTURE.md#4-memory-footprint).
 
 ---
@@ -163,7 +163,7 @@ This document tracks the phased implementation, historical milestones, and ongoi
 - [x] CRSF nested subfolder title retention stack preserving parent names up to 6 levels deep.
 - [x] Unified configurator buffers: `MAX_PARAMS = 48` per folder, `MAX_PARAM_MAP = 96`, and `STRING_POOL_SIZE = 1280` bytes.
 
-### Phase 20: Trainer Port Subsystem & PPM In/Out (COMPLETED / BRANCH: `feat/trainer-ppm`)
+### Phase 20: Trainer Port Subsystem & PPM In/Out (COMPLETED)
 - [x] Direct PAC driver for `TIM15` (1 µs tick resolution at 48 MHz).
 - [x] PPM Output on `PF10` (`TIM15_CH2`): Deterministic 22.5 ms 8-channel CPPM stream powering the iRangeX iRX6 multi-protocol module and USB simulator dongles.
 - [x] PPM Input on `PF9` (`TIM15_CH1`): Input capture decoder for wired buddy-box training and FPV head-trackers.
@@ -192,3 +192,13 @@ This document tracks the phased implementation, historical milestones, and ongoi
 - [x] Automatic deep sleep power-down (`0x0F`) for the internal A7105 transceiver when operating with external CRSF/ELRS modules.
 - [x] Decoupled stack-safe USB mode switching eliminating recursion and hardfault risks.
 - [x] Automated text clearance validation asserting zero visual overlap between slot labels and sensor names.
+
+### Phase 24: Core Unification & Hardware Abstraction Layer Isolation (COMPLETED)
+- [x] Unified core crate name `ferrox` across both FlySky FS-i6X and FS-i6S codebases.
+- [x] Complete hardware-agnostic core extraction: 100% byte-for-byte identical core modules outside `src/hw/` (`diff -rq -x hw src/` reports 0 differences).
+- [x] Hardware Abstraction Layer (`src/hw/`) isolating board identities, battery voltage divider formulas, setup menu extensions, key scanning, and board peripherals.
+- [x] Unified `TIM15` trainer subsystem supporting 8-channel CPPM Output on `PF10` and Student Input Capture on `PF9` with `SD` Down handover.
+- [x] Universal `AdcInputMode` supporting 7 modes (`0..=6`: Default, 2-Pos, 3-Pos, 6-Pos, Pot, PotDetent, InstantTrim).
+- [x] Standardized 5 ascending CRSF baud rates (`115.2k`..`1.875M`) and per-model half-duplex `HDSEL` routing on `PD5`.
+- [x] 140-byte 4-byte aligned `RadioConfig` and 2,700-byte `RadioStorage`.
+- [x] Single-threaded test harness (`-- --test-threads=1`) with 122 automated host unit tests.

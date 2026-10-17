@@ -13,7 +13,9 @@ use stm32f0xx_hal::pac::{self, interrupt};
 use core::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 #[cfg(not(test))]
-static mut RX_RING: [u8; 128] = [0; 128];
+const RX_RING_SIZE: usize = 128;
+#[cfg(not(test))]
+static mut RX_RING: [u8; RX_RING_SIZE] = [0; RX_RING_SIZE];
 #[cfg(not(test))]
 static RX_HEAD: AtomicUsize = AtomicUsize::new(0);
 #[cfg(not(test))]
@@ -52,7 +54,8 @@ pub fn init(active_high: bool) {
 
         // Enable GPIOA, GPIOC, GPIOD clocks in RCC_AHBENR
         let rcc = &*pac::RCC::ptr();
-        rcc.ahbenr.modify(|_, w| w.iopaen().set_bit().iopcen().set_bit().iopden().set_bit());
+        rcc.ahbenr
+            .modify(|_, w| w.iopaen().set_bit().iopcen().set_bit().iopden().set_bit());
 
         // Configure PC13 as general purpose output
         let gpioc = &*pac::GPIOC::ptr();
@@ -173,10 +176,14 @@ pub fn set_uart_enabled(enabled: bool, baud_idx: u8, half_duplex: bool) {
 
             // 6. Enable UE, TE, RE, and RXNEIE
             usart2.cr1.write(|w| {
-                w.ue().enabled()
-                 .te().enabled()
-                 .re().enabled()
-                 .rxneie().enabled()
+                w.ue()
+                    .enabled()
+                    .te()
+                    .enabled()
+                    .re()
+                    .enabled()
+                    .rxneie()
+                    .enabled()
             });
         } else {
             // Mask USART2 in NVIC
@@ -207,7 +214,6 @@ pub fn write_bytes(bytes: &[u8]) -> usize {
     #[cfg(test)]
     {
         mock::record_tx(bytes);
-        // If half-duplex mock active, self-echo bytes to RX queue if desired, or skip
         bytes.len()
     }
     #[cfg(not(test))]
@@ -248,7 +254,7 @@ pub fn read_byte() -> Option<u8> {
         let tail = RX_TAIL.load(Ordering::Relaxed);
         if head != tail {
             let b = unsafe { RX_RING[tail] };
-            RX_TAIL.store((tail + 1) & (unsafe { RX_RING.len() } - 1), Ordering::Release);
+            RX_TAIL.store((tail + 1) & (RX_RING_SIZE - 1), Ordering::Release);
             Some(b)
         } else {
             None
@@ -279,7 +285,7 @@ fn USART2() {
 
             let head = RX_HEAD.load(Ordering::Relaxed);
             let tail = RX_TAIL.load(Ordering::Acquire);
-            let next_head = (head + 1) & (RX_RING.len() - 1);
+            let next_head = (head + 1) & (RX_RING_SIZE - 1);
             if next_head != tail {
                 RX_RING[head] = b;
                 RX_HEAD.store(next_head, Ordering::Release);

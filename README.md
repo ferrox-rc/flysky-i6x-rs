@@ -13,8 +13,8 @@ The FS-i6X open-source journey was pioneered by the remarkable work of the [Open
 `flysky-i6x-rs` explores a complementary design philosophy: an experimental, clean-slate firmware written in bare-metal `no_std` Rust designed with:
 - **Zero-Heap, Deterministic Memory:** Fully static allocation with bare-metal `no_std`, eliminating dynamic allocation overhead, allocator stalls, and heap fragmentation.
 - **Lock-Free Concurrency & Watchdog Recovery:** Deterministic priority-driven interrupt scheduling (`TIM16` 260 Hz packet sync, `EXTI2` RF ready) paired with lock-free atomic double-buffering. 2.0s independent hardware watchdog (`pac::IWDG`) with LSI clock isolation, debug halt freezing, bounded sync, and <2 ms in-flight warm reset recovery that bypasses startup interlocks to prevent lockouts.
-- **Strict Scope:** Dedicated support for the built-in hardware (A7105 AFHDS2A + i-BUS), 4-axis gimbals, switches, trims, 20-model storage, 14-channel matrix mixer, and a 128×64 monochrome UI.
-- **Lightweight Footprint:** **~110.5 KB Flash ROM** (leaving ~9.5 KB / ~7.9% headroom out of the 120 KB partition) and **~8.9 KB static RAM** + 1 KB LCD framebuffer + 1 KB USB PMA (leaving >7.0 KB stack safety margin). See [ARCHITECTURE.md](docs/ARCHITECTURE.md#4-memory-footprint) for the complete memory budget.
+- **Strict Scope:** Dedicated support for the built-in hardware (A7105 AFHDS2A + i-BUS), 4-axis gimbals, switches, trims, 20-model storage, 18-channel matrix mixer, and a 128×64 monochrome UI.
+- **Lightweight Footprint:** **~110.1 KB Flash ROM** (leaving ~9.5 KB / ~7.9% headroom out of the 120 KB partition) and **~8.9 KB static RAM** + 1 KB LCD framebuffer + 1 KB USB PMA (leaving >7.0 KB stack safety margin). See [ARCHITECTURE.md](docs/ARCHITECTURE.md#4-memory-footprint) for the complete memory budget.
 
 ---
 
@@ -51,6 +51,7 @@ The FS-i6X open-source journey was pioneered by the remarkable work of the [Open
 | **Storage** | On-chip Flash (Pages 60–63)| `0x0801_E000 .. 0x0801_FFFF` (8 KB) | Append-only sequential storage (Keys 0..20, ~2.8 ms save) |
 | **Telemetry / Serial**| UART Interfaces | `USART2` (PD5 Tx / PA15 Rx) | External CRSF / ELRS module bay; interrupt RX with 128B ring buffer & ORE recovery |
 | **USB Controller** | Native USB Full-Speed (12 Mbps)| `PA11` (D-) / `PA12` (D+) | Joystick HID, CDC-ACM Serial, Composite, Off |
+| **Trainer Subsystem** | CPPM In / Out | `TIM15` (`PF10` Out / `PF9` In) | 8-CH CPPM Out (22.5ms) & Student In with SDv handover |
 | **Audio** | Piezo Buzzer | `TIM1_CH1` (`PA8`) | Hardware PWM frequency & tone generator |
 
 ---
