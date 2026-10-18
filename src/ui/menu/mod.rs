@@ -299,29 +299,18 @@ impl MenuController {
             }
 
             if current_dir != 0 {
-                if self.jog_deflection_dir != current_dir {
+                if self.jog_deflection_dir == 0 {
                     if current_dir == 1 {
                         down_pressed = true;
                     } else {
                         up_pressed = true;
                     }
                     self.jog_deflection_dir = current_dir;
-                    self.jog_repeat_timer_ms = 0;
-                } else {
-                    self.jog_repeat_timer_ms = self.jog_repeat_timer_ms.saturating_add(33);
-                    if self.jog_repeat_timer_ms >= 350 {
-                        if current_dir == 1 {
-                            down_pressed = true;
-                        } else {
-                            up_pressed = true;
-                        }
-                        self.jog_repeat_timer_ms = 350 - 240;
-                    }
                 }
             } else {
                 self.jog_deflection_dir = 0;
-                self.jog_repeat_timer_ms = 0;
             }
+            self.jog_repeat_timer_ms = 0;
 
             // Keep baseline tracking for spring jog wheels
             if vra_mode == crate::storage::AdcInputMode::Default {
@@ -499,7 +488,23 @@ mod tests {
         );
         assert_eq!(ctrl.selected_item, 1);
 
-        // Spring returns VR1 back to center (0 counts) -> position remains UNCHANGED!
+        // Holding VR1 deflected at 350 counts for multiple frames does NOT repeat (stays at 1)
+        for _ in 0..10 {
+            ctrl.update(
+                &mut lcd,
+                0,
+                &switches,
+                &pots,
+                &mut storage,
+                &mut trims,
+                &raw_adc,
+                &rf_chs,
+                &mut buzzer,
+            );
+            assert_eq!(ctrl.selected_item, 1);
+        }
+
+        // Spring returns VR1 back to center (0 counts) -> position remains UNCHANGED, rearms trigger!
         pots.vr1 = 0;
         ctrl.update(
             &mut lcd,
