@@ -788,35 +788,41 @@ impl EepromI2c {
         let rcc = unsafe { &*stm32f0xx_hal::pac::RCC::ptr() };
         let gpiob = unsafe { &*stm32f0xx_hal::pac::GPIOB::ptr() };
         let i2c1 = unsafe { &*stm32f0xx_hal::pac::I2C1::ptr() };
+        let syscfg = unsafe { &*stm32f0xx_hal::pac::SYSCFG::ptr() };
 
-        // 1. Enable GPIOB and I2C1 clocks
+        // 1. Enable GPIOB, SYSCFG, and I2C1 clocks
         rcc.ahbenr.modify(|_, w| w.iopben().enabled());
+        rcc.apb2enr.modify(|_, w| w.syscfgen().enabled());
         rcc.apb1enr.modify(|_, w| w.i2c1en().enabled());
 
         // Configure I2C1 clock source as SYSCLK (48 MHz)
         rcc.cfgr3.modify(|_, w| w.i2c1sw().sysclk());
 
-        // 2. Configure PB6 and PB7 as Alternate Function 1 (I2C1), Open-Drain, High-Speed, Pull-up
+        // 2. Enable Fast Mode Plus (Fm+ 20 mA high-drive sink) on PB6 and PB7 in SYSCFG
+        syscfg.cfgr1.modify(|_, w| w.i2c_pb6_fmp().fmp().i2c_pb7_fmp().fmp());
+
+        // 3. Configure PB6 and PB7 as Alternate Function 1 (I2C1), Open-Drain, High-Speed, Pull-up
         gpiob.afrl.modify(|_, w| w.afrl6().af1().afrl7().af1());
         gpiob.moder.modify(|_, w| w.moder6().alternate().moder7().alternate());
         gpiob.otyper.modify(|_, w| w.ot6().open_drain().ot7().open_drain());
         gpiob.ospeedr.modify(|_, w| w.ospeedr6().high_speed().ospeedr7().high_speed());
         gpiob.pupdr.modify(|_, w| w.pupdr6().pull_up().pupdr7().pull_up());
 
-        // 3. Disable I2C1 while configuring timing
+        // 4. Disable I2C1 while configuring timing
         i2c1.cr1.modify(|_, w| w.pe().disabled());
 
-        // Timing for 48 MHz source -> 400 kHz Fast Mode
-        // PRESC=0, SCLDEL=9, SDADEL=3, SCLH=27, SCLL=61
+        // Timing for 48 MHz SYSCLK -> 1 MHz (1000 kHz) Fast Mode Plus (Fm+)
+        // PRESC=0, SCLDEL=3 (~80ns), SDADEL=0, SCLH=9 (~250ns), SCLL=25 (~650ns)
+        // Total I2C cycle = (1 + 9 + 1 + 25) * 20.83ns = 750ns nominal bus + rise/fall -> 1.0 MHz
         i2c1.timingr.write(|w| {
             w.presc().bits(0)
-                .scldel().bits(9)
-                .sdadel().bits(3)
-                .sclh().bits(27)
-                .scll().bits(61)
+                .scldel().bits(3)
+                .sdadel().bits(0)
+                .sclh().bits(9)
+                .scll().bits(25)
         });
 
-        // 4. Enable I2C1 peripheral
+        // 5. Enable I2C1 peripheral
         i2c1.cr1.modify(|_, w| w.pe().enabled());
     }
 
