@@ -42,9 +42,9 @@ fn panic(_info: &core::panic::PanicInfo) -> ! {
 
 use cortex_m_rt::entry;
 
-use flysky_i6x_rs::{
-    adc, boot, buzzer, calib, chip, crsf, curve, display, input, mixer, rf, safety, storage, time,
-    trim, ui, usb, watchdog,
+use ferrox::{
+    adc, boot, buzzer, calib, chip, crsf, curve, display, hw, input, mixer, rf, safety, storage,
+    time, trainer, trim, ui, usb, watchdog,
 };
 pub use ui::menu;
 
@@ -94,7 +94,9 @@ impl FlightPipeline {
         buzzer: &mut buzzer::Buzzer,
     ) -> FlightSnapshot {
         // 1. Poll continuous DMA analog and digital inputs (sub-microsecond)
-        let state = input::read();
+        let mut state = input::read();
+        hw::update_flight_switches(&mut state, storage, menu_active);
+
         let active_model = storage.active_model();
 
         // 2. Resynchronize arm state when active model changes or when exiting settings menu
@@ -139,18 +141,18 @@ impl FlightPipeline {
         );
 
         // 5. Compute all 14 channels via 4-stage pipeline (D/R, Expo, Matrix Mixer, Trims, Reversing)
-        let rf_chs = mixer::compute_channels(
+        let mut rf_chs = mixer::compute_channels(
             controls.aileron,
             controls.elevator,
             thr_curved,
             controls.rudder,
             &[
-                state.pots.vr1,
-                state.pots.vr2,
-                state.pots.vr3,
-                state.pots.vr4,
-                state.pots.vr5,
-                state.pots.vr6,
+                state.aux_pots[4],
+                state.aux_pots[5],
+                state.aux_pots[6],
+                state.aux_pots[7],
+                state.aux_pots[8],
+                state.aux_pots[9],
             ],
             &state.switches,
             active_model,
@@ -158,9 +160,23 @@ impl FlightPipeline {
             storage.radio.throttle_trim,
         );
 
+        // 5b. Safety Handover: Process student PPM input if Trainer In is enabled
+        if storage.radio.is_ppm_in_enabled() {
+            let trainer_switch_active = state.switches.sd == input::SwitchPos::Down;
+            let mut handover_chs = rf_chs;
+            trainer::process_handover(trainer_switch_active, &rf_chs, &mut handover_chs);
+            rf_chs = handover_chs;
+        }
+
+        let sim_mode = usb::is_sim_mode();
+
+        // 5c. PPM Output: Update 22.5ms CPPM stream on PF10 if PPM Out is enabled
+        if !sim_mode && storage.radio.is_ppm_out_enabled() {
+            trainer::update_out_channels(&rf_chs);
+        }
+
         // 6. Publish channels to active RF subsystem
         let is_crsf = active_model.rf_protocol == 1;
-        let sim_mode = usb::is_sim_mode();
 
         if is_crsf {
             let crsf_active = !sim_mode;
@@ -215,7 +231,7 @@ impl FlightPipeline {
 /// Background idle and UI context: tracks inactivity, backlight timers, user input, and screen rendering.
 struct BackgroundIdleManager {
     prev_stick_samples: [u16; 6],
-    prev_pots: [i16; 2],
+    prev_pots: [i16; 6],
     prev_switches: input::Switches,
     prev_bind_key: bool,
     bind_hold_ms: u32,
@@ -241,6 +257,7 @@ struct BackgroundIdleManager {
     trim_dirty: bool,
     trim_save_cooldown_ms: u16,
     prev_instant_trim_active: bool,
+    board_idle: hw::BoardIdleState,
 }
 
 impl BackgroundIdleManager {
@@ -254,7 +271,14 @@ impl BackgroundIdleManager {
                 init_state.raw[6],
                 init_state.raw[7],
             ],
-            prev_pots: [init_state.pots.vr1, init_state.pots.vr2],
+            prev_pots: [
+                init_state.aux_pots[4],
+                init_state.aux_pots[5],
+                init_state.aux_pots[6],
+                init_state.aux_pots[7],
+                init_state.aux_pots[8],
+                init_state.aux_pots[9],
+            ],
             prev_switches: init_state.switches,
             prev_bind_key: bind_on_boot,
             bind_hold_ms: 0,
@@ -280,6 +304,7 @@ impl BackgroundIdleManager {
             trim_dirty: false,
             trim_save_cooldown_ms: 0,
             prev_instant_trim_active: false,
+            board_idle: hw::BoardIdleState::new(),
         }
     }
 
@@ -304,19 +329,24 @@ impl BackgroundIdleManager {
     ) {
         let menu_active = menu_controller.is_active() || calib_wizard.is_active();
 
+        let (ok_held, timer_reset_clicked, instant_trim_clicked) =
+            self.board_idle
+                .update(now, dt_ms, keys, menu_active, storage, buzzer);
+
         // 1. Resynchronize arm tracking when exiting settings menu
         if self.menu_was_active && !menu_active {
             let active = storage.active_model();
-            pipeline.prev_armed = mixer::eval_arm_switch(active.arm_switch, &flight.state.switches);
+            pipeline.prev_armed =
+                mixer::eval_arm_switch(active.arm_switch, &flight.state.switches);
         }
         self.menu_was_active = menu_active;
 
-        // Pot Center Crossing Haptic/Audio Feedback (VR1 & VR2)
+        // Pot Center Crossing Haptic/Audio Feedback (VRA..VRF)
         // Detect transitions across deadband ±25 from outside (|prev| >= 25 && |curr| < 25)
-        for (&curr, prev) in [flight.state.pots.vr1, flight.state.pots.vr2]
-            .iter()
-            .zip(self.prev_pots.iter_mut())
-        {
+        let max_pot = if storage.radio.ext_adc != 0 { 6 } else { 2 };
+        for idx in 0..max_pot {
+            let curr = flight.state.aux_pots[idx + 4];
+            let prev = &mut self.prev_pots[idx];
             if prev.abs() >= 25 && curr.abs() < 25 {
                 buzzer.pot_center_click();
             }
@@ -469,7 +499,7 @@ impl BackgroundIdleManager {
         let instant_trim_triggered = instant_trim_active && !self.prev_instant_trim_active;
         self.prev_instant_trim_active = instant_trim_active;
 
-        if !menu_active && instant_trim_triggered {
+        if instant_trim_clicked || (!menu_active && instant_trim_triggered) {
             let stick_mode = safety::StickMode::from_u8(storage.radio.stick_mode);
             let controls = flight.state.flight_controls(stick_mode);
             // Apply symmetric rounding to nearest trim step (40 counts per trim step: -1000..+1000 -> -25..+25)
@@ -543,20 +573,22 @@ impl BackgroundIdleManager {
             self.trim_dirty = false;
         }
 
-        // 8. Long-press OK (1.2s) from flight dashboard opens Settings Menu
+        // 8b. Long-press OK (1.2s) from flight dashboard opens Settings Menu
         if !menu_active {
-            if (keys & (1 << 10)) != 0 {
+            if ok_held {
                 self.ok_hold_ms = self.ok_hold_ms.saturating_add(dt_ms);
                 if self.ok_hold_ms >= 1200 {
                     menu_controller.open(buzzer);
                     self.ok_hold_ms = 0;
+                    self.board_idle.clear_menu_open_state();
                 }
             } else {
                 self.ok_hold_ms = 0;
+                self.board_idle.clear_menu_open_state();
             }
         }
 
-        // 8. Flight Timer Engine
+        // 8c. Flight Timer Engine
         let active_idx = storage.radio.active_model;
         let model = storage.active_model();
         if self.prev_timer_model != active_idx {
@@ -590,8 +622,18 @@ impl BackgroundIdleManager {
             self.cancel_waiting_release = false;
         }
 
-        // Check for manual reset via [CANCEL] held for >= 1.0s on flight dashboard
-        if !menu_active
+        // Check for manual reset via assigned button or [CANCEL] held for >= 1.0s on flight dashboard
+        if timer_reset_clicked && self.timer_reset_cooldown_ms == 0 {
+            self.timer_remaining_secs = model.timer_secs;
+            self.timer_elapsed_secs = 0;
+            self.timer_ms_acc = 0;
+            self.timer_latched = false;
+            self.cancel_hold_ms = 0;
+            self.cancel_waiting_release = true;
+            self.timer_reset_toast_ms = 800;
+            self.timer_reset_cooldown_ms = 1500;
+            buzzer.play_tone(2400, 100);
+        } else if !menu_active
             && cancel_key
             && !self.cancel_waiting_release
             && self.timer_reset_cooldown_ms == 0
@@ -654,9 +696,11 @@ impl BackgroundIdleManager {
         }
         self.last_display_ms = now;
 
+        let frame_keys = self.board_idle.take_frame_keys(keys, menu_active);
+
         self.render_display_frame(
             lcd,
-            keys,
+            frame_keys,
             dt_ms,
             flight,
             storage,
@@ -690,6 +734,7 @@ impl BackgroundIdleManager {
                 lcd,
                 keys,
                 &flight.state.switches,
+                &flight.state.pots,
                 storage,
                 trims,
                 &flight.state.raw,
@@ -707,11 +752,8 @@ impl BackgroundIdleManager {
                 menu_controller.request_bind = false;
                 buzzer.play_tone(2400, 150);
             }
-
-            lcd.flush();
         } else if calib_wizard.is_active() {
             calib_wizard.update(lcd, storage, &flight.state.raw, keys, dt_ms.max(20), buzzer);
-            lcd.flush();
         } else {
             let model = storage.active_model();
             let mut timer_buf = [0u8; 8];
@@ -756,9 +798,10 @@ impl BackgroundIdleManager {
                 let pct = ((self.cancel_hold_ms as u32 * 100) / 1000).min(100) as u8;
                 draw_timer_reset_modal(lcd, pct, false);
             }
-
-            lcd.flush();
         }
+
+        self.board_idle.render_overlay(lcd);
+        lcd.flush();
     }
 }
 
@@ -920,7 +963,10 @@ fn draw_timer_reset_modal(lcd: &mut St7567, progress_pct: u8, completed: bool) {
 
 #[entry]
 fn main() -> ! {
-    // 0. Standalone feed immediately refreshes any watchdog running across soft reboot
+    // 0. Early board initialization (e.g. electronic power latch on FS-i6S)
+    hw::pre_init();
+
+    // Standalone feed immediately refreshes any watchdog running across soft reboot
     watchdog::feed();
 
     // Check if reboot was triggered by hardware watchdog (IWDG or WWDG) and clear RCC flags.
@@ -942,6 +988,9 @@ fn main() -> ! {
 
     // Initialize SysTick 1.000 ms hardware monotonic timekeeper
     time::init();
+
+    // Initialize board-specific touch controller (if present)
+    hw::init_touch();
 
     // 3. Load persistent radio storage and 20-model configuration
     let storage = storage::get_storage();
@@ -988,6 +1037,7 @@ fn main() -> ! {
     // 8. Initialize input calibration and capture resting stick centers
     input::init();
     input::apply_calibration(&storage.radio);
+    hw::init_board_keys(&storage.radio);
     watchdog::feed();
     {
         let now = time::millis();
@@ -1025,8 +1075,14 @@ fn main() -> ! {
     // Initialize USB peripheral (Joystick / Serial / Composite / Off)
     usb::init(storage.radio.usb_mode);
 
-    // Initialize CRSF / ExpressLRS expansion bay peripheral (USART2 & PC13)
+    // Initialize CRSF / ExpressLRS expansion bay peripheral
     crsf::init(storage.radio.ext_module_pwr == 0);
+
+    // Initialize Trainer / PPM subsystem (TIM15, PF9 In, PF10 Out)
+    trainer::init(
+        storage.radio.is_ppm_out_enabled(),
+        storage.radio.is_ppm_in_enabled(),
+    );
 
     let mut trims = trim::TrimController::new();
     trims.throttle_enabled = storage.radio.throttle_trim != 0;
@@ -1097,12 +1153,13 @@ fn main() -> ! {
         let now = time::millis();
         let dt_ms = (now.wrapping_sub(last_tick_ms)).min(100) as u16;
 
-        let keys = boot::scan_keys();
         let menu_active = menu_controller.is_active() || calib_wizard.is_active();
+        let keys = hw::poll_keys(storage, menu_active);
 
         if dt_ms > 0 {
             last_tick_ms = now;
             buzzer.tick(dt_ms);
+            trainer::tick_ms(dt_ms);
             if !menu_active {
                 trims.update(keys, dt_ms, &mut buzzer);
             }

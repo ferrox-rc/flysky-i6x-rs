@@ -11,7 +11,7 @@ Configuration and model memories are stored in an 8 KB append-only log across th
 - **Total Sector Size:** 8,192 bytes (4 × 2048-byte pages).
 - **Storage Engine:** Log-structured append-only Key-Value map powered by the `sequential-storage` crate (`sequential_storage::map`).
 - **Key-Value Mapping:**
-  - **Key `0`:** Global radio configuration (`RadioConfig`, 128 bytes).
+  - **Key `0`:** Global radio configuration (`RadioConfig`, 140 bytes).
   - **Keys `1..=20`:** Model memory slots 1 through 20 (`ModelConfig`, 128 bytes each).
 - **Append-Only Write Performance:**
   - Incremental updates write only ~132 bytes to the active flash log page in **~2.8 ms** (measured on hardware).
@@ -43,7 +43,7 @@ pub struct PotCalib {
     pub max: u16,      // Maximum endpoint (raw ADC counts)
 }
 
-/// Global radio settings (exactly 128 bytes)
+/// Global radio settings (exactly 140 bytes, 4-byte aligned)
 #[repr(C)]
 pub struct RadioConfig {
     pub magic: u32,                // 0..4 ("FSKY")
@@ -68,7 +68,13 @@ pub struct RadioConfig {
     pub adc_modes: [u8; 10],       // 116..126: Input modes for the 10 auxiliary analog channels
     pub stick_mode: u8,            // 126: (0: Mode 1, 1: Mode 2, 2: Mode 3, 3: Mode 4)
     pub telem_slots: [u8; 4],      // 127..131: Configurable telemetry dashboard sensor slots (1..4)
-    pub _reserved: [u8; 1],        // 131..132 (1 byte reserved, exact 132-byte layout)
+    pub trainer_mode: u8,          // 131: 0 = Off, 1 = PPM Out (PF10), 2 = Trainer In (PF9)
+    pub rear_btn_l: u8,            // 132: Rear Left button mode (0: RC Sw, 1: Timer Reset, 2: Instant Trim, 3: Trims Mod)
+    pub rear_btn_r: u8,            // 133: Rear Right button mode
+    pub swd_mode: u8,              // 134: 0: SWD Debug, 1: SG/SH Buttons
+    pub touch_enabled: u8,         // 135: 0: Disabled, 1: Enabled (FS-i6S touchscreen)
+    pub switch_sound: u8,          // 136: 0: Off, 1: On (switch toggle acoustic chime)
+    pub _reserved: [u8; 3],        // 137..140 (3 bytes reserved, 4-byte aligned 140-byte layout)
 }
 
 /// A single freeform mix rule in the matrix mixer (6 bytes)
