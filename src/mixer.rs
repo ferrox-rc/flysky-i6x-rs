@@ -172,10 +172,6 @@ pub fn is_switch_active(condition: u8, switches: &Switches) -> bool {
         20 => switches.swi == SwitchPos::Down,
         21 => switches.swj == SwitchPos::Up,
         22 => switches.swj == SwitchPos::Down,
-        23 => switches.swk == SwitchPos::Up,
-        24 => switches.swk == SwitchPos::Down,
-        25 => switches.swl == SwitchPos::Up,
-        26 => switches.swl == SwitchPos::Down,
         _ => true,
     }
 }
@@ -317,20 +313,10 @@ pub fn evaluate_source(
             SwitchPos::Mid => MIXER_CENTER as i32,
             SwitchPos::Down => MIXER_MAX as i32,
         },
-        37 => match switches.swk {
-            SwitchPos::Up => MIXER_MIN as i32,
-            SwitchPos::Mid => MIXER_CENTER as i32,
-            SwitchPos::Down => MIXER_MAX as i32,
-        },
-        38 => match switches.swl {
-            SwitchPos::Up => MIXER_MIN as i32,
-            SwitchPos::Mid => MIXER_CENTER as i32,
-            SwitchPos::Down => MIXER_MAX as i32,
-        },
-        39 => pots.get(2).copied().unwrap_or(0) as i32, // VRC
-        40 => pots.get(3).copied().unwrap_or(0) as i32, // VRD
-        41 => pots.get(4).copied().unwrap_or(0) as i32, // VRE
-        42 => pots.get(5).copied().unwrap_or(0) as i32, // VRF
+        37 => pots.get(2).copied().unwrap_or(0) as i32, // VRC
+        38 => pots.get(3).copied().unwrap_or(0) as i32, // VRD
+        39 => pots.get(4).copied().unwrap_or(0) as i32, // VRE
+        40 => pots.get(5).copied().unwrap_or(0) as i32, // VRF
         _ => MIXER_CENTER as i32,
     }
 }
@@ -600,10 +586,6 @@ mod tests {
         assert!(!is_switch_active(20, &switches), "SWI Down");
         assert!(!is_switch_active(21, &switches), "SWJ Up");
         assert!(is_switch_active(22, &switches), "SWJ Down");
-        assert!(is_switch_active(23, &switches), "SWK Up");
-        assert!(!is_switch_active(24, &switches), "SWK Down");
-        assert!(!is_switch_active(25, &switches), "SWL Up");
-        assert!(is_switch_active(26, &switches), "SWL Down");
     }
 
     #[test]
@@ -621,11 +603,11 @@ mod tests {
         // Source 32 (SF): Down -> MIXER_MAX (1000)
         assert_eq!(evaluate_source(32, &cond_sticks, &pots, &switches, &channels), MIXER_MAX as i32);
 
-        // Sources 39..42: VRC..VRF (pots[2..6])
-        assert_eq!(evaluate_source(39, &cond_sticks, &pots, &switches, &channels), -500);
-        assert_eq!(evaluate_source(40, &cond_sticks, &pots, &switches, &channels), 750);
-        assert_eq!(evaluate_source(41, &cond_sticks, &pots, &switches, &channels), -1000);
-        assert_eq!(evaluate_source(42, &cond_sticks, &pots, &switches, &channels), 1000);
+        // Sources 37..40: VRC..VRF (pots[2..6])
+        assert_eq!(evaluate_source(37, &cond_sticks, &pots, &switches, &channels), -500);
+        assert_eq!(evaluate_source(38, &cond_sticks, &pots, &switches, &channels), 750);
+        assert_eq!(evaluate_source(39, &cond_sticks, &pots, &switches, &channels), -1000);
+        assert_eq!(evaluate_source(40, &cond_sticks, &pots, &switches, &channels), 1000);
 
         switches.se = SwitchPos::Down;
         switches.sf = SwitchPos::Up;

@@ -346,10 +346,10 @@ impl RadioConfig {
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct MixLine {
     pub target_ch: u8, // 0: Disabled, 1..18: Target Channel CH1..CH18
-    pub source: u8, // 0: None, 1: Roll, 2: Pitch, 3: Thr, 4: Yaw, 5: VRA, 6: VRB, 7: SA, 8: SB, 9: SC, 10: SD, 11: MAX, 12..29: CH1..CH18, 30: ThrUnipolar, 31..42: SE..VRF
+    pub source: u8, // 0: None, 1: Roll, 2: Pitch, 3: Thr, 4: Yaw, 5: VRA, 6: VRB, 7: SA, 8: SB, 9: SC, 10: SD, 11: MAX, 12..29: CH1..CH18, 30: ThrUnipolar, 31..40: SE..VRF
     pub weight: i8, // -100% .. +100%
     pub offset: i8, // -100% .. +100%
-    pub switch: u8, // 0: Always On, 1..26: SA_UP..SWL_DN
+    pub switch: u8, // 0: Always On, 1..22: SA_UP..SWJ_DN
     pub mode: u8,   // 0: Add (+), 1: Multiply (*), 2: Replace (:=)
 }
 
@@ -638,12 +638,12 @@ impl RadioStorage {
                 m.aux_channels = [7, 8, 5, 6, 9, 10, 0, 0, 0, 0, 0, 0, 0, 0];
             }
             for src in m.aux_channels.iter_mut() {
-                if *src > 42 {
+                if *src > 40 {
                     *src = 0;
                 }
             }
             for mix in m.mixes.iter_mut() {
-                if mix.target_ch > 18 || mix.source > 42 || mix.mode > 2 || mix.switch > 26 {
+                if mix.target_ch > 18 || mix.source > 40 || mix.mode > 2 || mix.switch > 22 {
                     *mix = MixLine::disabled();
                 }
             }
