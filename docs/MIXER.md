@@ -25,7 +25,7 @@ flowchart TD
     subgraph S3 ["Stage 3: Mixing & Templates"]
         TPL["Aircraft Template: Normal / Elevon / V-Tail / Flaperon"]
         AUX["Aux Source Mapping (CH5..CH18)"]
-        MIX["8 Freeform Mix Rules (Weight, Offset, Mode, Switch)"]
+        MIX["32 Freeform Mix Rules (Weight, Modulation, Offset, Mode, Switch)"]
     end
 
     subgraph S4 ["Stage 4: Outputs & Protocol Frame"]
@@ -163,27 +163,47 @@ All 14 auxiliary channels (CH5 through CH18) can be independently assigned to an
 
 ## 5. Freeform Matrix Mixer Engine
 
-For custom aircraft geometries, complex sailplanes, multi-engine craft, and safety interlocks, every model profile includes **8 freeform mix lines** (`Mix 1` through `Mix 8`).
+For custom aircraft geometries, complex sailplanes, multi-engine craft, and safety interlocks, every model profile includes **32 freeform mix lines** (`M01` through `M32`).
 
 ### Mix Rule Parameters
-Each mix line comprises a compact 6-byte struct stored in Flash memory:
+Each mix line comprises a compact 8-byte struct stored in non-volatile memory:
 
 ```rust
+#[repr(C)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct MixLine {
     pub target_ch: u8,   // 0: Disabled, 1..18: Target Channel (CH1..CH18)
-    pub source: u8,      // 0: None, 1..4: AETR, 5..6: VRA/VRB, 7..10: SA..SD, 11: MAX, 12..29: CH1..CH18, 30: Thr+, 31..32: SE/SF, 33..36: VRC..VRF
+    pub source: u8,      // 0: None, 1..4: AETR, 5..6: VRA/VRB, 7..10: SA..SD, 11: MAX, 12..29: CH1..CH18, 30: Thr+, 31..40: SE..VRF
+    pub weight_src: u8,  // 0: Fixed Weight, 1..18: Modulate with CH1..CH18 (Bipolar -100%..+100%), 19..36: Modulate (Unipolar 0..100%)
     pub weight: i8,      // -100% .. +100% (gain / authority)
     pub offset: i8,      // -100% .. +100% (center shift)
-    pub switch: u8,      // 0: Always ON, 1..10: SA..SD conditions, 11..14: SE/SF conditions
+    pub switch: u8,      // 0: Always ON, 1..22: Switch condition (SA^..SWJv)
     pub mode: u8,        // 0: ADD (+), 1: MULTIPLY (*), 2: REPLACE (:=)
+    pub _reserved: u8,   // 1-byte padding for 8-byte alignment
 }
+```
+
+### Dynamic Weight Modulation
+Mix lines can dynamically scale their gain authority based on real-time channel inputs or knobs:
+- **`Fixed` (`weight_src = 0`)**: The configured `weight` setting is applied directly.
+- **`CH1`..`CH18` (`weight_src = 1..18`)**: Bipolar modulation. The effective weight is multiplied by the modulating channel value ($-1000..+1000 \to -100\%..+100\%$). Useful for variable dual rates or knob-controlled mixer gains.
+- **`CH1+`..`CH18+` (`weight_src = 19..36`)**: Unipolar modulation ($0..+1000 \to 0\%..+100\%$). Ideal for flap-to-elevator compensation scaled by a knob, or spoilerons active only in one stick half.
+
+The effective term added to the channel is:
+```text
+Effective_Weight = match weight_src {
+    0 => weight,
+    1..=18 => (weight * Channel[weight_src - 1]) / 1000,
+    19..=36 => (weight * max(0, (Channel[weight_src - 19] + 1000) / 2)) / 1000,
+};
+Term = (Source * Effective_Weight) / 100 + (Offset * 10);
 ```
 
 ### Multiplex Modes
 When a mix line is active, it modifies the target channel based on its configured mode:
 1. **`ADD (+)`**: Adds the weighted source to the current channel value:
    ```text
-   Channel_new = Channel_current + ((Source * Weight) / 100) + (Offset * 10)
+   Channel_new = Channel_current + Term
    ```
 2. **`MULTIPLY (*)`**: Scales the current channel value by the source (e.g. gain knobs, variable differential):
    ```text
@@ -191,18 +211,17 @@ When a mix line is active, it modifies the target channel based on its configure
    ```
 3. **`REPLACE (:=)`**: Overrides and replaces the target channel completely (e.g. throttle cut, emergency level/rescue switch):
    ```text
-   Channel_new = ((Source * Weight) / 100) + (Offset * 10)
+   Channel_new = Term
    ```
 
 ### Switch Conditions
-A mix line can be gated by a hardware switch:
+A mix line can be gated by any hardware switch condition (0..22):
 - `ON`: Always active.
 - `SA^`, `SAv`: Active when switch `SA` is UP or DOWN.
 - `SB^`, `SB-`, `SBv`: Active when switch `SB` is UP, MID, or DOWN.
 - `SC^`, `SC-`, `SCv`: Active when switch `SC` is UP, MID, or DOWN.
 - `SD^`, `SDv`: Active when switch `SD` is UP or DOWN.
-- `SE^`, `SEv`: Active when auxiliary switch `SE` is UP or DOWN (active-LOW mod).
-- `SF^`, `SFv`: Active when auxiliary switch `SF` is UP or DOWN (active-LOW mod).
+- `SE^`..`SWJv`: Active on secondary/expansion switches.
 
 ---
 
@@ -214,6 +233,7 @@ Here are proven mixer setups used by RC pilots:
 *Prevents accidental motor start by locking CH3 to minimum pulse (1000 µs) whenever switch `SD` is flipped DOWN:*
 - **Target**: `CH3`
 - **Source**: `MAX`
+- **Weight Src**: `Fixed`
 - **Weight**: `-100%`
 - **Offset**: `0%`
 - **Switch**: `SDv`
@@ -223,48 +243,62 @@ Here are proven mixer setups used by RC pilots:
 *High-thrust airplanes often balloon upward when applying full throttle. This mix automatically injects a small amount of down-elevator as throttle increases without introducing negative elevator deflection at idle:*
 - **Target**: `CH2` (Elevator)
 - **Source**: `Thr+` (Unipolar half-range throttle: 0 at idle, linearly ramping to +1000 at full throttle)
+- **Weight Src**: `Fixed`
 - **Weight**: `-10%`
 - **Offset**: `0%`
 - **Switch**: `ON`
 - **Mode**: `ADD (+)`
 
-### Recipe 3: Twin-Engine Differential Thrust
+### Recipe 3: Knob-Modulated Flap-to-Elevator Trim
+*Automatically trims elevator when flaps deploy, with master trim authority scaled by potentiometer `VRA`:*
+- **Target**: `CH2` (Elevator)
+- **Source**: `CH6` (Flaps)
+- **Weight Src**: `CH7` (VRA assigned to CH7, bipolar scale)
+- **Weight**: `-25%` (Max down elevator authority)
+- **Offset**: `0%`
+- **Switch**: `ON`
+- **Mode**: `ADD (+)`
+
+### Recipe 4: Twin-Engine Differential Thrust
 *Twin-motor planes or boats can spin tightly using motor thrust mixed with rudder:*
 - **CH3 (Left Motor)**: Driven by normal throttle.
 - **CH5 (Right Motor)**: In `Aux Channels`, set source to `Thr`.
 - **Mix 1 (Left Motor Yaw Mix)**:
-  - Target: `CH3`, Source: `Yaw`, Weight: `+20%`, Mode: `ADD (+)`
+  - Target: `CH3`, Source: `Yaw`, Weight Src: `Fixed`, Weight: `+20%`, Mode: `ADD (+)`
 - **Mix 2 (Right Motor Yaw Mix)**:
-  - Target: `CH5`, Source: `Yaw`, Weight: `-20%`, Mode: `ADD (+)`
+  - Target: `CH5`, Source: `Yaw`, Weight Src: `Fixed`, Weight: `-20%`, Mode: `ADD (+)`
 
-### Recipe 4: Crow / Butterfly Sailplane Airbrakes
+### Recipe 5: Crow / Butterfly Sailplane Airbrakes
 *For high-performance gliders: deploys flaps full down, raises both ailerons up, and feeds in down-elevator compensation to dive without gaining speed:*
 - **Template**: `Flaperon` (CH1 Left Aileron, CH6 Right Aileron).
 - **Mix 1 (Flap-to-Aileron Crow)**:
-  - Target: `CH1`, Source: `VRA`, Weight: `+40%`, Mode: `ADD (+)`
+  - Target: `CH1`, Source: `VRA`, Weight Src: `Fixed`, Weight: `+40%`, Mode: `ADD (+)`
 - **Mix 2 (Elevator Compensation)**:
-  - Target: `CH2`, Source: `VRA`, Weight: `-15%`, Mode: `ADD (+)`
+  - Target: `CH2`, Source: `VRA`, Weight Src: `Fixed`, Weight: `-15%`, Mode: `ADD (+)`
 
 ---
 
 ## 7. Model Profile Storage Layout
 
-Flight mixer parameters are stored directly inside each 128-byte [`ModelConfig`](../src/storage.rs) structure in the append-only sequential storage log (Keys 1..20 across Flash Pages 60–63 at `0x0801_E000`):
+Flight mixer parameters are stored directly inside each 348-byte [`ModelConfig`](../src/storage.rs) structure in dedicated 768-byte EEPROM slots (Slot 0..19 at `0x0200`..`0x3E00`):
 
-| Parameter | Type | Bytes | Offset in Model Profile |
+| Parameter | Type | Bytes | Description |
 | :--- | :--- | :--- | :--- |
-| `dr_switch` | `u8` | 1 | Offset 22 |
-| `dr_high` | `[u8; 3]` | 3 | Offset 34..37 |
-| `dr_low` | `[u8; 3]` | 3 | Offset 37..40 |
-| `expo_high` | `[i8; 3]` | 3 | Offset 40..43 |
-| `expo_low` | `[i8; 3]` | 3 | Offset 43..46 |
-| `aux_channels` | `[u8; 10]` | 10 | Offset 52..62 |
-| `wing_tail_mix` | `u8` | 1 | Offset 62 |
-| `template_diff` | `i8` | 1 | Offset 63 |
-| `mixes` | `[MixLine; 8]` | 48 | Offset 64..112 |
-| `_reserved` | `[u8; 14]` | 14 | Offset 114..128 |
+| `name` | `[u8; 10]` | 10 | 10-char ASCII model name |
+| `dr_switch` | `u8` | 1 | Dual Rate switch selector (0..6) |
+| `thr_curve_pts` | `u8` | 1 | 5, 9, or 17 point curve mode |
+| `thr_curve_smooth` | `u8` | 1 | 0: Linear, 1: Catmull-Rom spline |
+| `thr_curve` | `[u8; 17]` | 17 | Throttle curve points (0..100%) |
+| `dr_high` | `[u8; 3]` | 3 | High rates: AIL, ELE, RUD (50..100%) |
+| `dr_low` | `[u8; 3]` | 3 | Low rates: AIL, ELE, RUD (30..100%) |
+| `expo_high` | `[i8; 3]` | 3 | High expo: AIL, ELE, RUD (-100..+100%) |
+| `expo_low` | `[i8; 3]` | 3 | Low expo: AIL, ELE, RUD (-100..+100%) |
+| `aux_channels` | `[u8; 14]` | 14 | Source mappings for CH5..CH18 |
+| `wing_tail_mix` | `u8` | 1 | Aircraft template (0..3) |
+| `template_diff` | `i8` | 1 | Template differential (-100..+100%) |
+| `mixes` | `[MixLine; 32]` | 256 | 32 freeform matrix mix rules (32 * 8 bytes) |
 
-Total `ModelConfig` size: **exactly 128 bytes** (100% backward and forward compatible, 0 migration loss).
+Total `ModelConfig` size: **exactly 348 bytes** (uses only 45.3% of the 768-byte EEPROM slot).
 
 > [!NOTE]
-> For total firmware binary footprint, Flash partition boundaries, and SRAM budgeting, see [ARCHITECTURE.md (Memory Footprint)](ARCHITECTURE.md#4-memory-footprint).
+> In SRAM, an **Active-Model Cache** architecture is employed: `RadioStorage` holds only `RadioConfig` (140 B) and the single active `ModelConfig` (348 B), occupying only 488 bytes total. This leaves over **9.4 KB (>58%) of SRAM** free for stack operations on the STM32F072.

@@ -49,7 +49,7 @@ flowchart TD
         ADC_Poll["1. Read DMA Buffer (input::poll)<br>Adaptive Jitter Filter + Calibrations"]
         Keys["2. Scan Key Matrix (boot::scan_keys)<br>Digital Trims & Navigation Shortcuts"]
         Trims["3. Apply Digital Trims<br>Roll, Pitch, Throttle (Option 1/2), Yaw"]
-        Curves["4. Curve Engine (curve::evaluate_curve)<br>5/9-Point Catmull-Rom Spline Interpolation"]
+        Curves["4. Curve Engine (curve::evaluate_curve)<br>5/9/17-Point Catmull-Rom Spline Interpolation"]
         Rev["5. Channel Reversing<br>18-bit mask: pulse = 3000 - pulse"]
         USB_Poll["6. USB Subsystem Poll (usb::poll)<br>100 Hz HID Gamepad & CDC Serial CLI"]
         RF_Update["7. Update rf::set_channels(&rf_chs)<br>Lock-Free SPSC Triple Buffer (zero critical sections)"]
@@ -195,7 +195,7 @@ Measured on release builds (`thumbv6m-none-eabi`, opt-level = "z", LTO = "fat", 
 ## 5. Throttle Curve Engine & Catmull-Rom Spline Math (`src/curve.rs`)
 
 The curve engine transforms normalized stick inputs (0..1000) into tailored output curves:
-- **Modes**: 5-point (0%, 25%, 50%, 75%, 100%) and 9-point (0%, 12.5%, 25%, ..., 100%).
+- **Modes**: 5-point (0%, 25%, 50%, 75%, 100%), 9-point (0%, 12.5%, ..., 100%), and 17-point (0%, 6.25%, ..., 100%).
 - **Linear Interpolation**:
   ```text
   val = y0 + ((y1 - y0) * delta_x) / x_span

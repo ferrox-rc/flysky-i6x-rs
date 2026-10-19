@@ -288,9 +288,9 @@ Interactive curve engine with real-time on-screen curve visualization (49 x 37 p
 +------------------------------------+
 | THROTTLE CURVE                     |
 |------------------------------------+
-|   Pts: 9-PT        +--------------+|
+|   Pts: 17-PT       +--------------+|
 |   Crv: SMOOTH      |     .---*    ||
-| > P3: 50% <        |    /         ||
+| > P08: 50% <       |    /         ||
 |                    |   /  *       ||
 |                    |  /           ||
 |                    +--------------+|
@@ -299,24 +299,26 @@ Interactive curve engine with real-time on-screen curve visualization (49 x 37 p
 +------------------------------------+
 ```
 
-- **Field 0 (`Pts:`)**: Toggle between **`5-PT`** and **`9-PT`**. The UI dynamically updates the point range indicator (`Pts: 1..5` in 5-point mode, `Pts: 1..9` in 9-point mode). Switching from 5-point to 9-point mode automatically **resamples** midpoint values between existing points (e.g. `[0, 25, 50, 75, 100]` -> `[0, 12, 25, 37, 50, 62, 75, 87, 100]`), preventing flat-zero dropoffs.
+- **Field 0 (`Pts:`)**: Cycle between **`5-PT`**, **`9-PT`**, and **`17-PT`**. The UI dynamically updates the point range indicator (`Pts: 1..5`, `Pts: 1..9`, or `Pts: 1..17`). Switching between point modes automatically **resamples** midpoint values between existing points, preventing flat-zero dropoffs.
 - **Field 1 (`Crv:`)**: Toggle between **`LINEAR`** (piecewise linear interpolation) and **`SMOOTH`** (**Catmull-Rom cubic Hermite spline** smoothing).
-- **Field 2.. (`P1` .. `Pn`)**:
-  - While navigating (`!editing`), scroll with **`[UP]`** / **`[DOWN]`** and press **`[OK]`** to enter point-editing mode (`> Pn: XX% <`).
+- **Field 2.. (`P01` .. `P17`)**:
+  - While navigating (`!editing`), scroll with **`[UP]`** / **`[DOWN]`** and press **`[OK]`** to enter point-editing mode (`> P08:  50% <`).
   - While editing:
     - **`[UP]`** / **`[DOWN]`**: Adjust point value between 0% and 100% (with auto-repeat when held).
-    - **`[OK]`**: Confirm current point and advance to next point (`P1` -> `P2` -> `...`). On the last point, exits edit mode.
-    - **`[BIND]`**: Tabs to the next point (wraps to `P1`).
+    - **`[OK]`**: Confirm current point and advance to next point (`P01` -> `P02` -> `...`). On the last point, exits edit mode.
+    - **`[BIND]`**: Tabs to the next point (wraps to `P01`).
     - **`[CANCEL]` (`[ESC]`)**: Exits point-editing mode.
   - A real-time 3 x 3 pixel dot indicator is plotted directly on the curve graph at the coordinates of the actively selected point.
 
 ### Submenu 5: Wing & Tail Mixer (`WING/MIXER`)
 - **Wing Template**: Cycle between `NORMAL`, `ELEVON/DELTA` (flying wings/jets: mixes Pitch & Roll on CH1/CH2), `V-TAIL` (gliders: mixes Pitch & Yaw on CH2/CH4), and `FLAPERON` (dual ailerons on CH1 & CH6 with flap input).
-- **Freeform Mix Lines (`M1` .. `M8`)**: Press **`[OK]`** to edit any mix line:
+- **Diff:** (When Elevon or Flaperon active): Adjust surface differential ratio (-100%..+100%).
+- **Freeform Mix Lines (`M01` .. `M32`)**: Press **`[OK]`** on any of the 32 matrix mixer lines to open `EDIT MIX 01`..`EDIT MIX 32`:
   - **Target**: Output channel (`CH1`..`CH18` or `Disabled`).
-  - **Source**: Control source (`Roll`, `Pitch`, `Thr`, `Yaw`, `VRA`, `VRB`, `SA..SD`, `SE`, `SF`, `VRC..VRF`, `MAX`, `CH1..CH18`, `Thr+`).
+  - **Source**: Control source (`Roll`, `Pitch`, `Thr`, `Yaw`, `VRA`, `VRB`, `SA..SD`, `MAX`, `CH1..CH18`, `Thr+`, `SE..SWJ`, `VRC..VRF`).
+  - **Wt Src** (Weight Modulation Source): `Fixed` (direct weight gain), `CH1`..`CH18` (bipolar -100%..+100% modulation by channel or knob), or `CH1+`..`CH18+` (unipolar 0..100% modulation).
   - **Weight / Offset**: Percentage scaling (-100%..+100%).
-  - **Switch**: Activation condition (`ON`, `SA^`, `SAv`, `SB^`, `SB-`, `SBv`, `SC^`, `SC-`, `SCv`, `SD^`, `SDv`, `SE^`, `SEv`, `SF^`, `SFv`).
+  - **Switch**: Activation condition (`ON`, `SA^`..`SWJv`).
   - **Mode**: Multiplex method (`ADD (+)`, `MULT (*)`, `REPL (:=)`).
 
 ### Submenu 6: Auxiliary Channels (`AUX CHANNELS`)
