@@ -5,9 +5,15 @@ All notable changes to the `flysky-i6x-rs` project will be documented in this fi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.24.0] - 2026-10-16
+## [0.24.0] - 2026-10-19
 
 ### Added
+- **FT24C128A 16 KB I2C EEPROM Storage Driver ([`src/storage.rs`](src/storage.rs), [`src/main.rs`](src/main.rs))**:
+  - Replaced internal Flash `sequential-storage` with an onboard FT24C128A I2C EEPROM driver over `I2C2` on `PB10` (SCL) and `PB11` (SDA).
+  - Configured 1000 kHz Fast Mode Plus (Fm+) utilizing STM32F072 `SYSCFG_CFGR1.I2C2_FMP` 20 mA drive booster.
+  - Reclaimed entire 128 KB of internal MCU Flash for firmware code.
+  - Implemented CRC16 framing and A/B ping-pong safe-write slots (`0x0000` / `0x0100`) for `RadioConfig` and 20 dedicated model slots (`0x0200 + idx * 768`).
+  - Completely removed `sequential-storage`, `embedded-storage`, and `embedded-storage-async` dependencies.
 - **Unified `ferrox` Core Architecture & `src/hw/` HAL Isolation ([`src/lib.rs`](src/lib.rs), [`src/hw/mod.rs`](src/hw/mod.rs))**:
   - Unified the core crate name (`ferrox`) and 100% of shared flight control, protocol, storage, mixer, UI, and USB modules across `flysky-i6x-rs` and `flysky-i6s-rs`.
   - Isolated all board-specific constants, peripheral pin definitions, key matrix scanning, external switch GPIOs (`PC12`/`PC15`), and P7 ADC pins (`PC2`..`PC5`) inside `src/hw/`.
@@ -20,7 +26,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **5 Ascending CRSF Baud Rates & Single-Wire Half-Duplex (`HDSEL`) ([`src/crsf/uart.rs`](src/crsf/uart.rs), [`src/ui/menu/screens/setup.rs`](src/ui/menu/screens/setup.rs))**:
   - Standardized 5 ascending CRSF baud rates (`0 = 115.2k`, `1 = 416.6k`, `2 = 420k`, `3 = 921.6k`, `4 = 1.875M`) and per-model `Duplex: Full (2W) / Half (1W)` selection in `Protocol Setup`.
 - **Expanded Host Test Suite**:
-  - Suite features **122 host unit tests** verifying core logic, storage serialization, input decoding, calibration, mixer math, and UI layouts under single-threaded test execution (`-- --test-threads=1`).
+  - Suite features **127 host unit tests** verifying core logic, storage serialization, input decoding, calibration, mixer math, and UI layouts under single-threaded test execution (`-- --test-threads=1`).
+
+### Fixed
+- **Mixer & UI Switch Cleanup ([`src/mixer.rs`](src/mixer.rs), [`src/ui/format.rs`](src/ui/format.rs), [`src/storage.rs`](src/storage.rs))**:
+  - Removed non-existent `SWK`/`SWL` switches from mixer evaluation and UI menus (`SOURCE_NAMES` and `SWITCH_COND_NAMES`).
+  - Remapped analog sources `VRC..VRF` to indices `37..40`.
 
 ## [0.23.0] - 2026-10-15
 
