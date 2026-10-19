@@ -1,4 +1,4 @@
-//! USB HID Gamepad / Joystick driver for FlySky FS-i6X.
+//! USB HID Gamepad / Joystick driver for FlySky Transmitters.
 //!
 //! Exposes an 8-axis, 16-button standard USB Gamepad compatible with all FPV
 //! and RC flight simulators (Liftoff, Velocidrone, RealFlight, AccuRC, DCL, etc.).
@@ -67,6 +67,8 @@ fn us_to_axis(us: u16) -> u16 {
 ///   - Buttons 7..10: Channels 11..14 (> AUX_BUTTON_THRESHOLD_US for auxiliary functions)
 ///   - Button 11: Switch SE (Down)
 ///   - Button 12: Switch SF (Down)
+///   - Button 13: Switch SG (Down)
+///   - Button 14: Switch SH (Down)
 pub fn build_gamepad_report(
     rf_chs: &[u16; NUM_CHANNELS],
     switches: &Switches,
@@ -104,12 +106,18 @@ pub fn build_gamepad_report(
         }
     }
 
-    // Buttons 11..12: Auxiliary switches SE and SF (Down)
+    // Buttons 11..14: Auxiliary switches SE, SF, SG, SH (Down)
     if switches.se == SwitchPos::Down {
         btns |= 1 << 10; // Button 11
     }
     if switches.sf == SwitchPos::Down {
         btns |= 1 << 11; // Button 12
+    }
+    if switches.sg == SwitchPos::Down {
+        btns |= 1 << 12; // Button 13
+    }
+    if switches.sh == SwitchPos::Down {
+        btns |= 1 << 13; // Button 14
     }
 
     out[0] = (btns & 0xFF) as u8;

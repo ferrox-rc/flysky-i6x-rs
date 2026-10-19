@@ -238,6 +238,8 @@ The 4-pin round rear port (and internal expansion header) connects to the MCU's 
 | :--- | :--- | :--- | :--- |
 | **Signal TX** | `PD5` | `USART2_TX` (AF0) | Asynchronous serial output to external module |
 | **Signal RX** | `PA15` | `USART2_RX` (AF1) | Serial telemetry downlink from external module |
+| **PPM Output** | `PF10` | `TIM15_CH2` (AF0) | 22.5 ms 8-channel CPPM output for simulator dongles & multi-modules |
+| **PPM Input** | `PF9` | `TIM15_CH1` (AF0) | Microsecond input capture for wired buddy-box student connection |
 | **Module Power**| `PC13` | Power Switch GPIO | Configurable polarity (Default High / Active Low supported in Radio Setup) |
 | **Baud Rate** | Selectable | 8N1 | 115.2k (Low), 416.6k (TBS), 420k (ELRS), 921.6k (Fast), 1.875M (Max) |
 

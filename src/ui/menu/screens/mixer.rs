@@ -526,7 +526,7 @@ pub fn update_wing_mixer(
                 lcd.draw_str_6x10(24, y, ch_str, is_sel);
 
                 lcd.draw_str_6x10(54, y, "<-", is_sel);
-                let s_idx = (mix.source as usize).min(36);
+                let s_idx = (mix.source as usize).min(SOURCE_NAMES.len() - 1);
                 lcd.draw_str_6x10(70, y, SOURCE_NAMES[s_idx], is_sel);
             }
         }
@@ -596,11 +596,18 @@ pub fn update_mixer_line_edit(
                 }
             }
             1 => {
-                if keys.up {
-                    mix.source = (mix.source + 1) % 37;
+                if let Some(pot) = keys.pot_change {
+                    mix.source = pot;
+                    buzzer.play_tone(2400, 40);
+                } else if keys.up {
+                    mix.source = (mix.source + 1) % (SOURCE_NAMES.len() as u8);
                     buzzer.play_tone(2200, 20);
                 } else if keys.down {
-                    mix.source = if mix.source == 0 { 36 } else { mix.source - 1 };
+                    mix.source = if mix.source == 0 {
+                        (SOURCE_NAMES.len() - 1) as u8
+                    } else {
+                        mix.source - 1
+                    };
                     buzzer.play_tone(2200, 20);
                 }
             }
@@ -627,10 +634,14 @@ pub fn update_mixer_line_edit(
                     mix.switch = sw;
                     buzzer.play_tone(2400, 40);
                 } else if keys.up {
-                    mix.switch = (mix.switch + 1) % 15;
+                    mix.switch = (mix.switch + 1) % (SWITCH_COND_NAMES.len() as u8);
                     buzzer.play_tone(2200, 20);
                 } else if keys.down {
-                    mix.switch = if mix.switch == 0 { 14 } else { mix.switch - 1 };
+                    mix.switch = if mix.switch == 0 {
+                        (SWITCH_COND_NAMES.len() - 1) as u8
+                    } else {
+                        mix.switch - 1
+                    };
                     buzzer.play_tone(2200, 20);
                 }
             }
@@ -684,7 +695,7 @@ pub fn update_mixer_line_edit(
                 }
             }
             1 => {
-                let s_idx = (mix.source as usize).min(36);
+                let s_idx = (mix.source as usize).min(SOURCE_NAMES.len() - 1);
                 widgets::draw_list_row(lcd, slot, is_sel, "Source:", Some(SOURCE_NAMES[s_idx]), 56);
             }
             2 => {
@@ -696,7 +707,7 @@ pub fn update_mixer_line_edit(
                 widgets::draw_list_row(lcd, slot, is_sel, "Offset:", Some(o_str), 56);
             }
             4 => {
-                let sw_idx = (mix.switch as usize).min(14);
+                let sw_idx = (mix.switch as usize).min(SWITCH_COND_NAMES.len() - 1);
                 widgets::draw_list_row(
                     lcd,
                     slot,

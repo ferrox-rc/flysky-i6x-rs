@@ -1,6 +1,6 @@
 # SOFTWARE ARCHITECTURE & TIMING MODEL
 
-`flysky-i6x-rs` uses a bare-metal, `no_std` reactive architecture designed for deterministic RF packet timing and sub-millisecond control latency on the STM32F072VB Cortex-M0 microcontroller.
+`flysky-i6x-rs` uses a bare-metal, `no_std` reactive architecture powered by the unified **`ferrox`** flight-control core and a board-specific Hardware Abstraction Layer (`src/hw/`), designed for deterministic RF packet timing and sub-millisecond control latency on the STM32F072VB / APM32F072VB Cortex-M0 microcontroller.
 
 ---
 
@@ -15,6 +15,19 @@
 | **USB Physical Clock** | **USBSW = 1 (PLLCLK)** | Routes 48.000 MHz PLL directly to USB peripheral (`RCC_CFGR3` bit 7) |
 
 Implemented in [`src/chip/mod.rs`](../src/chip/mod.rs) using pure PAC direct register access (`pac::RCC`).
+
+### 1.2 Unified `ferrox` Core & `src/hw/` Hardware Isolation
+
+`flysky-i6x-rs` and `flysky-i6s-rs` share a **100% byte-for-byte identical hardware-agnostic core** (`diff -rq -x hw src/` produces zero differences), while isolating all board-specific peripherals inside [`src/hw/`](../src/hw/):
+
+| Layer | Module Path | Responsibility |
+| :--- | :--- | :--- |
+| **Unified Core (`ferrox`)** | `src/{main.rs, lib.rs, input.rs, mixer.rs, storage.rs, safety.rs, calib.rs, curve.rs, trim.rs, buzzer.rs, watchdog.rs, time.rs}` | Real-time flight pipeline, 18-channel matrix mixer, Catmull-Rom curves, sequential Flash storage, pre-flight safety, calibration wizard, and audio engine |
+| **Protocol & UI Subsystems** | `src/{rf/, crsf/, trainer/, usb/, display/, ui/}` | AFHDS 2A / A7105 driver, CRSF / ExpressLRS configurator, `TIM15` CPPM Out/In & buddy-box handover, USB HID/CDC stack, ST7567 1bpp display, and 5-page UI |
+| **FS-i6X Hardware Layer** | [`src/hw/mod.rs`](../src/hw/mod.rs) | Board identity, 1/2 resistor battery divider math, 16-item `Radio Setup` extensions, adaptive dashboard switch/pot rendering, and `BoardIdleState` |
+| | [`src/hw/adc.rs`](../src/hw/adc.rs) | Autonomous `ADC1` + `DMA1_CH1` scanner for 11 standard channels (`0x07FF`) or 15 channels (`0xF7FF`, adding Header P7 `PC2..PC5`) |
+| | [`src/hw/keys.rs`](../src/hw/keys.rs) | 3x4 physical key matrix (`PC6..PC8` / `PD12..PD15`), `PF2` Bind button, and trim inward cold DFU bootloader entry |
+| | [`src/hw/uart.rs`](../src/hw/uart.rs) | `USART2` (`PD5` TX / `PA15` RX, IRQ 28) interrupt-driven CRSF transceiver, single-wire `HDSEL`, and `PC13` module power control |
 
 ---
 
@@ -160,19 +173,17 @@ In `flysky-i6x-rs`, reset recovery is treated as a safety-critical state machine
 
 ## 4. Memory Footprint
  
-Measured on release builds (`thumbv6m-none-eabi`, opt-level = "z", LTO = "fat", v0.20.0):
+Measured on release builds (`thumbv6m-none-eabi`, opt-level = "z", LTO = "fat", v0.24.0):
 - **Flash ROM Partition (`memory.x`)**: **120 KB** (`0x0800_0000 .. 0x0801_DFFF`, Pages 0–59) allocated for firmware execution.
-  - **Firmware Binary**: **~110.5 KB** (110,552 bytes Flash total):
-    - `.text`: 93,440 bytes (code execution)
-    - `.rodata`: 8,996 bytes (constants, font tables, CRSF parameter metadata)
-    - `.data`: 7,924 bytes (initialized variables in Flash copied to SRAM at reset)
-    - `.vector_table`: 192 bytes (Cortex-M0 interrupt vector table at `0x0800_0000`)
-  - **Free Program Space**: **~9.5 KB** (9,448 bytes / ~7.9% headroom) remaining within the 120 KB partition for future expansions.
+  - **Firmware Binary**: **~110.1 KB** (112,696 bytes Flash total):
+    - `.text`: 104,632 bytes (code execution)
+    - `.data`: 8,064 bytes (initialized variables in Flash copied to SRAM at reset)
+  - **Free Program Space**: **~9.9 KB** (9,184 bytes / ~8.2% headroom) remaining within the 120 KB partition for future expansions.
 - **Non-Volatile Storage Partition (Flash Pages 60–63)**: **8 KB** (`0x0801_E000 .. 0x0802_0000`, 4 × 2048-byte pages, 8,192 bytes total) managed as a log-structured append-only storage engine via `sequential-storage`. Writes complete in **~2.8 ms** with zero page erases on routine updates, wear-levelled across all 4 pages.
 - **SRAM Memory Budget (16 KB total, `0x2000_0000 .. 0x2000_3FFF`)**:
-  - **Static Allocation**: **~8.9 KB** (8,940 bytes total static RAM):
-    - `.data`: 7,924 bytes (`0x2000_0000 .. 0x2000_1EF4`)
-    - `.bss`: 1,016 bytes (`0x2000_1EF4 .. 0x2000_22EC`)
+  - **Static Allocation**: **~8.9 KB** (9,096 bytes total static RAM):
+    - `.data`: 8,064 bytes (`0x2000_0000 .. 0x2000_1F80`)
+    - `.bss`: 1,032 bytes (`0x2000_1F80 .. 0x2000_2388`)
   - **Dedicated Peripherals**:
     - **LCD Framebuffer**: 1,024 bytes (128 × 64 monochrome buffer in static memory).
     - **USB Packet Memory Area (PMA)**: 1,024 bytes of dedicated USB SRAM located at `0x4000_6000` (outside main SRAM).
