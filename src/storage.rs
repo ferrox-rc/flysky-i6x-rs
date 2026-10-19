@@ -1,8 +1,8 @@
 //! I2C EEPROM storage (FT24C128A 16 KB) for non-volatile configuration and 20-model memory system.
 //!
 //! Pinout on FS-i6X mainboard:
-//! - PB6: I2C1_SCL
-//! - PB7: I2C1_SDA
+//! - PB10: I2C2_SCL
+//! - PB11: I2C2_SDA
 //!
 //! Physical capacity: 16,384 bytes (256 pages x 64 bytes).
 //! Slot layout:
@@ -777,44 +777,41 @@ impl SlotHeader {
     }
 }
 
-/// Direct hardware I2C1 EEPROM driver for FT24C128A (PB6 = SCL, PB7 = SDA).
+/// Direct hardware I2C2 EEPROM driver for FT24C128A (PB10 = SCL, PB11 = SDA).
 #[cfg(not(test))]
 pub struct EepromI2c;
 
 #[cfg(not(test))]
 impl EepromI2c {
-    /// Initialize I2C1 peripheral on PB6 (SCL) and PB7 (SDA) at ~400 kHz Fast Mode.
+    /// Initialize I2C2 peripheral on PB10 (SCL) and PB11 (SDA) at ~1000 kHz Fast Mode Plus (Fm+).
     pub fn init() {
         let rcc = unsafe { &*stm32f0xx_hal::pac::RCC::ptr() };
         let gpiob = unsafe { &*stm32f0xx_hal::pac::GPIOB::ptr() };
-        let i2c1 = unsafe { &*stm32f0xx_hal::pac::I2C1::ptr() };
+        let i2c2 = unsafe { &*stm32f0xx_hal::pac::I2C2::ptr() };
         let syscfg = unsafe { &*stm32f0xx_hal::pac::SYSCFG::ptr() };
 
-        // 1. Enable GPIOB, SYSCFG, and I2C1 clocks
+        // 1. Enable GPIOB, SYSCFG, and I2C2 clocks
         rcc.ahbenr.modify(|_, w| w.iopben().enabled());
         rcc.apb2enr.modify(|_, w| w.syscfgen().enabled());
-        rcc.apb1enr.modify(|_, w| w.i2c1en().enabled());
+        rcc.apb1enr.modify(|_, w| w.i2c2en().enabled());
 
-        // Configure I2C1 clock source as SYSCLK (48 MHz)
-        rcc.cfgr3.modify(|_, w| w.i2c1sw().sysclk());
+        // 2. Enable Fast Mode Plus (Fm+ 20 mA high-drive sink) on I2C2 pins in SYSCFG
+        syscfg.cfgr1.modify(|_, w| w.i2c2_fmp().fmp());
 
-        // 2. Enable Fast Mode Plus (Fm+ 20 mA high-drive sink) on PB6 and PB7 in SYSCFG
-        syscfg.cfgr1.modify(|_, w| w.i2c_pb6_fmp().fmp().i2c_pb7_fmp().fmp());
+        // 3. Configure PB10 and PB11 as Alternate Function 1 (I2C2), Open-Drain, High-Speed, Pull-up
+        gpiob.afrh.modify(|_, w| w.afrh10().af1().afrh11().af1());
+        gpiob.moder.modify(|_, w| w.moder10().alternate().moder11().alternate());
+        gpiob.otyper.modify(|_, w| w.ot10().open_drain().ot11().open_drain());
+        gpiob.ospeedr.modify(|_, w| w.ospeedr10().high_speed().ospeedr11().high_speed());
+        gpiob.pupdr.modify(|_, w| w.pupdr10().pull_up().pupdr11().pull_up());
 
-        // 3. Configure PB6 and PB7 as Alternate Function 1 (I2C1), Open-Drain, High-Speed, Pull-up
-        gpiob.afrl.modify(|_, w| w.afrl6().af1().afrl7().af1());
-        gpiob.moder.modify(|_, w| w.moder6().alternate().moder7().alternate());
-        gpiob.otyper.modify(|_, w| w.ot6().open_drain().ot7().open_drain());
-        gpiob.ospeedr.modify(|_, w| w.ospeedr6().high_speed().ospeedr7().high_speed());
-        gpiob.pupdr.modify(|_, w| w.pupdr6().pull_up().pupdr7().pull_up());
+        // 4. Disable I2C2 while configuring timing
+        i2c2.cr1.modify(|_, w| w.pe().disabled());
 
-        // 4. Disable I2C1 while configuring timing
-        i2c1.cr1.modify(|_, w| w.pe().disabled());
-
-        // Timing for 48 MHz SYSCLK -> 1 MHz (1000 kHz) Fast Mode Plus (Fm+)
+        // Timing for 48 MHz APB1/SYSCLK -> 1 MHz (1000 kHz) Fast Mode Plus (Fm+)
         // PRESC=0, SCLDEL=3 (~80ns), SDADEL=0, SCLH=9 (~250ns), SCLL=25 (~650ns)
         // Total I2C cycle = (1 + 9 + 1 + 25) * 20.83ns = 750ns nominal bus + rise/fall -> 1.0 MHz
-        i2c1.timingr.write(|w| {
+        i2c2.timingr.write(|w| {
             w.presc().bits(0)
                 .scldel().bits(3)
                 .sdadel().bits(0)
@@ -822,8 +819,8 @@ impl EepromI2c {
                 .scll().bits(25)
         });
 
-        // 5. Enable I2C1 peripheral
-        i2c1.cr1.modify(|_, w| w.pe().enabled());
+        // 5. Enable I2C2 peripheral
+        i2c2.cr1.modify(|_, w| w.pe().enabled());
     }
 
     /// Read sequential bytes starting at 16-bit EEPROM `addr`.
@@ -832,11 +829,11 @@ impl EepromI2c {
             return Ok(());
         }
 
-        let i2c1 = unsafe { &*stm32f0xx_hal::pac::I2C1::ptr() };
+        let i2c2 = unsafe { &*stm32f0xx_hal::pac::I2C2::ptr() };
 
         // 1. Send 2-byte memory address write header without STOP (autoend=false)
         let addr_bytes = addr.to_be_bytes();
-        i2c1.cr2.write(|w| {
+        i2c2.cr2.write(|w| {
             w.sadd().bits((EEPROM_I2C_ADDR << 1) as u16)
                 .nbytes().bits(2)
                 .rd_wrn().write()
@@ -846,9 +843,9 @@ impl EepromI2c {
 
         for &byte in &addr_bytes {
             let mut timeout = 100_000u32;
-            while i2c1.isr.read().txis().bit_is_clear() {
-                if i2c1.isr.read().nackf().bit_is_set() {
-                    i2c1.icr.write(|w| w.nackcf().clear());
+            while i2c2.isr.read().txis().bit_is_clear() {
+                if i2c2.isr.read().nackf().bit_is_set() {
+                    i2c2.icr.write(|w| w.nackcf().clear());
                     return Err(StorageError::I2cError);
                 }
                 timeout -= 1;
@@ -856,12 +853,12 @@ impl EepromI2c {
                     return Err(StorageError::I2cError);
                 }
             }
-            i2c1.txdr.write(|w| w.txdata().bits(byte));
+            i2c2.txdr.write(|w| w.txdata().bits(byte));
         }
 
         // Wait for TC (Transfer Complete)
         let mut timeout = 100_000u32;
-        while i2c1.isr.read().tc().bit_is_clear() {
+        while i2c2.isr.read().tc().bit_is_clear() {
             timeout -= 1;
             if timeout == 0 {
                 return Err(StorageError::I2cError);
@@ -874,7 +871,7 @@ impl EepromI2c {
             let chunk_len = core::cmp::min(255, data.len() - read_offset);
             let is_last = (read_offset + chunk_len) == data.len();
 
-            i2c1.cr2.write(|w| {
+            i2c2.cr2.write(|w| {
                 w.sadd().bits((EEPROM_I2C_ADDR << 1) as u16)
                     .nbytes().bits(chunk_len as u8)
                     .rd_wrn().read()
@@ -884,18 +881,18 @@ impl EepromI2c {
 
             for i in 0..chunk_len {
                 let mut byte_timeout = 100_000u32;
-                while i2c1.isr.read().rxne().bit_is_clear() {
+                while i2c2.isr.read().rxne().bit_is_clear() {
                     byte_timeout -= 1;
                     if byte_timeout == 0 {
                         return Err(StorageError::I2cError);
                     }
                 }
-                data[read_offset + i] = i2c1.rxdr.read().rxdata().bits();
+                data[read_offset + i] = i2c2.rxdr.read().rxdata().bits();
             }
 
             if !is_last {
                 let mut tc_timeout = 100_000u32;
-                while i2c1.isr.read().tc().bit_is_clear() {
+                while i2c2.isr.read().tc().bit_is_clear() {
                     tc_timeout -= 1;
                     if tc_timeout == 0 {
                         return Err(StorageError::I2cError);
@@ -903,13 +900,13 @@ impl EepromI2c {
                 }
             } else {
                 let mut stop_timeout = 100_000u32;
-                while i2c1.isr.read().stopf().bit_is_clear() {
+                while i2c2.isr.read().stopf().bit_is_clear() {
                     stop_timeout -= 1;
                     if stop_timeout == 0 {
                         break;
                     }
                 }
-                i2c1.icr.write(|w| w.stopcf().clear());
+                i2c2.icr.write(|w| w.stopcf().clear());
             }
 
             read_offset += chunk_len;
@@ -924,11 +921,11 @@ impl EepromI2c {
             return Ok(());
         }
 
-        let i2c1 = unsafe { &*stm32f0xx_hal::pac::I2C1::ptr() };
+        let i2c2 = unsafe { &*stm32f0xx_hal::pac::I2C2::ptr() };
         let total_bytes = (2 + chunk.len()) as u8;
         let addr_bytes = addr.to_be_bytes();
 
-        i2c1.cr2.write(|w| {
+        i2c2.cr2.write(|w| {
             w.sadd().bits((EEPROM_I2C_ADDR << 1) as u16)
                 .nbytes().bits(total_bytes)
                 .rd_wrn().write()
@@ -939,9 +936,9 @@ impl EepromI2c {
         // 1. Send 2 address bytes
         for &byte in &addr_bytes {
             let mut timeout = 100_000u32;
-            while i2c1.isr.read().txis().bit_is_clear() {
-                if i2c1.isr.read().nackf().bit_is_set() {
-                    i2c1.icr.write(|w| w.nackcf().clear());
+            while i2c2.isr.read().txis().bit_is_clear() {
+                if i2c2.isr.read().nackf().bit_is_set() {
+                    i2c2.icr.write(|w| w.nackcf().clear());
                     return Err(StorageError::I2cError);
                 }
                 timeout -= 1;
@@ -949,15 +946,15 @@ impl EepromI2c {
                     return Err(StorageError::I2cError);
                 }
             }
-            i2c1.txdr.write(|w| w.txdata().bits(byte));
+            i2c2.txdr.write(|w| w.txdata().bits(byte));
         }
 
         // 2. Send payload bytes
         for &byte in chunk {
             let mut timeout = 100_000u32;
-            while i2c1.isr.read().txis().bit_is_clear() {
-                if i2c1.isr.read().nackf().bit_is_set() {
-                    i2c1.icr.write(|w| w.nackcf().clear());
+            while i2c2.isr.read().txis().bit_is_clear() {
+                if i2c2.isr.read().nackf().bit_is_set() {
+                    i2c2.icr.write(|w| w.nackcf().clear());
                     return Err(StorageError::I2cError);
                 }
                 timeout -= 1;
@@ -965,18 +962,18 @@ impl EepromI2c {
                     return Err(StorageError::I2cError);
                 }
             }
-            i2c1.txdr.write(|w| w.txdata().bits(byte));
+            i2c2.txdr.write(|w| w.txdata().bits(byte));
         }
 
         // Wait for STOPF
         let mut stop_timeout = 100_000u32;
-        while i2c1.isr.read().stopf().bit_is_clear() {
+        while i2c2.isr.read().stopf().bit_is_clear() {
             stop_timeout -= 1;
             if stop_timeout == 0 {
                 break;
             }
         }
-        i2c1.icr.write(|w| w.stopcf().clear());
+        i2c2.icr.write(|w| w.stopcf().clear());
 
         // 3. ACK Polling for EEPROM internal write cycle (max 5ms)
         Self::poll_ack();
@@ -986,7 +983,7 @@ impl EepromI2c {
 
     /// Poll I2C address until EEPROM ACKs that its internal self-timed write cycle has completed.
     fn poll_ack() {
-        let i2c1 = unsafe { &*stm32f0xx_hal::pac::I2C1::ptr() };
+        let i2c2 = unsafe { &*stm32f0xx_hal::pac::I2C2::ptr() };
         let mut retries = 50u32; // up to ~10ms total polling
 
         while retries > 0 {
@@ -994,7 +991,7 @@ impl EepromI2c {
             retries -= 1;
 
             // Send 0-byte write to test device readiness
-            i2c1.cr2.write(|w| {
+            i2c2.cr2.write(|w| {
                 w.sadd().bits((EEPROM_I2C_ADDR << 1) as u16)
                     .nbytes().bits(0)
                     .rd_wrn().write()
@@ -1004,14 +1001,14 @@ impl EepromI2c {
 
             let mut wait = 20_000u32;
             let mut got_nack = false;
-            while i2c1.isr.read().stopf().bit_is_clear() && wait > 0 {
-                if i2c1.isr.read().nackf().bit_is_set() {
+            while i2c2.isr.read().stopf().bit_is_clear() && wait > 0 {
+                if i2c2.isr.read().nackf().bit_is_set() {
                     got_nack = true;
-                    i2c1.icr.write(|w| w.nackcf().clear());
+                    i2c2.icr.write(|w| w.nackcf().clear());
                 }
                 wait -= 1;
             }
-            i2c1.icr.write(|w| w.stopcf().clear());
+            i2c2.icr.write(|w| w.stopcf().clear());
 
             if !got_nack && wait > 0 {
                 return; // Device ACKed, write complete!
