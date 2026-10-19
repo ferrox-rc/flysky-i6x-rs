@@ -341,16 +341,20 @@ impl RadioConfig {
     }
 }
 
-/// A single freeform mix rule in the matrix mixer (6 bytes).
+pub const NUM_MIX_LINES: usize = 32;
+
+/// A single freeform mix rule in the matrix mixer (8 bytes).
 #[repr(C)]
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct MixLine {
     pub target_ch: u8, // 0: Disabled, 1..18: Target Channel CH1..CH18
     pub source: u8, // 0: None, 1: Roll, 2: Pitch, 3: Thr, 4: Yaw, 5: VRA, 6: VRB, 7: SA, 8: SB, 9: SC, 10: SD, 11: MAX, 12..29: CH1..CH18, 30: ThrUnipolar, 31..40: SE..VRF
+    pub weight_src: u8, // 0: Fixed Weight, 1..18: Modulate with CH1..CH18 (Bipolar), 19..36: Modulate (Unipolar 0..100%)
     pub weight: i8, // -100% .. +100%
     pub offset: i8, // -100% .. +100%
     pub switch: u8, // 0: Always On, 1..22: SA_UP..SWJ_DN
     pub mode: u8,   // 0: Add (+), 1: Multiply (*), 2: Replace (:=)
+    pub _reserved: u8, // 1-byte padding for 8-byte alignment
 }
 
 impl MixLine {
@@ -358,15 +362,17 @@ impl MixLine {
         Self {
             target_ch: 0,
             source: 0,
+            weight_src: 0,
             weight: 100,
             offset: 0,
             switch: 0,
             mode: 0,
+            _reserved: 0,
         }
     }
 }
 
-/// Complete profile for an individual aircraft/model (exactly 128 bytes).
+/// Complete profile for an individual aircraft/model (exactly 348 bytes).
 #[repr(C)]
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct ModelConfig {
@@ -377,30 +383,33 @@ pub struct ModelConfig {
     pub trims: [i8; 4],         // 16..20: Roll, Pitch, Throttle, Yaw (-25..+25)
     pub channel_reverse: u32,   // 20..24: Bitmask for CH1..CH18 inversion
     pub dr_switch: u8,          // 24: 0: None, 1: SA, 2: SB, 3: SC, 4: SD, 5: SE, 6: SF
-    pub thr_curve_pts: u8,      // 25: 5 or 9 points mode
+    pub thr_curve_pts: u8,      // 25: 5, 9, or 17 points mode
     pub thr_curve_smooth: u8,   // 26: 0: Linear, 1: Spline / Smooth
-    pub thr_curve: [u8; 9],     // 27..36: Points 1..9 (0..100%)
-    pub dr_high: [u8; 3],       // 36..39: High rate (AIL, ELE, RUD: 50..100%)
-    pub dr_low: [u8; 3],        // 39..42: Low rate (AIL, ELE, RUD: 30..100%)
-    pub expo_high: [i8; 3],     // 42..45: High expo (-100..+100%)
-    pub expo_low: [i8; 3],      // 45..48: Low expo (-100..+100%)
-    pub timer_secs: u16,        // 48..50: Countdown timer in seconds (e.g. 300 = 5 min)
-    pub timer_source: u8, // 50: 0: Off, 1: THs (Thr>5%), 2: THt (Thr Latched), 3: Always On, 4..17: SA^..SFv
-    pub rf_power: u8, // 51: AFHDS 2A RF power (0: 100mW, 1: 10mW, 2: 1mW, 3: 100uW)
-    pub failsafe_thr: u16, // 52..54: Failsafe throttle pulse in µs (e.g. 1000)
-    pub aux_channels: [u8; 14], // 54..68: Source for CH5..CH18
-    pub wing_tail_mix: u8, // 68: 0: Normal, 1: Elevon/Delta, 2: V-Tail, 3: Flaperon
-    pub template_diff: i8, // 69: Differential / mix ratio (-100..+100)
-    pub mixes: [MixLine; 8], // 70..118: 8 freeform mix rules (8 * 6 = 48 bytes)
-    pub failsafe_mode: u8, // 118: 0: Hold last, 1: Custom pulses
-    pub failsafe_timeout: u8, // 119: 10..50 (1.0s..5.0s)
-    pub rf_protocol: u8,  // 120: 0: AFHDS 2A, 1: CRSF / ELRS
-    pub crsf_baud: u8,    // 121: 0: 115.2k, 1: 416.6k, 2: 420k, 3: 921.6k, 4: 1.875M
-    pub arm_switch: u8, // 122: 0: None, 1..14: SA^..SFv
-    pub rx_out_mode: u8, // 123: 0: PWM, 1: PPM (default 0)
-    pub servo_rate_hz: u16, // 124..126: 50..400 Hz (default 50 Hz)
-    pub rx_serial_proto: u8, // 126: 0: i-BUS, 1: S.BUS (default 0)
-    pub crsf_half_duplex: u8, // 127: 0: Full-Duplex (2-Wire), 1: Half-Duplex (1-Wire)
+    pub thr_curve: [u8; 17],    // 27..44: Points 1..17 (0..100%)
+    pub _pad_crv: u8,           // 44..45
+    pub dr_high: [u8; 3],       // 45..48: High rate (AIL, ELE, RUD: 50..100%)
+    pub dr_low: [u8; 3],        // 48..51: Low rate (AIL, ELE, RUD: 30..100%)
+    pub expo_high: [i8; 3],     // 51..54: High expo (-100..+100%)
+    pub expo_low: [i8; 3],      // 54..57: Low expo (-100..+100%)
+    pub _pad1: u8,              // 57..58: align timer_secs to 2-byte boundary
+    pub timer_secs: u16,        // 58..60: Countdown timer in seconds (e.g. 300 = 5 min)
+    pub timer_source: u8, // 60: 0: Off, 1: THs (Thr>5%), 2: THt (Thr Latched), 3: Always On, 4..17: SA^..SFv
+    pub rf_power: u8, // 61: AFHDS 2A RF power (0: 100mW, 1: 10mW, 2: 1mW, 3: 100uW)
+    pub failsafe_thr: u16, // 62..64: Failsafe throttle pulse in µs (e.g. 1000)
+    pub aux_channels: [u8; 14], // 64..78: Source for CH5..CH18
+    pub wing_tail_mix: u8, // 78: 0: Normal, 1: Elevon/Delta, 2: V-Tail, 3: Flaperon
+    pub template_diff: i8, // 79: Differential / mix ratio (-100..+100)
+    pub mixes: [MixLine; NUM_MIX_LINES], // 80..336: 32 freeform mix rules (32 * 8 = 256 bytes)
+    pub failsafe_mode: u8, // 336: 0: Hold last, 1: Custom pulses
+    pub failsafe_timeout: u8, // 337: 10..50 (1.0s..5.0s)
+    pub rf_protocol: u8,  // 338: 0: AFHDS 2A, 1: CRSF / ELRS
+    pub crsf_baud: u8,    // 339: 0: 115.2k, 1: 416.6k, 2: 420k, 3: 921.6k, 4: 1.875M
+    pub arm_switch: u8, // 340: 0: None, 1..14: SA^..SFv
+    pub rx_out_mode: u8, // 341: 0: PWM, 1: PPM (default 0)
+    pub servo_rate_hz: u16, // 342..344: 50..400 Hz (default 50 Hz)
+    pub rx_serial_proto: u8, // 344: 0: i-BUS, 1: S.BUS (default 0)
+    pub crsf_half_duplex: u8, // 345: 0: Full-Duplex (2-Wire), 1: Half-Duplex (1-Wire)
+    pub _pad_end: [u8; 2], // 346..348: Align struct to 4-byte word boundary
 }
 
 impl ModelConfig {
@@ -420,11 +429,13 @@ impl ModelConfig {
             dr_switch: 0,
             thr_curve_pts: 5,
             thr_curve_smooth: 0,
-            thr_curve: [0, 25, 50, 75, 100, 0, 0, 0, 0],
+            thr_curve: [0, 25, 50, 75, 100, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+            _pad_crv: 0,
             dr_high: [100, 100, 100],
             dr_low: [70, 70, 70],
             expo_high: [0, 0, 0],
             expo_low: [0, 0, 0],
+            _pad1: 0,
             timer_secs: 300,
             timer_source: 1,
             rf_power: 0,
@@ -432,7 +443,7 @@ impl ModelConfig {
             aux_channels: [7, 8, 5, 6, 9, 10, 0, 0, 0, 0, 0, 0, 0, 0],
             wing_tail_mix: 0,
             template_diff: 0,
-            mixes: [MixLine::disabled(); 8],
+            mixes: [MixLine::disabled(); NUM_MIX_LINES],
             failsafe_mode: 0,
             failsafe_timeout: 20,
             rf_protocol: 0,
@@ -442,6 +453,7 @@ impl ModelConfig {
             rx_out_mode: 0,
             rx_serial_proto: 0,
             crsf_half_duplex: 0,
+            _pad_end: [0; 2],
         }
     }
 
@@ -456,53 +468,40 @@ impl ModelConfig {
     }
 }
 
-/// Complete Flash storage layout containing radio settings and 20 models (2,698 bytes).
+/// Compact storage layout containing radio settings and active model (488 bytes).
 #[repr(C)]
 #[derive(Copy, Clone, Debug)]
 pub struct RadioStorage {
     pub radio: RadioConfig,
-    pub models: [ModelConfig; NUM_MODELS],
+    pub active_model: ModelConfig,
 }
 
 impl RadioStorage {
     pub const fn empty() -> Self {
         Self {
             radio: RadioConfig::default_factory(),
-            models: [ModelConfig::default_for_index(0); NUM_MODELS],
+            active_model: ModelConfig::default_for_index(0),
         }
     }
 
     #[allow(dead_code)]
     pub const fn default_factory() -> Self {
-        let mut models = [ModelConfig::default_for_index(0); NUM_MODELS];
-        let mut i = 0;
-        while i < NUM_MODELS {
-            models[i] = ModelConfig::default_for_index(i);
-            i += 1;
-        }
-        Self {
-            radio: RadioConfig::default_factory(),
-            models,
-        }
+        Self::empty()
     }
 
     pub fn init_default(&mut self) {
         self.radio = RadioConfig::default_factory();
-        let mut i = 0;
-        while i < NUM_MODELS {
-            self.models[i] = ModelConfig::default_for_index(i);
-            i += 1;
-        }
+        self.active_model = ModelConfig::default_for_index(0);
     }
 
+    #[inline(always)]
     pub fn active_model(&self) -> &ModelConfig {
-        let idx = (self.radio.active_model as usize).min(NUM_MODELS - 1);
-        &self.models[idx]
+        &self.active_model
     }
 
+    #[inline(always)]
     pub fn active_model_mut(&mut self) -> &mut ModelConfig {
-        let idx = (self.radio.active_model as usize).min(NUM_MODELS - 1);
-        &mut self.models[idx]
+        &mut self.active_model
     }
 
     /// Sanitize all radio and model parameters to valid operating bounds.
@@ -595,98 +594,98 @@ impl RadioStorage {
             self.radio.trainer_config = 0;
         }
 
-        for (idx, m) in self.models.iter_mut().enumerate() {
-            if m.model_type > 4 {
-                m.model_type = 0;
+        let m = &mut self.active_model;
+        if m.model_type > 4 {
+            m.model_type = 0;
+        }
+        if m.rf_protocol > 1 {
+            m.rf_protocol = 0;
+        }
+        if m.crsf_baud > 4 {
+            m.crsf_baud = 2;
+        }
+        if m.crsf_half_duplex > 1 {
+            m.crsf_half_duplex = 0;
+        }
+        for axis in 0..3 {
+            if m.dr_high[axis] < 30 || m.dr_high[axis] > 100 {
+                m.dr_high[axis] = 100;
             }
-            if m.rf_protocol > 1 {
-                m.rf_protocol = 0;
+            if m.dr_low[axis] < 30 || m.dr_low[axis] > 100 {
+                m.dr_low[axis] = 70;
             }
-            if m.crsf_baud > 4 {
-                m.crsf_baud = 2;
+            if m.expo_high[axis] < -100 || m.expo_high[axis] > 100 {
+                m.expo_high[axis] = 0;
             }
-            if m.crsf_half_duplex > 1 {
-                m.crsf_half_duplex = 0;
+            if m.expo_low[axis] < -100 || m.expo_low[axis] > 100 {
+                m.expo_low[axis] = 0;
             }
-            for axis in 0..3 {
-                if m.dr_high[axis] < 30 || m.dr_high[axis] > 100 {
-                    m.dr_high[axis] = 100;
-                }
-                if m.dr_low[axis] < 30 || m.dr_low[axis] > 100 {
-                    m.dr_low[axis] = 70;
-                }
-                if m.expo_high[axis] < -100 || m.expo_high[axis] > 100 {
-                    m.expo_high[axis] = 0;
-                }
-                if m.expo_low[axis] < -100 || m.expo_low[axis] > 100 {
-                    m.expo_low[axis] = 0;
-                }
+        }
+        if m.dr_switch > 6 {
+            m.dr_switch = 0;
+        }
+        if m.wing_tail_mix > 3 {
+            m.wing_tail_mix = 0;
+        }
+        if m.template_diff < -100 || m.template_diff > 100 {
+            m.template_diff = 0;
+        }
+        if m.failsafe_thr < 900 || m.failsafe_thr > 2100 {
+            m.failsafe_thr = 1000;
+        }
+        if m.aux_channels[0..6] == [0; 6] {
+            m.aux_channels = [7, 8, 5, 6, 9, 10, 0, 0, 0, 0, 0, 0, 0, 0];
+        }
+        for src in m.aux_channels.iter_mut() {
+            if *src > 40 {
+                *src = 0;
             }
-            if m.dr_switch > 6 {
-                m.dr_switch = 0;
+        }
+        for mix in m.mixes.iter_mut() {
+            if mix.target_ch > 18 || mix.source > 40 || mix.weight_src > 36 || mix.mode > 2 || mix.switch > 22 {
+                *mix = MixLine::disabled();
             }
-            if m.wing_tail_mix > 3 {
-                m.wing_tail_mix = 0;
-            }
-            if m.template_diff < -100 || m.template_diff > 100 {
-                m.template_diff = 0;
-            }
-            if m.failsafe_thr < 900 || m.failsafe_thr > 2100 {
-                m.failsafe_thr = 1000;
-            }
-            if m.aux_channels[0..6] == [0; 6] {
-                m.aux_channels = [7, 8, 5, 6, 9, 10, 0, 0, 0, 0, 0, 0, 0, 0];
-            }
-            for src in m.aux_channels.iter_mut() {
-                if *src > 40 {
-                    *src = 0;
-                }
-            }
-            for mix in m.mixes.iter_mut() {
-                if mix.target_ch > 18 || mix.source > 40 || mix.mode > 2 || mix.switch > 22 {
-                    *mix = MixLine::disabled();
-                }
-            }
-            if m.thr_curve_pts != 5 && m.thr_curve_pts != 9 {
-                m.thr_curve_pts = 5;
-                m.thr_curve = [0, 25, 50, 75, 100, 0, 0, 0, 0];
-            }
-            if m.arm_switch > 14 {
-                m.arm_switch = 0;
-            }
-            if m.timer_source > 17 {
-                m.timer_source = 0;
-            }
-            if m.timer_secs > 3600 {
-                m.timer_secs = 0;
-            }
-            if m.rf_power > 3 {
-                m.rf_power = 0;
-            }
-            if m.servo_rate_hz < 50 || m.servo_rate_hz > 400 {
-                m.servo_rate_hz = 50;
-            }
-            if m.rx_out_mode > 1 {
-                m.rx_out_mode = 0;
-            }
-            if m.rx_serial_proto > 1 {
-                m.rx_serial_proto = 0;
-            }
-            if m.name[0] == 0 || m.name[0] == 0xFF {
-                let num = (idx + 1) as u8;
-                let digit1 = b'0' + (num / 10);
-                let digit2 = b'0' + (num % 10);
-                m.name = [
-                    b'M', b'O', b'D', b'E', b'L', b' ', digit1, digit2, b' ', b' ',
-                ];
-            }
+        }
+        if m.thr_curve_pts != 5 && m.thr_curve_pts != 9 && m.thr_curve_pts != 17 {
+            m.thr_curve_pts = 5;
+            m.thr_curve = [0, 25, 50, 75, 100, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+        }
+        if m.arm_switch > 14 {
+            m.arm_switch = 0;
+        }
+        if m.timer_source > 17 {
+            m.timer_source = 0;
+        }
+        if m.timer_secs > 3600 {
+            m.timer_secs = 0;
+        }
+        if m.rf_power > 3 {
+            m.rf_power = 0;
+        }
+        if m.servo_rate_hz < 50 || m.servo_rate_hz > 400 {
+            m.servo_rate_hz = 50;
+        }
+        if m.rx_out_mode > 1 {
+            m.rx_out_mode = 0;
+        }
+        if m.rx_serial_proto > 1 {
+            m.rx_serial_proto = 0;
+        }
+        if m.name[0] == 0 || m.name[0] == 0xFF {
+            let num = self.radio.active_model + 1;
+            let digit1 = b'0' + (num / 10);
+            let digit2 = b'0' + (num % 10);
+            m.name = [
+                b'M', b'O', b'D', b'E', b'L', b' ', digit1, digit2, b' ', b' ',
+            ];
         }
     }
 }
 
 const _: () = assert!(core::mem::size_of::<RadioConfig>() == 140);
-const _: () = assert!(core::mem::size_of::<ModelConfig>() == 128);
-const _: () = assert!(core::mem::size_of::<RadioStorage>() == 2700);
+const _: () = assert!(core::mem::size_of::<MixLine>() == 8);
+const _: () = assert!(core::mem::size_of::<ModelConfig>() == 348);
+const _: () = assert!(core::mem::size_of::<RadioStorage>() == 488);
 
 static mut GLOBAL_STORAGE: RadioStorage = RadioStorage::empty();
 
@@ -1040,6 +1039,110 @@ impl EepromI2c {
     }
 }
 
+/// Legacy ModelConfig v1 (128 bytes) from prior releases.
+/// Used for transparent, lossless migration to v2 (348 bytes).
+#[repr(C)]
+#[derive(Copy, Clone, Debug)]
+pub struct LegacyModelConfigV1 {
+    pub name: [u8; 10],
+    pub model_type: u8,
+    pub _pad0: u8,
+    pub rx_id: u32,
+    pub trims: [i8; 4],
+    pub channel_reverse: u32,
+    pub dr_switch: u8,
+    pub thr_curve_pts: u8,
+    pub thr_curve_smooth: u8,
+    pub thr_curve: [u8; 9],
+    pub dr_high: [u8; 3],
+    pub dr_low: [u8; 3],
+    pub expo_high: [i8; 3],
+    pub expo_low: [i8; 3],
+    pub timer_secs: u16,
+    pub timer_source: u8,
+    pub rf_power: u8,
+    pub failsafe_thr: u16,
+    pub aux_channels: [u8; 14],
+    pub wing_tail_mix: u8,
+    pub template_diff: i8,
+    pub mixes: [LegacyMixLineV1; 8],
+    pub failsafe_mode: u8,
+    pub failsafe_timeout: u8,
+    pub rf_protocol: u8,
+    pub crsf_baud: u8,
+    pub arm_switch: u8,
+    pub rx_out_mode: u8,
+    pub servo_rate_hz: u16,
+    pub rx_serial_proto: u8,
+    pub crsf_half_duplex: u8,
+}
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug)]
+pub struct LegacyMixLineV1 {
+    pub target_ch: u8,
+    pub source: u8,
+    pub weight: i8,
+    pub offset: i8,
+    pub switch: u8,
+    pub mode: u8,
+}
+
+const _: () = assert!(core::mem::size_of::<LegacyModelConfigV1>() == 128);
+const _: () = assert!(core::mem::size_of::<LegacyMixLineV1>() == 6);
+
+pub fn unpack_legacy_v1_model(v1: &LegacyModelConfigV1) -> ModelConfig {
+    let mut v2 = ModelConfig::default_for_index(0);
+    v2.name = v1.name;
+    v2.model_type = v1.model_type;
+    v2.rx_id = v1.rx_id;
+    v2.trims = v1.trims;
+    v2.channel_reverse = v1.channel_reverse;
+    v2.dr_switch = v1.dr_switch;
+    v2.thr_curve_pts = v1.thr_curve_pts;
+    v2.thr_curve_smooth = v1.thr_curve_smooth;
+    // Copy the first 9 curve points, rest are 0
+    v2.thr_curve[0..9].copy_from_slice(&v1.thr_curve);
+    v2.dr_high = v1.dr_high;
+    v2.dr_low = v1.dr_low;
+    v2.expo_high = v1.expo_high;
+    v2.expo_low = v1.expo_low;
+    v2.timer_secs = v1.timer_secs;
+    v2.timer_source = v1.timer_source;
+    v2.rf_power = v1.rf_power;
+    v2.failsafe_thr = v1.failsafe_thr;
+    v2.aux_channels = v1.aux_channels;
+    v2.wing_tail_mix = v1.wing_tail_mix;
+    v2.template_diff = v1.template_diff;
+
+    // Migrate first 8 mixer lines
+    for i in 0..8 {
+        v2.mixes[i] = MixLine {
+            target_ch: v1.mixes[i].target_ch,
+            source: v1.mixes[i].source,
+            weight_src: 0, // default fixed weight
+            weight: v1.mixes[i].weight,
+            offset: v1.mixes[i].offset,
+            switch: v1.mixes[i].switch,
+            mode: v1.mixes[i].mode,
+            _reserved: 0,
+        };
+    }
+    // Remaining lines 8..32 remain disabled
+
+    v2.failsafe_mode = v1.failsafe_mode;
+    v2.failsafe_timeout = v1.failsafe_timeout;
+    v2.rf_protocol = v1.rf_protocol;
+    v2.crsf_baud = v1.crsf_baud;
+    v2.arm_switch = v1.arm_switch;
+    v2.rx_out_mode = v1.rx_out_mode;
+    v2.servo_rate_hz = v1.servo_rate_hz;
+    v2.rx_serial_proto = v1.rx_serial_proto;
+    v2.crsf_half_duplex = v1.crsf_half_duplex;
+
+    v2
+}
+
 /// Helper to read a raw C struct from an EEPROM slot with 8-byte framing and CRC16 verification.
 pub fn load_slot<T: Copy>(addr: u16, dst: &mut T) -> Result<(), StorageError> {
     #[cfg(test)]
@@ -1057,6 +1160,38 @@ pub fn load_slot<T: Copy>(addr: u16, dst: &mut T) -> Result<(), StorageError> {
         let hdr = SlotHeader::parse(&hdr_bytes);
 
         let expected_size = core::mem::size_of::<T>();
+
+        // Check if this is a ModelConfig request and the slot holds legacy v1 (128 bytes)
+        if expected_size == core::mem::size_of::<ModelConfig>() && hdr.len == 128 && hdr.magic == SLOT_MAGIC && hdr.flags == 0 {
+            // Read 128 bytes of legacy model
+            let mut v1 = core::mem::MaybeUninit::<LegacyModelConfigV1>::uninit();
+            let v1_bytes = unsafe {
+                core::slice::from_raw_parts_mut(v1.as_mut_ptr() as *mut u8, 128)
+            };
+            EepromI2c::read(addr + HEADER_SIZE as u16, v1_bytes)?;
+
+            // Verify CRC-16 of legacy payload
+            let computed_crc = crc16(v1_bytes);
+            if computed_crc != hdr.crc16 {
+                return Err(StorageError::CrcMismatch);
+            }
+
+            let legacy_model = unsafe { v1.assume_init() };
+            let v2_model = unpack_legacy_v1_model(&legacy_model);
+            unsafe {
+                core::ptr::copy_nonoverlapping(
+                    &v2_model as *const ModelConfig as *const T,
+                    dst as *mut T,
+                    1,
+                );
+            }
+
+            // In-place upgrade: re-save slot as v2 (348 bytes) with updated CRC-16 envelope
+            let _ = save_slot(addr, &v2_model);
+
+            return Ok(());
+        }
+
         hdr.is_valid(expected_size)?;
 
         // 2. Read payload directly into destination struct
@@ -1111,7 +1246,7 @@ pub fn save_slot<T: Copy>(addr: u16, src: &T) -> Result<(), StorageError> {
     }
 }
 
-/// Read only model name and magic without transferring the entire 128-byte ModelConfig.
+/// Read only model name and magic without transferring the entire ModelConfig.
 pub fn peek_model_name(slot_idx: usize) -> Option<[u8; 10]> {
     #[cfg(test)]
     {
@@ -1128,7 +1263,10 @@ pub fn peek_model_name(slot_idx: usize) -> Option<[u8; 10]> {
         }
 
         let hdr = SlotHeader::parse(unsafe { &*(buf[0..HEADER_SIZE].as_ptr() as *const [u8; HEADER_SIZE]) });
-        if hdr.is_valid(core::mem::size_of::<ModelConfig>()).is_err() {
+        if hdr.magic != SLOT_MAGIC || hdr.flags != 0 {
+            return None;
+        }
+        if hdr.len != (core::mem::size_of::<ModelConfig>() as u16) && hdr.len != 128 {
             return None;
         }
 
@@ -1185,25 +1323,47 @@ pub fn load_storage_into(storage: &mut RadioStorage) {
             storage.init_default();
             let _ = save_slot(RADIO_SLOT_A_ADDR, &storage.radio);
             let _ = save_slot(RADIO_SLOT_B_ADDR, &storage.radio);
-            for idx in 0..NUM_MODELS {
-                if let Some(addr) = model_slot_addr(idx) {
-                    let _ = save_slot(addr, &storage.models[idx]);
-                }
+            if let Some(addr) = model_slot_addr(0) {
+                let _ = save_slot(addr, &storage.active_model);
             }
             storage.sanitize();
             return;
         }
 
-        // 2. Load all 20 models from EEPROM
-        for idx in 0..NUM_MODELS {
-            if let Some(addr) = model_slot_addr(idx) {
-                if load_slot(addr, &mut storage.models[idx]).is_err() {
-                    storage.models[idx] = ModelConfig::default_for_index(idx);
-                }
+        // 2. Load only the active model into the active-model SRAM cache
+        let active_idx = (storage.radio.active_model as usize).min(NUM_MODELS - 1);
+        if let Some(addr) = model_slot_addr(active_idx) {
+            if load_slot(addr, &mut storage.active_model).is_err() {
+                storage.active_model = ModelConfig::default_for_index(active_idx);
             }
+        } else {
+            storage.active_model = ModelConfig::default_for_index(0);
         }
 
         storage.sanitize();
+    }
+}
+
+/// Load a specific model slot into `storage.active_model`.
+pub fn load_active_model(storage: &mut RadioStorage) -> bool {
+    let active_idx = (storage.radio.active_model as usize).min(NUM_MODELS - 1);
+    if let Some(addr) = model_slot_addr(active_idx) {
+        if load_slot(addr, &mut storage.active_model).is_ok() {
+            storage.sanitize();
+            return true;
+        }
+    }
+    storage.active_model = ModelConfig::default_for_index(active_idx);
+    storage.sanitize();
+    false
+}
+
+/// Save arbitrary ModelConfig to an arbitrary model slot index.
+pub fn save_model_to_slot(slot_idx: usize, model: &ModelConfig) -> bool {
+    if let Some(addr) = model_slot_addr(slot_idx) {
+        save_slot(addr, model).is_ok()
+    } else {
+        false
     }
 }
 
@@ -1224,11 +1384,7 @@ pub fn save_active_model(storage: &RadioStorage) -> bool {
     #[cfg(not(test))]
     {
         let idx = (storage.radio.active_model as usize).min(NUM_MODELS - 1);
-        if let Some(addr) = model_slot_addr(idx) {
-            save_slot(addr, &storage.models[idx]).is_ok()
-        } else {
-            false
-        }
+        save_model_to_slot(idx, &storage.active_model)
     }
 }
 
@@ -1314,16 +1470,87 @@ mod tests {
 
     #[test]
     fn test_model_config_size_and_rf_power() {
-        assert_eq!(core::mem::size_of::<ModelConfig>(), 128);
+        assert_eq!(core::mem::size_of::<ModelConfig>(), 348);
         assert_eq!(core::mem::size_of::<RadioConfig>(), 140);
+        assert_eq!(core::mem::size_of::<RadioStorage>(), 488);
 
         let default_m = ModelConfig::default_for_index(0);
         assert_eq!(default_m.rf_power, 0);
 
         let mut storage = RadioStorage::default_factory();
-        storage.models[0].rf_power = 99;
+        storage.active_model.rf_power = 99;
         storage.sanitize();
-        assert_eq!(storage.models[0].rf_power, 0);
+        assert_eq!(storage.active_model.rf_power, 0);
+    }
+
+    #[test]
+    fn test_legacy_v1_migration() {
+        let v1 = LegacyModelConfigV1 {
+            name: *b"PLANE 01  ",
+            model_type: 1, // Glider
+            _pad0: 0,
+            rx_id: 0x1234_5678,
+            trims: [5, -3, 2, 0],
+            channel_reverse: 0x05,
+            dr_switch: 2,
+            thr_curve_pts: 9,
+            thr_curve_smooth: 1,
+            thr_curve: [0, 10, 25, 40, 55, 70, 80, 90, 100],
+            dr_high: [90, 85, 80],
+            dr_low: [60, 55, 50],
+            expo_high: [20, -10, 0],
+            expo_low: [10, -5, 0],
+            timer_secs: 420,
+            timer_source: 2,
+            rf_power: 1,
+            failsafe_thr: 980,
+            aux_channels: [7, 8, 5, 6, 9, 10, 11, 12, 0, 0, 0, 0, 0, 0],
+            wing_tail_mix: 2,
+            template_diff: 15,
+            mixes: [LegacyMixLineV1 {
+                target_ch: 1,
+                source: 2,
+                weight: 50,
+                offset: -10,
+                switch: 3,
+                mode: 1,
+            }; 8],
+            failsafe_mode: 1,
+            failsafe_timeout: 30,
+            rf_protocol: 1,
+            crsf_baud: 3,
+            arm_switch: 4,
+            rx_out_mode: 1,
+            servo_rate_hz: 200,
+            rx_serial_proto: 1,
+            crsf_half_duplex: 1,
+        };
+        let v2 = unpack_legacy_v1_model(&v1);
+        assert_eq!(&v2.name, b"PLANE 01  ");
+        assert_eq!(v2.model_type, 1);
+        assert_eq!(v2.rx_id, 0x1234_5678);
+        assert_eq!(v2.trims, [5, -3, 2, 0]);
+        assert_eq!(v2.channel_reverse, 0x05);
+        assert_eq!(v2.dr_switch, 2);
+        assert_eq!(v2.thr_curve_pts, 9);
+        assert_eq!(v2.thr_curve_smooth, 1);
+        assert_eq!(&v2.thr_curve[0..9], &[0, 10, 25, 40, 55, 70, 80, 90, 100]);
+        assert_eq!(&v2.thr_curve[9..17], &[0; 8]);
+        assert_eq!(v2.timer_secs, 420);
+        assert_eq!(v2.template_diff, 15);
+        assert_eq!(v2.mixes.len(), 32);
+        for i in 0..8 {
+            assert_eq!(v2.mixes[i].target_ch, 1);
+            assert_eq!(v2.mixes[i].source, 2);
+            assert_eq!(v2.mixes[i].weight_src, 0);
+            assert_eq!(v2.mixes[i].weight, 50);
+            assert_eq!(v2.mixes[i].offset, -10);
+            assert_eq!(v2.mixes[i].switch, 3);
+            assert_eq!(v2.mixes[i].mode, 1);
+        }
+        for i in 8..32 {
+            assert_eq!(v2.mixes[i], MixLine::disabled());
+        }
     }
 
     #[test]

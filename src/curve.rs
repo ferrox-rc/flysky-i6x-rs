@@ -1,31 +1,32 @@
 //! Curve interpolation engine for throttle and pitch curves.
 //! Supports switchable 5-point and 9-point curves with linear or Catmull-Rom cubic spline smoothing.
 
-/// Evaluate a 5-point or 9-point throttle curve with optional Catmull-Rom spline smoothing.
+/// Evaluate a 5-point, 9-point, or 17-point throttle curve with optional Catmull-Rom spline smoothing.
 /// - `input`: raw stick axis (0 .. 1000, where 0 is idle/bottom, 1000 is 100% full throttle)
-/// - `pts_mode`: 5 or 9
+/// - `pts_mode`: 5, 9, or 17
 /// - `smooth`: false (linear interpolation) or true (Catmull-Rom cubic spline)
-/// - `curve`: array of 9 points (0..100)
+/// - `curve`: slice of curve points (0..100)
 ///
 /// Returns output pulse percentage (0 .. 1000).
-pub fn evaluate_curve(input: u16, pts_mode: u8, smooth: bool, curve: &[u8; 9]) -> u16 {
+pub fn evaluate_curve(input: u16, pts_mode: u8, smooth: bool, curve: &[u8]) -> u16 {
     let x = input.min(1000) as i32;
 
-    if pts_mode == 9 {
+    if pts_mode == 17 {
+        evaluate_17pt(x, smooth, curve)
+    } else if pts_mode == 9 {
         evaluate_9pt(x, smooth, curve)
     } else {
         evaluate_5pt(x, smooth, curve)
     }
 }
 
-fn evaluate_5pt(x: i32, smooth: bool, curve: &[u8; 9]) -> u16 {
-    let pts: [i32; 5] = [
-        curve[0] as i32 * 10,
-        curve[1] as i32 * 10,
-        curve[2] as i32 * 10,
-        curve[3] as i32 * 10,
-        curve[4] as i32 * 10,
-    ];
+fn evaluate_5pt(x: i32, smooth: bool, curve: &[u8]) -> u16 {
+    let mut pts = [0i32; 5];
+    for (idx, pt) in pts.iter_mut().enumerate() {
+        if idx < curve.len() {
+            *pt = curve[idx] as i32 * 10;
+        }
+    }
 
     if x >= 1000 {
         return pts[4].clamp(0, 1000) as u16;
@@ -53,18 +54,13 @@ fn evaluate_5pt(x: i32, smooth: bool, curve: &[u8; 9]) -> u16 {
     catmull_rom(p0, p1, p2, p3, t)
 }
 
-fn evaluate_9pt(x: i32, smooth: bool, curve: &[u8; 9]) -> u16 {
-    let pts: [i32; 9] = [
-        curve[0] as i32 * 10,
-        curve[1] as i32 * 10,
-        curve[2] as i32 * 10,
-        curve[3] as i32 * 10,
-        curve[4] as i32 * 10,
-        curve[5] as i32 * 10,
-        curve[6] as i32 * 10,
-        curve[7] as i32 * 10,
-        curve[8] as i32 * 10,
-    ];
+fn evaluate_9pt(x: i32, smooth: bool, curve: &[u8]) -> u16 {
+    let mut pts = [0i32; 9];
+    for (idx, pt) in pts.iter_mut().enumerate() {
+        if idx < curve.len() {
+            *pt = curve[idx] as i32 * 10;
+        }
+    }
 
     if x >= 1000 {
         return pts[8].clamp(0, 1000) as u16;
@@ -86,6 +82,41 @@ fn evaluate_9pt(x: i32, smooth: bool, curve: &[u8; 9]) -> u16 {
     let p2 = pts[i + 1];
     let p3 = if i + 2 < 9 { pts[i + 2] } else { 2 * pts[8] - pts[7] };
     let t = (dx * 256) / 125;
+
+    catmull_rom(p0, p1, p2, p3, t)
+}
+
+fn evaluate_17pt(x: i32, smooth: bool, curve: &[u8]) -> u16 {
+    let mut pts = [0i32; 17];
+    for (idx, pt) in pts.iter_mut().enumerate() {
+        if idx < curve.len() {
+            *pt = curve[idx] as i32 * 10;
+        }
+    }
+
+    if x >= 1000 {
+        return pts[16].clamp(0, 1000) as u16;
+    }
+    if x <= 0 {
+        return pts[0].clamp(0, 1000) as u16;
+    }
+
+    let i = ((x * 16) / 1000).min(15) as usize;
+    let x0 = (i as i32 * 1000) / 16;
+    let x1 = ((i as i32 + 1) * 1000) / 16;
+    let dx = x - x0;
+    let span = (x1 - x0).max(1);
+
+    if !smooth {
+        let y = pts[i] + ((pts[i + 1] - pts[i]) * dx) / span;
+        return y.clamp(0, 1000) as u16;
+    }
+
+    let p0 = if i > 0 { pts[i - 1] } else { 2 * pts[0] - pts[1] };
+    let p1 = pts[i];
+    let p2 = pts[i + 1];
+    let p3 = if i + 2 < 17 { pts[i + 2] } else { 2 * pts[16] - pts[15] };
+    let t = (dx * 256) / span;
 
     catmull_rom(p0, p1, p2, p3, t)
 }
@@ -176,5 +207,29 @@ mod tests {
         let curve9 = [0, 12, 25, 37, 50, 62, 75, 87, 100];
         assert_eq!(evaluate_curve(1500, 9, false, &curve9), 1000);
         assert_eq!(evaluate_curve(1500, 9, true, &curve9), 1000);
+
+        let curve17 = [0, 6, 12, 19, 25, 31, 37, 44, 50, 56, 62, 69, 75, 81, 87, 94, 100];
+        assert_eq!(evaluate_curve(1500, 17, false, &curve17), 1000);
+        assert_eq!(evaluate_curve(1500, 17, true, &curve17), 1000);
+    }
+
+    #[test]
+    fn test_17pt_linear_and_spline() {
+        let curve = [0, 6, 12, 19, 25, 31, 37, 44, 50, 56, 62, 69, 75, 81, 87, 94, 100];
+        assert_eq!(evaluate_curve(0, 17, false, &curve), 0);
+        assert_eq!(evaluate_curve(500, 17, false, &curve), 500);
+        assert_eq!(evaluate_curve(1000, 17, false, &curve), 1000);
+
+        assert_eq!(evaluate_curve(0, 17, true, &curve), 0);
+        assert_eq!(evaluate_curve(500, 17, true, &curve), 500);
+        assert_eq!(evaluate_curve(1000, 17, true, &curve), 1000);
+
+        // Verify smooth progression
+        let mut prev = 0;
+        for x in (25..=1000).step_by(25) {
+            let val = evaluate_curve(x, 17, true, &curve);
+            assert!(val >= prev, "17-point spline must be non-decreasing at {}", x);
+            prev = val;
+        }
     }
 }
