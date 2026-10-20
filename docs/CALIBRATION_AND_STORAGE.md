@@ -77,19 +77,23 @@ pub struct RadioConfig {
     pub _reserved: [u8; 3],        // 137..140 (3 bytes reserved, 4-byte aligned 140-byte layout)
 }
 
-/// A single freeform mix rule in the matrix mixer (6 bytes)
+/// A single freeform mix rule in the matrix mixer (8 bytes)
 #[repr(C)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct MixLine {
     pub target_ch: u8,   // 0: Disabled, 1..18: Target Channel CH1..CH18
-    pub source: u8,      // 0: None, 1: Roll, 2: Pitch, 3: Thr, 4: Yaw, 5: VRA, 6: VRB, 7..10: SA..SD, 11: MAX, 12..29: CH1..CH18, 30: ThrUnipolar
+    pub source: u8,      // 0: None, 1: Roll, 2: Pitch, 3: Thr, 4: Yaw, 5: VRA, 6: VRB, 7..10: SA..SD, 11: MAX, 12..29: CH1..CH18, 30: Thr+, 31..40: SE..VRF
+    pub weight_src: u8,  // 0: Fixed Weight, 1..18: Modulate with CH1..CH18 (Bipolar), 19..36: Modulate (Unipolar 0..100%)
     pub weight: i8,      // -100% .. +100%
     pub offset: i8,      // -100% .. +100%
-    pub switch: u8,      // 0: Always On, 1..10: Switch condition
+    pub switch: u8,      // 0: Always On, 1..22: Switch condition (SA^..SWJv)
     pub mode: u8,        // 0: Add (+), 1: Multiply (*), 2: Replace (:=)
+    pub _reserved: u8,   // 1-byte padding for 8-byte alignment
 }
 
-/// Per-model profile configuration (exactly 128 bytes)
+/// Per-model profile configuration (exactly 348 bytes)
 #[repr(C)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct ModelConfig {
     pub name: [u8; 10],            // 10-char ASCII model name (e.g. "QUAD 5IN  ")
     pub model_type: u8,            // 0: Airplane, 1: Glider, 2: Helicopter, 3: Multirotor / Quad, 4: General (Boats/Rovers)
@@ -97,38 +101,41 @@ pub struct ModelConfig {
     pub rx_id: u32,                // Bound receiver ID (Model Match)
     pub trims: [i8; 4],            // -25 .. +25 (Roll, Pitch, Throttle, Yaw)
     pub channel_reverse: u32,      // 18-bit channel reversing mask (bit 0=CH1 .. bit 17=CH18)
-    pub dr_switch: u8,             // 0: None, 1: SA, 2: SB, 3: SC, 4: SD
-    pub thr_curve_pts: u8,         // 5 or 9 points
+    pub dr_switch: u8,             // 0: None, 1: SA, 2: SB, 3: SC, 4: SD, 5: SE, 6: SF
+    pub thr_curve_pts: u8,         // 5, 7, or 9 points
     pub thr_curve_smooth: u8,      // 0: Linear interpolation, 1: Catmull-Rom spline
-    pub thr_curve: [u8; 9],        // Throttle curve points (0..100%)
+    pub thr_curve: [u8; 17],       // Throttle curve points (0..100%, reserved up to 17)
+    pub _pad_crv: u8,              // Alignment padding
     pub dr_high: [u8; 3],          // High rates: AIL, ELE, RUD (50..100%)
     pub dr_low: [u8; 3],           // Low rates: AIL, ELE, RUD (30..100%)
     pub expo_high: [i8; 3],        // High expo (-100..+100%)
     pub expo_low: [i8; 3],         // Low expo (-100..+100%)
-    pub timer_secs: u16,           // 48..50: Countdown timer in seconds (e.g. 300 = 5 min)
-    pub timer_source: u8,          // 50: 0: Off, 1: THs (Thr>5%), 2: THt (Thr Latched), 3: Always On, 4..13: SA^..SDv
-    pub rf_power: u8,              // 51: AFHDS 2A RF power (0: 100mW, 1: 10mW, 2: 1mW, 3: 100uW)
-    pub failsafe_thr: u16,         // 52..54: Failsafe throttle pulse in µs (e.g. 1000)
-    pub aux_channels: [u8; 14],    // 54..68: Source for CH5..CH18
-    pub wing_tail_mix: u8,         // 68: 0: Normal, 1: Elevon/Delta, 2: V-Tail, 3: Flaperon
-    pub template_diff: i8,         // 69: Differential / mix ratio (-100..+100)
-    pub mixes: [MixLine; 8],       // 70..118: 8 freeform mix rules (8 * 6 = 48 bytes)
-    pub failsafe_mode: u8,         // 118: 0: Hold last, 1: Custom pulses
-    pub failsafe_timeout: u8,      // 119: 10..50 (1.0s..5.0s)
-    pub rf_protocol: u8,           // 120: 0: AFHDS 2A, 1: CRSF / ELRS
-    pub crsf_baud: u8,             // 121: 0: 115.2k, 1: 416.6k, 2: 420k, 3: 921.6k, 4: 1.875M
-    pub arm_switch: u8,            // 122: 0: None, 1: SA^, 2: SAv, 3: SB^, 4: SB-, 5: SBv, 6: SC^, 7: SC-, 8: SCv, 9: SD^, 10: SDv
-    pub rx_out_mode: u8,           // 123: 0: PWM, 1: PPM (default 0)
-    pub servo_rate_hz: u16,        // 124..126: 50..400 Hz (default 50 Hz for analog servo safety)
-    pub rx_serial_proto: u8,       // 126: 0: i-BUS, 1: S.BUS (default 0)
-    pub crsf_half_duplex: u8,      // 127: 0: Full-Duplex (2-Wire), 1: Half-Duplex (1-Wire)
+    pub _pad1: u8,                 // Alignment padding
+    pub timer_secs: u16,           // Countdown timer in seconds (e.g. 300 = 5 min)
+    pub timer_source: u8,          // 0: Off, 1: THs (Thr>5%), 2: THt (Thr Latched), 3: Always On, 4..17: SA^..SFv
+    pub rf_power: u8,              // AFHDS 2A RF power (0: 100mW, 1: 10mW, 2: 1mW, 3: 100uW)
+    pub failsafe_thr: u16,         // Failsafe throttle pulse in µs (e.g. 1000)
+    pub aux_channels: [u8; 14],    // Source for CH5..CH18
+    pub wing_tail_mix: u8,         // 0: Normal, 1: Elevon/Delta, 2: V-Tail, 3: Flaperon
+    pub template_diff: i8,         // Differential / mix ratio (-100..+100)
+    pub mixes: [MixLine; 32],      // 32 freeform mix rules (32 * 8 = 256 bytes)
+    pub failsafe_mode: u8,         // 0: Hold last, 1: Custom pulses
+    pub failsafe_timeout: u8,      // 10..50 (1.0s..5.0s)
+    pub rf_protocol: u8,           // 0: AFHDS 2A, 1: CRSF / ELRS
+    pub crsf_baud: u8,             // 0: 115.2k, 1: 416.6k, 2: 420k, 3: 921.6k, 4: 1.875M
+    pub arm_switch: u8,            // 0: None, 1..14: SA^..SFv
+    pub rx_out_mode: u8,           // 0: PWM, 1: PPM (default 0)
+    pub servo_rate_hz: u16,        // 50..400 Hz (default 50 Hz for analog servo safety)
+    pub rx_serial_proto: u8,       // 0: i-BUS, 1: S.BUS (default 0)
+    pub crsf_half_duplex: u8,      // 0: Full-Duplex (2-Wire), 1: Half-Duplex (1-Wire)
+    pub _pad_end: [u8; 2],         // Align struct to 4-byte boundary
 }
 
-/// Unified Flash image layout (exactly 2,692 bytes in memory)
+/// Active-Model Cache Storage layout (exactly 488 bytes in memory)
 #[repr(C)]
 pub struct RadioStorage {
-    pub radio: RadioConfig,                // 132 bytes
-    pub models: [ModelConfig; NUM_MODELS], // 20 * 128 = 2,560 bytes
+    pub radio: RadioConfig,                // 140 bytes
+    pub active_model: ModelConfig,         // 348 bytes (cached active model in SRAM)
 }
 ```
 

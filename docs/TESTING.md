@@ -227,9 +227,9 @@ The test suite covers core flight, calculation, and protocol components:
 
 | Module | Test Coverage | Key Verifications |
 | :--- | :--- | :--- |
-| **`curve.rs`** | Throttle & Expo Curves | 5-point and 9-point linear identity, flat and inverted curves, Catmull-Rom cubic Hermite spline monotonicity, endpoint clamping ($0..1000$). |
+| **`curve.rs`** | Throttle & Expo Curves | 5-point, 7-point, and 9-point linear identity, flat and inverted curves, Catmull-Rom cubic Hermite spline monotonicity, endpoint clamping ($0..1000$). |
 | **`trim.rs`** | Digital Trims | Linear trim steps ($-125..+125$), center-cross clicks, throttle trim safety options (linear trim vs bottom-half idle-only trim). |
-| **`mixer.rs`** | Flight Pipeline & Matrix Mixer | Linear and cubic exponential curves, channel reversing bitmask, Elevon/Delta and V-Tail mixing formulas, throw limits ($1000..2000\,\mu\text{s}$), and 8-line matrix mixing modes (`ADD`, `MULT`, `REPLACE`). |
+| **`mixer.rs`** | Flight Pipeline & Matrix Mixer | Linear and cubic exponential curves, channel reversing bitmask, Elevon/Delta and V-Tail mixing formulas, throw limits ($1000..2000\,\mu\text{s}$), dynamic weight modulation, and 32-line matrix mixing modes (`ADD`, `MULT`, `REPLACE`). |
 | **`crsf/protocol.rs`** | CRSF Wire Serialization | 16-channel 11-bit packing/unpacking, FlySky pulse scaling ($988..2012\,\mu\text{s} \to 172..1811$), CRC8-DVB validation against standard polynomials, telemetry payload parsing (Battery, Link Statistics). |
 | **`crsf/mod.rs`** | ELRS Configurator & State Machine | Discovery handshake, parameter loading, multi-frame chunk reassembly, interactive command execution, silence timeout recovery, and real-world receiver trace validation. |
 

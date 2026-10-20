@@ -5,6 +5,28 @@ All notable changes to the `flysky-i6x-rs` project will be documented in this fi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.25.0] - 2026-10-19
+
+### Added
+- **32-Line Freeform Matrix Mixer & Dynamic Weight Modulation ([`src/mixer.rs`](src/mixer.rs), [`src/storage.rs`](src/storage.rs), [`src/ui/menu/screens/mixer.rs`](src/ui/menu/screens/mixer.rs))**:
+  - Expanded freeform matrix mixer from 8 to 32 mix rules (`M01` through `M32`) per model.
+  - Packed `MixLine` into an 8-byte layout (`target_ch`, `source`, `weight_src`, `weight`, `offset`, `switch`, `mode`, `_reserved`).
+  - Implemented Dynamic Weight Modulation (`weight_src`): scale mix authority dynamically via channels/knobs (`Fixed`, Bipolar `CH1`..`CH18` $-100\%..+100\%$, or Unipolar `CH1+`..`CH18+` $0..100\%$).
+  - Updated mixer editor with 34-item viewport (`WING/MIXER`) and 7-field line editor (`EDIT MIX 01`..`32`).
+- **5-Point, 7-Point, and 9-Point Throttle & Collective Pitch Curves ([`src/curve.rs`](src/curve.rs), [`src/ui/menu/screens/mixer.rs`](src/ui/menu/screens/mixer.rs))**:
+  - Switchable 5-point, 7-point, and 9-point throttle/pitch curves with real-time on-screen 49x37 curve graph visualization and active-point 3x3 indicator dot.
+  - Piecewise linear and $C^1$-continuous Catmull-Rom cubic Hermite spline smoothing with boundary tangent extrapolation.
+  - Smooth curve resampling when cycling between point counts ($5 \to 7 \to 9 \to 5$) preventing flat/zero dropoffs.
+- **Dynamic Hardware & Channel Selection Filtering ([`src/storage.rs`](src/storage.rs), [`src/ui/menu/screens/mixer.rs`](src/ui/menu/screens/mixer.rs), [`src/ui/menu/screens/channels.rs`](src/ui/menu/screens/channels.rs), [`src/ui/menu/screens/model.rs`](src/ui/menu/screens/model.rs))**:
+  - Dynamically filters selection lists for mixer sources, weight modulation channels, physical switches, switch conditions, and auxiliary channels based on active hardware configuration (`RadioConfig`) and model setup.
+  - Automatically skips unconfigured expansion hardware (e.g. `SE`..`SWJ`, `VRC`..`VRF`) and inactive channels.
+- **Active-Model SRAM Cache Architecture ([`src/storage.rs`](src/storage.rs), [`src/ui/menu/mod.rs`](src/ui/menu/mod.rs))**:
+  - Re-architected `RadioStorage` to cache only `RadioConfig` (140 B) and the active `ModelConfig` (348 B) in RAM (488 B total).
+  - Reduced static RAM utilization from 82% to **42.0%**, liberating **9,496 bytes (>58.0%) of free stack headroom** on STM32F072.
+  - Added fast model slot name peeking and transparent in-place v1 (128 B) $\to$ v2 (348 B) EEPROM migration with CRC16 verification.
+- **Expanded Host Unit Test Suite**:
+  - 132 automated tests passing on host (`cargo test-host`), verifying 32-line cascading mixes, dynamic weight modulation, 7-point splines, active-model caching, and dynamic hardware filtering.
+
 ## [0.24.0] - 2026-10-19
 
 ### Added

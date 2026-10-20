@@ -37,7 +37,6 @@ pub fn update_aux_channels(
     storage: &mut RadioStorage,
     buzzer: &mut Buzzer,
 ) {
-    let active_idx = storage.radio.active_model as usize;
     const AUX_COUNT: usize = 14;
 
     if keys.cancel {
@@ -68,22 +67,17 @@ pub fn update_aux_channels(
     } else {
         let aux_sources = crate::hw::AUX_SOURCES;
         if let Some(pot) = keys.pot_change {
-            storage.models[active_idx].aux_channels[ctrl.selected_item] = pot;
+            storage.active_model.aux_channels[ctrl.selected_item] = pot;
             buzzer.play_tone(2400, 40);
         } else {
-            let cur_val = storage.models[active_idx].aux_channels[ctrl.selected_item];
-            let cur_pos = aux_sources.iter().position(|&s| s == cur_val).unwrap_or(0);
+            let cur_val = storage.active_model.aux_channels[ctrl.selected_item];
             if keys.up {
-                let next_pos = (cur_pos + 1) % aux_sources.len();
-                storage.models[active_idx].aux_channels[ctrl.selected_item] = aux_sources[next_pos];
+                let next_val = storage.next_available_aux_source(cur_val, aux_sources);
+                storage.active_model.aux_channels[ctrl.selected_item] = next_val;
                 buzzer.play_tone(2200, 20);
             } else if keys.down {
-                let next_pos = if cur_pos == 0 {
-                    aux_sources.len() - 1
-                } else {
-                    cur_pos - 1
-                };
-                storage.models[active_idx].aux_channels[ctrl.selected_item] = aux_sources[next_pos];
+                let next_val = storage.prev_available_aux_source(cur_val, aux_sources);
+                storage.active_model.aux_channels[ctrl.selected_item] = next_val;
                 buzzer.play_tone(2200, 20);
             }
         }
@@ -113,7 +107,7 @@ pub fn update_aux_channels(
         }
         let ch_label = ascii_as_str(&ch_buf);
 
-        let src_idx = (storage.models[active_idx].aux_channels[idx] as usize).min(SOURCE_NAMES.len() - 1);
+        let src_idx = (storage.active_model.aux_channels[idx] as usize).min(SOURCE_NAMES.len() - 1);
         widgets::draw_list_row(lcd, slot, is_sel, ch_label, Some(SOURCE_NAMES[src_idx]), 48);
     }
 
@@ -134,7 +128,6 @@ pub fn update_channel_reverse(
     buzzer: &mut Buzzer,
 ) {
     const CH_COUNT: usize = 18;
-    let active_idx = storage.radio.active_model as usize;
 
     if keys.cancel {
         storage::save_active_model(storage);
@@ -153,7 +146,7 @@ pub fn update_channel_reverse(
     );
 
     if keys.ok {
-        storage.models[active_idx].channel_reverse ^= 1 << ctrl.selected_item;
+        storage.active_model.channel_reverse ^= 1 << ctrl.selected_item;
         buzzer.click();
     }
 
@@ -165,7 +158,7 @@ pub fn update_channel_reverse(
             break;
         }
         let is_sel = ch == ctrl.selected_item;
-        let is_rev = (storage.models[active_idx].channel_reverse & (1 << ch)) != 0;
+        let is_rev = (storage.active_model.channel_reverse & (1 << ch)) != 0;
         let status_str = if is_rev { "REVERSE" } else { "NORMAL " };
 
         widgets::draw_list_row(lcd, slot, is_sel, CH_NAMES[ch], Some(status_str), 76);
