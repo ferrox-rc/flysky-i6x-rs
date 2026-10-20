@@ -763,7 +763,7 @@ mod tests {
             &rf_chs,
             &mut buzzer,
         );
-        assert_eq!(storage.models[0].aux_channels[0], 5);
+        assert_eq!(storage.active_model.aux_channels[0], 5);
 
         // Neutralize VR1 within deadband/delta, deflect VR2 past 300 counts -> auto-assigns MixSource::Vrb (6)
         pots.vr1 = 100;
@@ -779,7 +779,7 @@ mod tests {
             &rf_chs,
             &mut buzzer,
         );
-        assert_eq!(storage.models[0].aux_channels[0], 6);
+        assert_eq!(storage.active_model.aux_channels[0], 6);
     }
 
     #[test]

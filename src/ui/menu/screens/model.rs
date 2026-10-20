@@ -36,35 +36,37 @@ pub fn update_select(
 
     if keys.ok {
         // Save active trims into current model before switching
-        let old_idx = storage.radio.active_model as usize;
-        storage.models[old_idx].trims = [
+        storage.active_model.trims = [
             trims.values.roll,
             trims.values.pitch,
             trims.values.throttle,
             trims.values.yaw,
         ];
+        storage::save_active_model(storage);
 
         // Switch active model
         let new_idx = ctrl.selected_item;
         storage.radio.active_model = new_idx as u8;
+        storage::save_radio_config(storage);
+
+        // Load new model into active cache
+        storage::load_active_model(storage);
 
         // Load new model's trims
-        trims.values.roll = storage.models[new_idx].trims[0];
-        trims.values.pitch = storage.models[new_idx].trims[1];
-        trims.values.throttle = storage.models[new_idx].trims[2];
-        trims.values.yaw = storage.models[new_idx].trims[3];
+        trims.values.roll = storage.active_model.trims[0];
+        trims.values.pitch = storage.active_model.trims[1];
+        trims.values.throttle = storage.active_model.trims[2];
+        trims.values.yaw = storage.active_model.trims[3];
 
         // Update RF driver receiver ID, RF power, and receiver settings
-        rf::set_rx_id(storage.models[new_idx].rx_id);
-        rf::set_rf_power(storage.models[new_idx].rf_power);
+        rf::set_rx_id(storage.active_model.rx_id);
+        rf::set_rf_power(storage.active_model.rf_power);
         rf::set_rx_settings(
-            storage.models[new_idx].servo_rate_hz,
-            storage.models[new_idx].rx_out_mode,
-            storage.models[new_idx].rx_serial_proto,
+            storage.active_model.servo_rate_hz,
+            storage.active_model.rx_out_mode,
+            storage.active_model.rx_serial_proto,
         );
 
-        // Persist to Flash
-        storage::save_storage(storage);
         buzzer.play_tone_pattern(2400, 60, 40, 2);
         ctrl.waiting_release = true;
     }
@@ -85,7 +87,14 @@ pub fn update_select(
         line_buf[1] = b'0' + ((idx + 1) / 10) as u8;
         line_buf[2] = b'0' + ((idx + 1) % 10) as u8;
         line_buf[3] = b':';
-        line_buf[4..14].copy_from_slice(&storage.models[idx].name);
+        if is_active {
+            line_buf[4..14].copy_from_slice(&storage.active_model.name);
+        } else if let Some(peeked) = storage::peek_model_name(idx) {
+            line_buf[4..14].copy_from_slice(&peeked);
+        } else {
+            let default_name = ModelConfig::default_for_index(idx).name;
+            line_buf[4..14].copy_from_slice(&default_name);
+        }
         if is_active {
             line_buf[15] = b'[';
             line_buf[16] = b'*';
@@ -135,8 +144,8 @@ pub fn update_setup(
                     buzzer.click();
                 }
                 1 => {
-                    let next_type = storage.models[active_idx].model_type().next();
-                    storage.models[active_idx].set_model_type(next_type);
+                    let next_type = storage.active_model.model_type().next();
+                    storage.active_model.set_model_type(next_type);
                     storage::save_active_model(storage);
                     buzzer.click();
                 }
@@ -168,7 +177,7 @@ pub fn update_setup(
                     return;
                 }
                 7 => {
-                    storage.models[active_idx] = ModelConfig::default_for_index(active_idx);
+                    storage.active_model = ModelConfig::default_for_index(active_idx);
                     storage::save_active_model(storage);
                     buzzer.play_tone_pattern(2200, 80, 50, 2);
                     ctrl.waiting_release = true;
@@ -198,29 +207,29 @@ pub fn update_setup(
                         buzzer.play_tone(2600, 40);
                     }
                 } else if keys.up {
-                    let c = storage.models[active_idx].name[ctrl.sub_idx];
-                    storage.models[active_idx].name[ctrl.sub_idx] = next_ascii(c);
+                    let c = storage.active_model.name[ctrl.sub_idx];
+                    storage.active_model.name[ctrl.sub_idx] = next_ascii(c);
                     buzzer.play_tone(2200, 20);
                 } else if keys.down {
-                    let c = storage.models[active_idx].name[ctrl.sub_idx];
-                    storage.models[active_idx].name[ctrl.sub_idx] = prev_ascii(c);
+                    let c = storage.active_model.name[ctrl.sub_idx];
+                    storage.active_model.name[ctrl.sub_idx] = prev_ascii(c);
                     buzzer.play_tone(2200, 20);
                 }
             }
             2 => {
                 // Arm switch editing mode (with switch auto-detection)
                 if let Some(sw) = keys.sw_change {
-                    storage.models[active_idx].arm_switch = sw;
-                    buzzer.chime_armed();
+                    if storage.is_arm_switch_available(sw) {
+                        storage.active_model.arm_switch = sw;
+                        buzzer.chime_armed();
+                    }
                 } else if keys.up {
-                    storage.models[active_idx].arm_switch = (storage.models[active_idx].arm_switch + 1) % 15;
+                    storage.active_model.arm_switch =
+                        storage.next_available_arm_switch(storage.active_model.arm_switch);
                     buzzer.play_tone(2200, 20);
                 } else if keys.down {
-                    storage.models[active_idx].arm_switch = if storage.models[active_idx].arm_switch == 0 {
-                        14
-                    } else {
-                        storage.models[active_idx].arm_switch - 1
-                    };
+                    storage.active_model.arm_switch =
+                        storage.prev_available_arm_switch(storage.active_model.arm_switch);
                     buzzer.play_tone(2200, 20);
                 }
                 if keys.ok || keys.cancel {
@@ -231,12 +240,12 @@ pub fn update_setup(
             }
             3 => {
                 // Timer duration editing mode
-                let cur = storage.models[active_idx].timer_secs;
+                let cur = storage.active_model.timer_secs;
                 if keys.up && cur <= 3570 {
-                    storage.models[active_idx].timer_secs = cur + 30;
+                    storage.active_model.timer_secs = cur + 30;
                     buzzer.play_tone(2200, 20);
                 } else if keys.down && cur >= 30 {
-                    storage.models[active_idx].timer_secs = cur - 30;
+                    storage.active_model.timer_secs = cur - 30;
                     buzzer.play_tone(2200, 20);
                 }
                 if keys.ok || keys.cancel {
@@ -248,17 +257,18 @@ pub fn update_setup(
             4 => {
                 // Timer trigger editing mode (with switch auto-detection)
                 if let Some(sw) = keys.sw_change {
-                    storage.models[active_idx].timer_source = sw + 3; // 1..14 maps to 4..17
-                    buzzer.play_tone(2400, 40);
+                    let ts = sw + 3; // 1..14 maps to 4..17
+                    if storage.is_timer_source_available(ts) {
+                        storage.active_model.timer_source = ts;
+                        buzzer.play_tone(2400, 40);
+                    }
                 } else if keys.up {
-                    storage.models[active_idx].timer_source = (storage.models[active_idx].timer_source + 1) % 18;
+                    storage.active_model.timer_source =
+                        storage.next_available_timer_source(storage.active_model.timer_source);
                     buzzer.play_tone(2200, 20);
                 } else if keys.down {
-                    storage.models[active_idx].timer_source = if storage.models[active_idx].timer_source == 0 {
-                        17
-                    } else {
-                        storage.models[active_idx].timer_source - 1
-                    };
+                    storage.active_model.timer_source =
+                        storage.prev_available_timer_source(storage.active_model.timer_source);
                     buzzer.play_tone(2200, 20);
                 }
                 if keys.ok || keys.cancel {
@@ -281,8 +291,7 @@ pub fn update_setup(
                     buzzer.click();
                 } else if keys.ok {
                     let dst = ctrl.sub_idx.min(NUM_MODELS - 1);
-                    storage.models[dst] = storage.models[active_idx];
-                    storage::save_storage(storage);
+                    storage::save_model_to_slot(dst, &storage.active_model);
                     buzzer.play_tone_pattern(2400, 60, 40, 2);
                     ctrl.editing = false;
                 }
@@ -313,36 +322,36 @@ pub fn update_setup(
         match idx {
             0 => {
                 lcd.draw_str_6x10(4, y, "Name:", inverted);
-                let name_str = ascii_as_str(&storage.models[active_idx].name);
+                let name_str = ascii_as_str(&storage.active_model.name);
                 lcd.draw_str_6x10(40, y, name_str, inverted);
 
                 if ctrl.editing && ctrl.selected_item == 0 {
                     let char_x = 40 + (ctrl.sub_idx as i32 * 6);
                     lcd.fill_rect(char_x - 1, y, 8, 9, true);
-                    let single_char = [storage.models[active_idx].name[ctrl.sub_idx]];
+                    let single_char = [storage.active_model.name[ctrl.sub_idx]];
                     let c_str = ascii_as_str(&single_char);
                     lcd.draw_str_6x10(char_x, y, c_str, true);
                 }
             }
             1 => {
-                let type_str = storage.models[active_idx].model_type().as_str();
+                let type_str = storage.active_model.model_type().as_str();
                 lcd.draw_str_6x10(4, y, "Type:", inverted);
                 lcd.draw_str_6x10(40, y, type_str, inverted);
             }
             2 => {
-                let arm_idx = (storage.models[active_idx].arm_switch as usize).min(14);
+                let arm_idx = (storage.active_model.arm_switch as usize).min(14);
                 let arm_str = if arm_idx == 0 { "NONE" } else { crate::ui::format::SWITCH_COND_NAMES[arm_idx] };
                 lcd.draw_str_6x10(4, y, "Arm Sw:", inverted);
                 lcd.draw_str_6x10(52, y, arm_str, inverted);
             }
             3 => {
-                let t_secs = storage.models[active_idx].timer_secs;
+                let t_secs = storage.active_model.timer_secs;
                 let t_str = if t_secs == 0 { "OFF" } else { format_timer(t_secs, false, &mut t_buf) };
                 lcd.draw_str_6x10(4, y, "Timer:", inverted);
                 lcd.draw_str_6x10(52, y, t_str, inverted);
             }
             4 => {
-                let trig_str = match storage.models[active_idx].timer_source {
+                let trig_str = match storage.active_model.timer_source {
                     0 => "OFF",
                     1 => "THs (RUN)",
                     2 => "THt (LTCH)",
@@ -367,7 +376,7 @@ pub fn update_setup(
             }
             6 => {
                 let mut rx_buf = [b'0'; 8];
-                u32_to_hex(storage.models[active_idx].rx_id, &mut rx_buf);
+                u32_to_hex(storage.active_model.rx_id, &mut rx_buf);
                 let rx_hex_str = ascii_as_str(&rx_buf);
                 lcd.draw_str_6x10(4, y, "Rx:", inverted);
                 lcd.draw_str_6x10(24, y, rx_hex_str, inverted);

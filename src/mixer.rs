@@ -433,7 +433,21 @@ pub fn compute_channels(
         let target_idx = (mix.target_ch - 1) as usize;
         let src_val = evaluate_source(mix.source, &cond_sticks, pots, switches, &ch_vals);
 
-        let term = (src_val * (mix.weight as i32)) / 100 + (mix.offset as i32 * 10);
+        let effective_weight: i32 = match mix.weight_src {
+            0 => mix.weight as i32,
+            1..=18 => {
+                let mod_ch = (mix.weight_src - 1) as usize;
+                ((mix.weight as i32) * ch_vals[mod_ch]) / MIXER_MAX as i32
+            }
+            19..=36 => {
+                let mod_ch = (mix.weight_src - 19) as usize;
+                let ch_unipolar = ((ch_vals[mod_ch] + MIXER_MAX as i32) / 2).clamp(0, MIXER_MAX as i32);
+                ((mix.weight as i32) * ch_unipolar) / MIXER_MAX as i32
+            }
+            _ => mix.weight as i32,
+        };
+
+        let term = (src_val * effective_weight) / 100 + (mix.offset as i32 * 10);
 
         match mix.mode {
             0 => {
@@ -747,10 +761,12 @@ mod tests {
         model.mixes[0] = MixLine {
             target_ch: 2,
             source: 30, // Thr+
+            weight_src: 0,
             weight: -20,
             offset: 0,
             mode: 0,
             switch: 0,
+            _reserved: 0,
         };
         let trims = TrimController::new();
         let switches = Switches::default();
@@ -808,10 +824,12 @@ mod tests {
         model.mixes[0] = MixLine {
             target_ch: 18,
             source: 11, // MAX (+1000)
+            weight_src: 0,
             weight: 100,
             offset: 0,
             mode: 2, // REPLACE
             switch: 0,
+            _reserved: 0,
         };
         let chs_mix = compute_channels(0, 0, 500, 0, &pots, &switches, &model, &trims, 0);
         // MAX source is +1000 -> 2012 µs. But CH18 is reversed! So it inverts to 988 µs.
@@ -843,10 +861,12 @@ mod tests {
         model.mixes[0] = MixLine {
             target_ch: 5,
             source: 1, // Roll
+            weight_src: 0,
             weight: 50,
             offset: 0,
             mode: 0,   // ADD
             switch: 0, // Always active
+            _reserved: 0,
         };
 
         let trims = TrimController::new();
@@ -862,6 +882,72 @@ mod tests {
         model.mixes[0].weight = 100;
         let chs_replace = compute_channels(1000, 0, 0, 0, &pots, &switches, &model, &trims, 0);
         assert_eq!(chs_replace[4], CHANNEL_MAX_US);
+    }
+
+    #[test]
+    fn test_dynamic_weight_modulation() {
+        let mut model = ModelConfig::default_for_index(0);
+        model.aux_channels[0] = 5; // CH5 mapped to VRA
+        model.aux_channels[1] = 0; // CH6 unassigned (neutral center = 0)
+
+        // Mix line 1: Modulate CH6 from Roll (1), weight = 100%, weight_src = CH5 (1 + 4 = 5, Bipolar)
+        model.mixes[0] = MixLine {
+            target_ch: 6,
+            source: 1, // Roll (+1000)
+            weight_src: 5, // Modulated by CH5
+            weight: 100, // Master scale 100%
+            offset: 0,
+            mode: 0, // ADD
+            switch: 0,
+            _reserved: 0,
+        };
+
+        let trims = TrimController::new();
+        let switches = Switches::default();
+
+        // 1. When VRA (pots[0]) is full positive (+1000): effective weight = 100% -> CH6 gets full +1000
+        let pots_full = [1000i16, 0i16];
+        let chs = compute_channels(1000, 0, 0, 0, &pots_full, &switches, &model, &trims, 0);
+        assert_eq!(chs[5], CHANNEL_MAX_US, "CH6 should reach MAX when VRA is full +1000");
+
+        // 2. When VRA is centered (0): effective weight = 0% -> CH6 receives 0 compensation
+        let pots_zero = [0i16, 0i16];
+        let chs_zero = compute_channels(1000, 0, 0, 0, &pots_zero, &switches, &model, &trims, 0);
+        assert_eq!(chs_zero[5], CHANNEL_CENTER_US, "CH6 should stay neutral when VRA is 0");
+
+        // 3. When VRA is negative (-500): effective weight = -50% -> CH6 inverts by 50%
+        let pots_neg = [-500i16, 0i16];
+        let chs_neg = compute_channels(1000, 0, 0, 0, &pots_neg, &switches, &model, &trims, 0);
+        // Base CH6 is 0. term = (1000 * -50) / 100 = -500. Output = 1500 - 256 = 1244
+        assert_eq!(chs_neg[5], 1244, "CH6 should invert with negative modulation");
+    }
+
+    #[test]
+    fn test_32_line_cascading_mixes() {
+        let mut model = ModelConfig::default_for_index(0);
+        // Cascading mix test:
+        // Set all 32 mix lines to sequentially add 10 to CH18
+        for i in 0..32 {
+            model.mixes[i] = MixLine {
+                target_ch: 18,
+                source: 11, // MAX (+1000)
+                weight_src: 0,
+                weight: 1, // 1% of 1000 = +10
+                offset: 0,
+                mode: 0, // ADD
+                switch: 0,
+                _reserved: 0,
+            };
+        }
+
+        let trims = TrimController::new();
+        let switches = Switches::default();
+        let pots = [0i16, 0i16];
+
+        let chs = compute_channels(0, 0, 0, 0, &pots, &switches, &model, &trims, 0);
+        // Base CH18 is 0. 32 lines * +10 = +320.
+        // rf pulse: (320 * 512) / 1000 = +163.84 -> 1500 + 163 = 1663 µs.
+        assert_eq!(chs[17], 1663, "All 32 mix lines must execute sequentially");
     }
 
     #[test]
