@@ -383,9 +383,9 @@ pub struct ModelConfig {
     pub trims: [i8; 4],         // 16..20: Roll, Pitch, Throttle, Yaw (-25..+25)
     pub channel_reverse: u32,   // 20..24: Bitmask for CH1..CH18 inversion
     pub dr_switch: u8,          // 24: 0: None, 1: SA, 2: SB, 3: SC, 4: SD, 5: SE, 6: SF
-    pub thr_curve_pts: u8,      // 25: 5, 9, or 17 points mode
+    pub thr_curve_pts: u8,      // 25: 5, 7, or 9 points mode
     pub thr_curve_smooth: u8,   // 26: 0: Linear, 1: Spline / Smooth
-    pub thr_curve: [u8; 17],    // 27..44: Points 1..17 (0..100%)
+    pub thr_curve: [u8; 17],    // 27..44: Points buffer (0..100%, reserved up to 17)
     pub _pad_crv: u8,           // 44..45
     pub dr_high: [u8; 3],       // 45..48: High rate (AIL, ELE, RUD: 50..100%)
     pub dr_low: [u8; 3],        // 48..51: Low rate (AIL, ELE, RUD: 30..100%)
@@ -646,7 +646,7 @@ impl RadioStorage {
                 *mix = MixLine::disabled();
             }
         }
-        if m.thr_curve_pts != 5 && m.thr_curve_pts != 9 && m.thr_curve_pts != 17 {
+        if m.thr_curve_pts != 5 && m.thr_curve_pts != 7 && m.thr_curve_pts != 9 {
             m.thr_curve_pts = 5;
             m.thr_curve = [0, 25, 50, 75, 100, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
         }

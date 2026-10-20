@@ -188,8 +188,8 @@ pub fn update_throttle_curve(
     buzzer: &mut Buzzer,
 ) {
     let pts_count = match storage.active_model.thr_curve_pts {
-        17 => 17,
         9 => 9,
+        7 => 7,
         _ => 5,
     };
     let max_items = 2 + pts_count; // Item 0: Pts mode, Item 1: Smooth, Item 2..(2+pts_count-1): Points
@@ -273,40 +273,36 @@ pub fn update_throttle_curve(
             if ctrl.selected_item == 0 {
                 let cur_pts = storage.active_model.thr_curve_pts;
                 if cur_pts == 5 {
-                    // Transition 5 -> 9
+                    // Transition 5 -> 7
+                    // Resample the 5-point curve at 7 evenly spaced fractional indices (0/6, 1/6, ..., 6/6)
                     let c = storage.active_model.thr_curve;
                     let mut new_crv = [0u8; 17];
-                    new_crv[0] = c[0];
-                    new_crv[1] = ((c[0] as u16 + c[1] as u16) / 2) as u8;
-                    new_crv[2] = c[1];
-                    new_crv[3] = ((c[1] as u16 + c[2] as u16) / 2) as u8;
-                    new_crv[4] = c[2];
-                    new_crv[5] = ((c[2] as u16 + c[3] as u16) / 2) as u8;
-                    new_crv[6] = c[3];
-                    new_crv[7] = ((c[3] as u16 + c[4] as u16) / 2) as u8;
-                    new_crv[8] = c[4];
+                    for (i, pt) in new_crv.iter_mut().enumerate().take(7) {
+                        let in_pct = (i as u16 * 1000) / 6;
+                        *pt = ((curve::evaluate_curve(in_pct, 5, false, &c) + 5) / 10).min(100) as u8;
+                    }
+                    storage.active_model.thr_curve = new_crv;
+                    storage.active_model.thr_curve_pts = 7;
+                } else if cur_pts == 7 {
+                    // Transition 7 -> 9
+                    // Resample the 7-point curve at 9 evenly spaced fractional indices (0/8, 1/8, ..., 8/8)
+                    let c = storage.active_model.thr_curve;
+                    let mut new_crv = [0u8; 17];
+                    for (i, pt) in new_crv.iter_mut().enumerate().take(9) {
+                        let in_pct = (i as u16 * 1000) / 8;
+                        *pt = ((curve::evaluate_curve(in_pct, 7, false, &c) + 5) / 10).min(100) as u8;
+                    }
                     storage.active_model.thr_curve = new_crv;
                     storage.active_model.thr_curve_pts = 9;
-                } else if cur_pts == 9 {
-                    // Transition 9 -> 17
-                    let c = storage.active_model.thr_curve;
-                    let mut new_crv = [0u8; 17];
-                    for i in 0..8 {
-                        new_crv[i * 2] = c[i];
-                        new_crv[i * 2 + 1] = ((c[i] as u16 + c[i + 1] as u16) / 2) as u8;
-                    }
-                    new_crv[16] = c[8];
-                    storage.active_model.thr_curve = new_crv;
-                    storage.active_model.thr_curve_pts = 17;
                 } else {
-                    // Transition 17 -> 5 (sample evenly: indices 0, 4, 8, 12, 16)
+                    // Transition 9 -> 5 (sample evenly: indices 0, 2, 4, 6, 8)
                     let c = storage.active_model.thr_curve;
                     let mut new_crv = [0u8; 17];
                     new_crv[0] = c[0];
-                    new_crv[1] = c[4];
-                    new_crv[2] = c[8];
-                    new_crv[3] = c[12];
-                    new_crv[4] = c[16];
+                    new_crv[1] = c[2];
+                    new_crv[2] = c[4];
+                    new_crv[3] = c[6];
+                    new_crv[4] = c[8];
                     storage.active_model.thr_curve = new_crv;
                     storage.active_model.thr_curve_pts = 5;
                 }
@@ -332,8 +328,8 @@ pub fn update_throttle_curve(
 
     // Left side: Mode & active point info
     let mode_str = match storage.active_model.thr_curve_pts {
-        17 => "17-PT",
         9 => "9-PT",
+        7 => "7-PT",
         _ => "5-PT",
     };
     let is_sel_pts = !ctrl.editing && ctrl.selected_item == 0;
@@ -386,8 +382,8 @@ pub fn update_throttle_curve(
         }
     } else {
         let pts_range_str = match pts_count {
-            17 => "Pts: 1..17",
             9 => "Pts: 1..9",
+            7 => "Pts: 1..7",
             _ => "Pts: 1..5",
         };
         lcd.draw_str_6x10(4, 37, pts_range_str, false);

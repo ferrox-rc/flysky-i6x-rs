@@ -288,9 +288,9 @@ Interactive curve engine with real-time on-screen curve visualization (49 x 37 p
 +------------------------------------+
 | THROTTLE CURVE                     |
 |------------------------------------+
-|   Pts: 17-PT       +--------------+|
+|   Pts: 7-PT        +--------------+|
 |   Crv: SMOOTH      |     .---*    ||
-| > P08: 50% <       |    /         ||
+| > P04: 50% <       |    /         ||
 |                    |   /  *       ||
 |                    |  /           ||
 |                    +--------------+|
@@ -299,10 +299,10 @@ Interactive curve engine with real-time on-screen curve visualization (49 x 37 p
 +------------------------------------+
 ```
 
-- **Field 0 (`Pts:`)**: Cycle between **`5-PT`**, **`9-PT`**, and **`17-PT`**. The UI dynamically updates the point range indicator (`Pts: 1..5`, `Pts: 1..9`, or `Pts: 1..17`). Switching between point modes automatically **resamples** midpoint values between existing points, preventing flat-zero dropoffs.
+- **Field 0 (`Pts:`)**: Cycle between **`5-PT`**, **`7-PT`**, and **`9-PT`**. The UI dynamically updates the point range indicator (`Pts: 1..5`, `Pts: 1..7`, or `Pts: 1..9`). Switching between point modes automatically **resamples** midpoint values between existing points, preventing flat-zero dropoffs.
 - **Field 1 (`Crv:`)**: Toggle between **`LINEAR`** (piecewise linear interpolation) and **`SMOOTH`** (**Catmull-Rom cubic Hermite spline** smoothing).
-- **Field 2.. (`P01` .. `P17`)**:
-  - While navigating (`!editing`), scroll with **`[UP]`** / **`[DOWN]`** and press **`[OK]`** to enter point-editing mode (`> P08:  50% <`).
+- **Field 2.. (`P01` .. `P09`)**:
+  - While navigating (`!editing`), scroll with **`[UP]`** / **`[DOWN]`** and press **`[OK]`** to enter point-editing mode (`> P04:  50% <`).
   - While editing:
     - **`[UP]`** / **`[DOWN]`**: Adjust point value between 0% and 100% (with auto-repeat when held).
     - **`[OK]`**: Confirm current point and advance to next point (`P01` -> `P02` -> `...`). On the last point, exits edit mode.

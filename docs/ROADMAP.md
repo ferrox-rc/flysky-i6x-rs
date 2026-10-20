@@ -203,11 +203,11 @@ This document tracks the phased implementation, historical milestones, and ongoi
 - [x] 140-byte 4-byte aligned `RadioConfig` and 2,700-byte `RadioStorage`.
 - [x] Single-threaded test harness (`-- --test-threads=1`) with 122 automated host unit tests.
 
-### Phase 25: 32 Matrix Mixers, 17-Point Curves, & Active-Model Cache (COMPLETED / BRANCH: `feat/32-mixers-17pt-curves`)
+### Phase 25: 32 Matrix Mixers, 7/9-Point Curves, & Active-Model Cache (COMPLETED / BRANCH: `feat/32-mixers-17pt-curves`)
 - [x] Expanded freeform matrix mixer from 8 to 32 lines (`M01`..`M32`) per model with 8-byte packed `MixLine`.
 - [x] Dynamic weight modulation: select channels/knobs (`weight_src`) to modulate mix line gain (Bipolar `CH1`..`CH18`, Unipolar `CH1+`..`CH18+`, or `Fixed`).
-- [x] 17-point throttle and collective pitch curves with switchable piecewise linear and Catmull-Rom cubic Hermite spline interpolation.
+- [x] 5, 7, and 9-point throttle and collective pitch curves with switchable piecewise linear and Catmull-Rom cubic Hermite spline interpolation.
 - [x] Active-model SRAM cache architecture: `RadioStorage` holds only `RadioConfig` (140 B) and active `ModelConfig` (348 B) in RAM (488 B total), cutting RAM usage from 82% to 42% and keeping > 9.4 KB (> 58%) free stack headroom on STM32F072.
 - [x] Transparent in-place EEPROM migration: detects 128-byte v1 model slots, verifies CRC, migrates to 348-byte v2 schema, and re-saves with fresh CRC envelope.
-- [x] UI updates: `WING/MIXER` 34-item viewport (`M01`..`M32`), `EDIT MIX 01`..`32` with `Wt Src:` field, and `THR CURVE` 17-PT mode cycling with `P01:`..`P17:` formatting.
+- [x] UI updates: `WING/MIXER` 34-item viewport (`M01`..`M32`), `EDIT MIX 01`..`32` with `Wt Src:` field, and `THR CURVE` 5-PT/7-PT/9-PT mode cycling with `P01:`..`P09:` formatting.
 - [x] Automated unit test suite expansion to 131 tests passing on host (`cargo test-host`).

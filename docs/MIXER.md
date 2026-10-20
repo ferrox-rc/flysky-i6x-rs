@@ -286,9 +286,9 @@ Flight mixer parameters are stored directly inside each 348-byte [`ModelConfig`]
 | :--- | :--- | :--- | :--- |
 | `name` | `[u8; 10]` | 10 | 10-char ASCII model name |
 | `dr_switch` | `u8` | 1 | Dual Rate switch selector (0..6) |
-| `thr_curve_pts` | `u8` | 1 | 5, 9, or 17 point curve mode |
+| `thr_curve_pts` | `u8` | 1 | 5, 7, or 9 point curve mode |
 | `thr_curve_smooth` | `u8` | 1 | 0: Linear, 1: Catmull-Rom spline |
-| `thr_curve` | `[u8; 17]` | 17 | Throttle curve points (0..100%) |
+| `thr_curve` | `[u8; 17]` | 17 | Throttle curve points (0..100%, reserved up to 17) |
 | `dr_high` | `[u8; 3]` | 3 | High rates: AIL, ELE, RUD (50..100%) |
 | `dr_low` | `[u8; 3]` | 3 | Low rates: AIL, ELE, RUD (30..100%) |
 | `expo_high` | `[i8; 3]` | 3 | High expo: AIL, ELE, RUD (-100..+100%) |

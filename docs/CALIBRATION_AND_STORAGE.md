@@ -102,9 +102,9 @@ pub struct ModelConfig {
     pub trims: [i8; 4],            // -25 .. +25 (Roll, Pitch, Throttle, Yaw)
     pub channel_reverse: u32,      // 18-bit channel reversing mask (bit 0=CH1 .. bit 17=CH18)
     pub dr_switch: u8,             // 0: None, 1: SA, 2: SB, 3: SC, 4: SD, 5: SE, 6: SF
-    pub thr_curve_pts: u8,         // 5, 9, or 17 points
+    pub thr_curve_pts: u8,         // 5, 7, or 9 points
     pub thr_curve_smooth: u8,      // 0: Linear interpolation, 1: Catmull-Rom spline
-    pub thr_curve: [u8; 17],       // Throttle curve points (0..100%)
+    pub thr_curve: [u8; 17],       // Throttle curve points (0..100%, reserved up to 17)
     pub _pad_crv: u8,              // Alignment padding
     pub dr_high: [u8; 3],          // High rates: AIL, ELE, RUD (50..100%)
     pub dr_low: [u8; 3],           // Low rates: AIL, ELE, RUD (30..100%)
