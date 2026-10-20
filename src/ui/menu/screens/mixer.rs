@@ -54,19 +54,17 @@ pub fn update_dual_rate(
             0 => {
                 // Switch (0..6)
                 if let Some(dr) = keys.dr_change {
-                    storage.active_model.dr_switch = dr;
-                    buzzer.play_tone(2400, 40);
+                    if storage.is_dr_switch_available(dr) {
+                        storage.active_model.dr_switch = dr;
+                        buzzer.play_tone(2400, 40);
+                    }
                 } else if keys.up {
                     storage.active_model.dr_switch =
-                        (storage.active_model.dr_switch + 1) % 7;
+                        storage.next_available_dr_switch(storage.active_model.dr_switch);
                     buzzer.play_tone(2200, 20);
                 } else if keys.down {
                     storage.active_model.dr_switch =
-                        if storage.active_model.dr_switch == 0 {
-                            6
-                        } else {
-                            storage.active_model.dr_switch - 1
-                        };
+                        storage.prev_available_dr_switch(storage.active_model.dr_switch);
                     buzzer.play_tone(2200, 20);
                 }
             }
@@ -599,7 +597,7 @@ pub fn update_mixer_line_edit(
             buzzer.click();
         }
     } else {
-        let mix = &mut storage.active_model.mixes[mix_idx];
+        let mut mix = storage.active_model.mixes[mix_idx];
         match ctrl.selected_item {
             0 => {
                 if keys.up {
@@ -616,31 +614,25 @@ pub fn update_mixer_line_edit(
             }
             1 => {
                 if let Some(pot) = keys.pot_change {
-                    mix.source = pot;
-                    buzzer.play_tone(2400, 40);
+                    if storage.is_source_available(pot) {
+                        mix.source = pot;
+                        buzzer.play_tone(2400, 40);
+                    }
                 } else if keys.up {
-                    mix.source = (mix.source + 1) % (SOURCE_NAMES.len() as u8);
+                    mix.source = storage.next_available_source(mix.source, SOURCE_NAMES.len());
                     buzzer.play_tone(2200, 20);
                 } else if keys.down {
-                    mix.source = if mix.source == 0 {
-                        (SOURCE_NAMES.len() - 1) as u8
-                    } else {
-                        mix.source - 1
-                    };
+                    mix.source = storage.prev_available_source(mix.source, SOURCE_NAMES.len());
                     buzzer.play_tone(2200, 20);
                 }
             }
             2 => {
                 // Weight Modulation Source: 0..=36 (WEIGHT_SRC_NAMES)
                 if keys.up {
-                    mix.weight_src = (mix.weight_src + 1) % (WEIGHT_SRC_NAMES.len() as u8);
+                    mix.weight_src = storage.next_available_weight_src(mix.weight_src, WEIGHT_SRC_NAMES.len());
                     buzzer.play_tone(2200, 20);
                 } else if keys.down {
-                    mix.weight_src = if mix.weight_src == 0 {
-                        (WEIGHT_SRC_NAMES.len() - 1) as u8
-                    } else {
-                        mix.weight_src - 1
-                    };
+                    mix.weight_src = storage.prev_available_weight_src(mix.weight_src, WEIGHT_SRC_NAMES.len());
                     buzzer.play_tone(2200, 20);
                 }
             }
@@ -664,17 +656,15 @@ pub fn update_mixer_line_edit(
             }
             5 => {
                 if let Some(sw) = keys.sw_change {
-                    mix.switch = sw;
-                    buzzer.play_tone(2400, 40);
+                    if storage.is_switch_cond_available(sw) {
+                        mix.switch = sw;
+                        buzzer.play_tone(2400, 40);
+                    }
                 } else if keys.up {
-                    mix.switch = (mix.switch + 1) % (SWITCH_COND_NAMES.len() as u8);
+                    mix.switch = storage.next_available_switch_cond(mix.switch, SWITCH_COND_NAMES.len());
                     buzzer.play_tone(2200, 20);
                 } else if keys.down {
-                    mix.switch = if mix.switch == 0 {
-                        (SWITCH_COND_NAMES.len() - 1) as u8
-                    } else {
-                        mix.switch - 1
-                    };
+                    mix.switch = storage.prev_available_switch_cond(mix.switch, SWITCH_COND_NAMES.len());
                     buzzer.play_tone(2200, 20);
                 }
             }
@@ -689,6 +679,7 @@ pub fn update_mixer_line_edit(
             }
             _ => {}
         }
+        storage.active_model.mixes[mix_idx] = mix;
 
         if keys.ok {
             ctrl.editing = false;

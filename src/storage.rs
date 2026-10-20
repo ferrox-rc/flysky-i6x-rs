@@ -504,6 +504,327 @@ impl RadioStorage {
         &mut self.active_model
     }
 
+    /// Check if a mix source ID (0..40, matching `SOURCE_NAMES`) is available on this radio.
+    /// Filters out unconfigured switches, potentiometers, and unmapped channels.
+    pub fn is_source_available(&self, src: u8) -> bool {
+        match src {
+            0..=4 => true, // None, Roll, Pitch, Thr, Yaw are always available
+            5 => self.radio.get_adc_mode(4).is_pot(), // VRA (ADC ch 4)
+            6 => self.radio.get_adc_mode(5).is_pot(), // VRB (ADC ch 5)
+            7 => matches!(self.radio.get_adc_mode(0), AdcInputMode::TwoPos | AdcInputMode::ThreePos | AdcInputMode::InstantTrim), // SA
+            8 => matches!(self.radio.get_adc_mode(1), AdcInputMode::TwoPos | AdcInputMode::ThreePos | AdcInputMode::InstantTrim), // SB
+            9 => matches!(self.radio.get_adc_mode(2), AdcInputMode::TwoPos | AdcInputMode::ThreePos | AdcInputMode::InstantTrim), // SC
+            10 => matches!(self.radio.get_adc_mode(3), AdcInputMode::TwoPos | AdcInputMode::ThreePos | AdcInputMode::InstantTrim), // SD
+            11 => true, // MAX constant is always available
+            12..=15 => true, // CH1..CH4 primary flight channels are always active
+            16..=29 => {
+                // CH5..CH18: available if assigned to an active source or targeted by a mix line
+                let ch_idx = (src - 12) as usize; // 4..17
+                let aux_idx = ch_idx - 4; // 0..13
+                if self.active_model.wing_tail_mix == 3 && ch_idx == 5 {
+                    return true; // Flaperon drives CH6
+                }
+                if self.active_model.aux_channels[aux_idx] != 0 {
+                    return true;
+                }
+                self.active_model.mixes.iter().any(|m| m.target_ch == (ch_idx + 1) as u8)
+            }
+            30 => true, // Thr+ is always available
+            31 => self.radio.ext_switches != 0, // SE
+            32 => self.radio.ext_switches != 0, // SF
+            33 => self.radio.j4_sg_sh_en != 0,   // SG
+            34 => self.radio.j4_sg_sh_en != 0,   // SH
+            35 => self.radio.ext_adc != 0 && matches!(self.radio.get_adc_mode(6), AdcInputMode::TwoPos | AdcInputMode::ThreePos), // SWI (ADC ch 6)
+            36 => self.radio.ext_adc != 0 && matches!(self.radio.get_adc_mode(7), AdcInputMode::TwoPos | AdcInputMode::ThreePos), // SWJ (ADC ch 7)
+            37 => self.radio.ext_adc != 0 && self.radio.get_adc_mode(6).is_pot(), // VRC (ADC ch 6)
+            38 => self.radio.ext_adc != 0 && self.radio.get_adc_mode(7).is_pot(), // VRD (ADC ch 7)
+            39 => self.radio.ext_adc != 0 && self.radio.get_adc_mode(8).is_pot(), // VRE (ADC ch 8)
+            40 => self.radio.ext_adc != 0 && self.radio.get_adc_mode(9).is_pot(), // VRF (ADC ch 9)
+            _ => false,
+        }
+    }
+
+    /// Check if a switch condition index (0..22, matching `SWITCH_COND_NAMES`) is valid given hardware config.
+    pub fn is_switch_cond_available(&self, cond: u8) -> bool {
+        match cond {
+            0 => true, // Always ON
+            1 | 2 => matches!(self.radio.get_adc_mode(0), AdcInputMode::TwoPos | AdcInputMode::ThreePos | AdcInputMode::InstantTrim), // SA
+            3 | 5 => matches!(self.radio.get_adc_mode(1), AdcInputMode::TwoPos | AdcInputMode::ThreePos | AdcInputMode::InstantTrim), // SB Up, Down
+            4 => self.radio.get_adc_mode(1) == AdcInputMode::ThreePos, // SB Mid
+            6 | 8 => matches!(self.radio.get_adc_mode(2), AdcInputMode::TwoPos | AdcInputMode::ThreePos | AdcInputMode::InstantTrim), // SC Up, Down
+            7 => self.radio.get_adc_mode(2) == AdcInputMode::ThreePos, // SC Mid
+            9 | 10 => matches!(self.radio.get_adc_mode(3), AdcInputMode::TwoPos | AdcInputMode::ThreePos | AdcInputMode::InstantTrim), // SD
+            11 | 12 => self.radio.ext_switches != 0, // SE
+            13 | 14 => self.radio.ext_switches != 0, // SF
+            15 | 16 => self.radio.j4_sg_sh_en != 0, // SG
+            17 | 18 => self.radio.j4_sg_sh_en != 0, // SH
+            19 | 20 => self.radio.ext_adc != 0 && matches!(self.radio.get_adc_mode(6), AdcInputMode::TwoPos | AdcInputMode::ThreePos), // SWI
+            21 | 22 => self.radio.ext_adc != 0 && matches!(self.radio.get_adc_mode(7), AdcInputMode::TwoPos | AdcInputMode::ThreePos), // SWJ
+            _ => false,
+        }
+    }
+
+    /// Check if a channel index (1..=18) is configured / active in the active model.
+    pub fn is_channel_configured(&self, ch: u8) -> bool {
+        if ch == 0 || ch > 18 {
+            return false;
+        }
+        if ch <= 4 {
+            return true; // CH1..CH4 primary controls
+        }
+        let ch_idx = (ch - 1) as usize; // 4..17
+        let aux_idx = ch_idx - 4; // 0..13
+        if self.active_model.wing_tail_mix == 3 && ch == 6 {
+            return true; // Flaperon right aileron
+        }
+        if self.active_model.aux_channels[aux_idx] != 0 {
+            return true;
+        }
+        self.active_model.mixes.iter().any(|m| m.target_ch == ch)
+    }
+
+    /// Check if a weight modulation source index (0..=36, matching `WEIGHT_SRC_NAMES`) is available.
+    pub fn is_weight_src_available(&self, ws: u8) -> bool {
+        match ws {
+            0 => true, // Fixed weight
+            1..=18 => self.is_channel_configured(ws), // Bipolar CH1..CH18
+            19..=36 => self.is_channel_configured(ws - 18), // Unipolar CH1+..CH18+
+            _ => false,
+        }
+    }
+
+    /// Find the next available mix source index, wrapping around.
+    pub fn next_available_source(&self, cur: u8, max_len: usize) -> u8 {
+        let max = max_len as u8;
+        let mut candidate = (cur + 1) % max;
+        while candidate != cur {
+            if self.is_source_available(candidate) {
+                return candidate;
+            }
+            candidate = (candidate + 1) % max;
+        }
+        cur
+    }
+
+    /// Find the previous available mix source index, wrapping around.
+    pub fn prev_available_source(&self, cur: u8, max_len: usize) -> u8 {
+        let max = max_len as u8;
+        let mut candidate = if cur == 0 { max - 1 } else { cur - 1 };
+        while candidate != cur {
+            if self.is_source_available(candidate) {
+                return candidate;
+            }
+            candidate = if candidate == 0 { max - 1 } else { candidate - 1 };
+        }
+        cur
+    }
+
+    /// Find the next available weight modulation source index, wrapping around.
+    pub fn next_available_weight_src(&self, cur: u8, max_len: usize) -> u8 {
+        let max = max_len as u8;
+        let mut candidate = (cur + 1) % max;
+        while candidate != cur {
+            if self.is_weight_src_available(candidate) {
+                return candidate;
+            }
+            candidate = (candidate + 1) % max;
+        }
+        cur
+    }
+
+    /// Find the previous available weight modulation source index, wrapping around.
+    pub fn prev_available_weight_src(&self, cur: u8, max_len: usize) -> u8 {
+        let max = max_len as u8;
+        let mut candidate = if cur == 0 { max - 1 } else { cur - 1 };
+        while candidate != cur {
+            if self.is_weight_src_available(candidate) {
+                return candidate;
+            }
+            candidate = if candidate == 0 { max - 1 } else { candidate - 1 };
+        }
+        cur
+    }
+
+    /// Find the next available switch condition index, wrapping around.
+    pub fn next_available_switch_cond(&self, cur: u8, max_len: usize) -> u8 {
+        let max = max_len as u8;
+        let mut candidate = (cur + 1) % max;
+        while candidate != cur {
+            if self.is_switch_cond_available(candidate) {
+                return candidate;
+            }
+            candidate = (candidate + 1) % max;
+        }
+        cur
+    }
+
+    /// Find the previous available switch condition index, wrapping around.
+    pub fn prev_available_switch_cond(&self, cur: u8, max_len: usize) -> u8 {
+        let max = max_len as u8;
+        let mut candidate = if cur == 0 { max - 1 } else { cur - 1 };
+        while candidate != cur {
+            if self.is_switch_cond_available(candidate) {
+                return candidate;
+            }
+            candidate = if candidate == 0 { max - 1 } else { candidate - 1 };
+        }
+        cur
+    }
+
+    /// Check if a physical switch index (0..6: None, SA..SF) is available for Dual Rate selection.
+    pub fn is_dr_switch_available(&self, sw: u8) -> bool {
+        match sw {
+            0 => true, // None
+            1 => matches!(self.radio.get_adc_mode(0), AdcInputMode::TwoPos | AdcInputMode::ThreePos | AdcInputMode::InstantTrim), // SA
+            2 => matches!(self.radio.get_adc_mode(1), AdcInputMode::TwoPos | AdcInputMode::ThreePos | AdcInputMode::InstantTrim), // SB
+            3 => matches!(self.radio.get_adc_mode(2), AdcInputMode::TwoPos | AdcInputMode::ThreePos | AdcInputMode::InstantTrim), // SC
+            4 => matches!(self.radio.get_adc_mode(3), AdcInputMode::TwoPos | AdcInputMode::ThreePos | AdcInputMode::InstantTrim), // SD
+            5 => self.radio.ext_switches != 0, // SE
+            6 => self.radio.ext_switches != 0, // SF
+            _ => false,
+        }
+    }
+
+    /// Find next available Dual Rate switch (0..6).
+    pub fn next_available_dr_switch(&self, cur: u8) -> u8 {
+        let mut candidate = (cur + 1) % 7;
+        while candidate != cur {
+            if self.is_dr_switch_available(candidate) {
+                return candidate;
+            }
+            candidate = (candidate + 1) % 7;
+        }
+        cur
+    }
+
+    /// Find previous available Dual Rate switch (0..6).
+    pub fn prev_available_dr_switch(&self, cur: u8) -> u8 {
+        let mut candidate = if cur == 0 { 6 } else { cur - 1 };
+        while candidate != cur {
+            if self.is_dr_switch_available(candidate) {
+                return candidate;
+            }
+            candidate = if candidate == 0 { 6 } else { candidate - 1 };
+        }
+        cur
+    }
+
+    /// Check if an AUX channel input source (from `crate::hw::AUX_SOURCES`) is hardware-available.
+    pub fn is_aux_source_available(&self, src: u8) -> bool {
+        match src {
+            0..=4 => true, // None, Roll, Pitch, Thr, Yaw
+            5 => self.radio.get_adc_mode(4).is_pot(), // VRA
+            6 => self.radio.get_adc_mode(5).is_pot(), // VRB
+            7 => matches!(self.radio.get_adc_mode(0), AdcInputMode::TwoPos | AdcInputMode::ThreePos | AdcInputMode::InstantTrim), // SA
+            8 => matches!(self.radio.get_adc_mode(1), AdcInputMode::TwoPos | AdcInputMode::ThreePos | AdcInputMode::InstantTrim), // SB
+            9 => matches!(self.radio.get_adc_mode(2), AdcInputMode::TwoPos | AdcInputMode::ThreePos | AdcInputMode::InstantTrim), // SC
+            10 => matches!(self.radio.get_adc_mode(3), AdcInputMode::TwoPos | AdcInputMode::ThreePos | AdcInputMode::InstantTrim), // SD
+            31 => self.radio.ext_switches != 0, // SE
+            32 => self.radio.ext_switches != 0, // SF
+            35 => self.radio.ext_adc != 0 && matches!(self.radio.get_adc_mode(6), AdcInputMode::TwoPos | AdcInputMode::ThreePos), // SWI
+            36 => self.radio.ext_adc != 0 && matches!(self.radio.get_adc_mode(7), AdcInputMode::TwoPos | AdcInputMode::ThreePos), // SWJ
+            37 => self.radio.ext_adc != 0 && self.radio.get_adc_mode(6).is_pot(), // VRC
+            38 => self.radio.ext_adc != 0 && self.radio.get_adc_mode(7).is_pot(), // VRD
+            _ => false,
+        }
+    }
+
+    /// Cycle to next available AUX source in a given slice of source IDs.
+    pub fn next_available_aux_source(&self, cur: u8, sources: &[u8]) -> u8 {
+        let cur_pos = sources.iter().position(|&s| s == cur).unwrap_or(0);
+        let len = sources.len();
+        let mut idx = (cur_pos + 1) % len;
+        while idx != cur_pos {
+            let cand = sources[idx];
+            if self.is_aux_source_available(cand) {
+                return cand;
+            }
+            idx = (idx + 1) % len;
+        }
+        cur
+    }
+
+    /// Cycle to previous available AUX source in a given slice of source IDs.
+    pub fn prev_available_aux_source(&self, cur: u8, sources: &[u8]) -> u8 {
+        let cur_pos = sources.iter().position(|&s| s == cur).unwrap_or(0);
+        let len = sources.len();
+        let mut idx = if cur_pos == 0 { len - 1 } else { cur_pos - 1 };
+        while idx != cur_pos {
+            let cand = sources[idx];
+            if self.is_aux_source_available(cand) {
+                return cand;
+            }
+            idx = if idx == 0 { len - 1 } else { idx - 1 };
+        }
+        cur
+    }
+
+    /// Check if an Arm Switch condition (0..=14: 0: None, 1..=14: SA^..SFv) is available.
+    pub fn is_arm_switch_available(&self, sw: u8) -> bool {
+        match sw {
+            0 => true, // None
+            1..=14 => self.is_switch_cond_available(sw),
+            _ => false,
+        }
+    }
+
+    /// Cycle to next available Arm Switch (0..=14).
+    pub fn next_available_arm_switch(&self, cur: u8) -> u8 {
+        let mut candidate = (cur + 1) % 15;
+        while candidate != cur {
+            if self.is_arm_switch_available(candidate) {
+                return candidate;
+            }
+            candidate = (candidate + 1) % 15;
+        }
+        cur
+    }
+
+    /// Cycle to previous available Arm Switch (0..=14).
+    pub fn prev_available_arm_switch(&self, cur: u8) -> u8 {
+        let mut candidate = if cur == 0 { 14 } else { cur - 1 };
+        while candidate != cur {
+            if self.is_arm_switch_available(candidate) {
+                return candidate;
+            }
+            candidate = if candidate == 0 { 14 } else { candidate - 1 };
+        }
+        cur
+    }
+
+    /// Check if a Timer Source (0..=17: 0: Off, 1: THs, 2: THt, 3: Always On, 4..=17: SA^..SFv) is available.
+    pub fn is_timer_source_available(&self, ts: u8) -> bool {
+        match ts {
+            0..=3 => true, // Off, THs, THt, Always On
+            4..=17 => self.is_switch_cond_available(ts - 3),
+            _ => false,
+        }
+    }
+
+    /// Cycle to next available Timer Source (0..=17).
+    pub fn next_available_timer_source(&self, cur: u8) -> u8 {
+        let mut candidate = (cur + 1) % 18;
+        while candidate != cur {
+            if self.is_timer_source_available(candidate) {
+                return candidate;
+            }
+            candidate = (candidate + 1) % 18;
+        }
+        cur
+    }
+
+    /// Cycle to previous available Timer Source (0..=17).
+    pub fn prev_available_timer_source(&self, cur: u8) -> u8 {
+        let mut candidate = if cur == 0 { 17 } else { cur - 1 };
+        while candidate != cur {
+            if self.is_timer_source_available(candidate) {
+                return candidate;
+            }
+            candidate = if candidate == 0 { 17 } else { candidate - 1 };
+        }
+        cur
+    }
+
     /// Sanitize all radio and model parameters to valid operating bounds.
     pub fn sanitize(&mut self) {
         self.radio.magic = FLASH_MAGIC;
@@ -1634,5 +1955,74 @@ mod tests {
             assert!((addr as usize + MODEL_SLOT_SIZE) <= EEPROM_TOTAL_SIZE);
         }
         assert_eq!(model_slot_addr(NUM_MODELS), None);
+    }
+
+    #[test]
+    fn test_dynamic_mixer_source_and_switch_availability() {
+        let mut storage = RadioStorage::default_factory();
+
+        // Stock config: ext_switches=0, ext_adc=0, j4_sg_sh_en=0
+        // Sticks (1..4), MAX (11), CH1..CH4 (12..15), Thr+ (30) always available
+        for s in 0..=4 {
+            assert!(storage.is_source_available(s));
+        }
+        assert!(storage.is_source_available(11));
+        assert!(storage.is_source_available(30));
+
+        // Pots VRA & VRB are available by default
+        assert!(storage.is_source_available(5));
+        assert!(storage.is_source_available(6));
+
+        // Switches SA..SD are available by default
+        assert!(storage.is_source_available(7)); // SA
+        assert!(storage.is_source_available(8)); // SB
+        assert!(storage.is_source_available(9)); // SC
+        assert!(storage.is_source_available(10)); // SD
+
+        // Extended switches SE..SH and SWI..SWJ unavailable by default
+        assert!(!storage.is_source_available(31)); // SE
+        assert!(!storage.is_source_available(32)); // SF
+        assert!(!storage.is_source_available(33)); // SG
+        assert!(!storage.is_source_available(34)); // SH
+        assert!(!storage.is_source_available(35)); // SWI
+        assert!(!storage.is_source_available(36)); // SWJ
+        assert!(!storage.is_source_available(37)); // VRC
+        assert!(!storage.is_source_available(38)); // VRD
+
+        // Enable ext_switches
+        storage.radio.ext_switches = 1;
+        assert!(storage.is_source_available(31)); // SE
+        assert!(storage.is_source_available(32)); // SF
+        assert!(storage.is_switch_cond_available(11)); // SE^
+        assert!(storage.is_switch_cond_available(14)); // SFv
+
+        // Enable SG/SH
+        storage.radio.j4_sg_sh_en = 1;
+        assert!(storage.is_source_available(33)); // SG
+        assert!(storage.is_source_available(34)); // SH
+        assert!(storage.is_switch_cond_available(15)); // SG^
+        assert!(storage.is_switch_cond_available(18)); // SHv
+
+        // Channels: default model has aux_channels [7, 8, 5, 6, 9, 10, 0, 0, 0, 0, 0, 0, 0, 0]
+        // CH5..CH10 are configured (sources 16..21)
+        for ch in 1..=10 {
+            assert!(storage.is_channel_configured(ch));
+            assert!(storage.is_source_available(ch + 11));
+            assert!(storage.is_weight_src_available(ch)); // Bipolar
+            assert!(storage.is_weight_src_available(ch + 18)); // Unipolar
+        }
+        // CH11..CH18 are unmapped (source=0) and no mix line targets them
+        for ch in 11..=18 {
+            assert!(!storage.is_channel_configured(ch));
+            assert!(!storage.is_source_available(ch + 11));
+            assert!(!storage.is_weight_src_available(ch));
+            assert!(!storage.is_weight_src_available(ch + 18));
+        }
+
+        // Target CH11 with a mix line -> CH11 becomes configured
+        storage.active_model.mixes[0].target_ch = 11;
+        assert!(storage.is_channel_configured(11));
+        assert!(storage.is_source_available(22)); // CH11 source
+        assert!(storage.is_weight_src_available(11));
     }
 }

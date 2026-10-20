@@ -315,14 +315,14 @@ Interactive curve engine with real-time on-screen curve visualization (49 x 37 p
 - **Diff:** (When Elevon or Flaperon active): Adjust surface differential ratio (-100%..+100%).
 - **Freeform Mix Lines (`M01` .. `M32`)**: Press **`[OK]`** on any of the 32 matrix mixer lines to open `EDIT MIX 01`..`EDIT MIX 32`:
   - **Target**: Output channel (`CH1`..`CH18` or `Disabled`).
-  - **Source**: Control source (`Roll`, `Pitch`, `Thr`, `Yaw`, `VRA`, `VRB`, `SA..SD`, `MAX`, `CH1..CH18`, `Thr+`, `SE..SWJ`, `VRC..VRF`).
-  - **Wt Src** (Weight Modulation Source): `Fixed` (direct weight gain), `CH1`..`CH18` (bipolar -100%..+100% modulation by channel or knob), or `CH1+`..`CH18+` (unipolar 0..100% modulation).
+  - **Source**: Control source (`Roll`, `Pitch`, `Thr`, `Yaw`, `VRA`, `VRB`, `SA..SD`, `MAX`, `CH1..CH18`, `Thr+`, `SE..SWJ`, `VRC..VRF`). *Dynamically filtered: only hardware-configured switches, pots, and active channels appear in selection list.*
+  - **Wt Src** (Weight Modulation Source): `Fixed` (direct weight gain), `CH1`..`CH18` (bipolar -100%..+100% modulation by channel or knob), or `CH1+`..`CH18+` (unipolar 0..100% modulation). *Dynamically filtered to active channels.*
   - **Weight / Offset**: Percentage scaling (-100%..+100%).
-  - **Switch**: Activation condition (`ON`, `SA^`..`SWJv`).
+  - **Switch**: Activation condition (`ON`, `SA^`..`SWJv`). *Dynamically filtered: only available physical switches are shown.*
   - **Mode**: Multiplex method (`ADD (+)`, `MULT (*)`, `REPL (:=)`).
 
 ### Submenu 6: Auxiliary Channels (`AUX CHANNELS`)
-Assigns physical controls (switches `SA..SD`, pots `VRA/VRB`, modded `SE/SF` and `VRC..VRF`, sticks, or `None`) to channels `CH5` through `CH18`.
+Assigns physical controls (switches `SA..SD`, pots `VRA/VRB`, modded `SE/SF` and `VRC..VRF`, sticks, or `None`) to channels `CH5` through `CH18`. Selection lists dynamically skip unconfigured expansion hardware.
 
 ### Submenu 7: Channel Reverse (`CH REVERSE`)
 - Lists all 18 channels (CH1:ROL, CH2:PIT, CH3:THR, CH4:YAW, SwA..SwD, VR1, VR2, CH11..CH18).

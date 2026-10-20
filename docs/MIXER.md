@@ -214,7 +214,7 @@ When a mix line is active, it modifies the target channel based on its configure
    Channel_new = Term
    ```
 
-### Switch Conditions
+### Switch Conditions & Dynamic Hardware Filtering
 A mix line can be gated by any hardware switch condition (0..22):
 - `ON`: Always active.
 - `SA^`, `SAv`: Active when switch `SA` is UP or DOWN.
@@ -222,6 +222,12 @@ A mix line can be gated by any hardware switch condition (0..22):
 - `SC^`, `SC-`, `SCv`: Active when switch `SC` is UP, MID, or DOWN.
 - `SD^`, `SDv`: Active when switch `SD` is UP or DOWN.
 - `SE^`..`SWJv`: Active on secondary/expansion switches.
+
+### Dynamic Filtering of Sources and Switches
+The mixer UI dynamically queries the active hardware configuration (`RadioConfig`) and channel assignments (`ModelConfig`) to filter selection lists:
+- **Switches & Switch Conditions**: Only physical switches enabled in hardware are selectable. For example, `SE`/`SF` conditions only appear if `ext_switches` is enabled; `SG`/`SH` conditions only appear if `j4_sg_sh_en` is set; `SWI`/`SWJ` conditions only appear if `ext_adc` is enabled and those auxiliary channels are configured in switch mode.
+- **Pots & Sliders**: `VRA` and `VRB` only appear if their respective ADC channels are configured as potentiometers. `VRC`..`VRF` only appear when `ext_adc` is enabled with analog potentiometer mode.
+- **Channels**: Auxiliary channels `CH5`..`CH18` only appear in Source and Weight Modulation (`Wt Src`) selector lists if they are actively configured (mapped to an auxiliary input, driven by a wing template, or targeted by an active mixer rule). Unconfigured/unassigned channels are automatically skipped.
 
 ---
 

@@ -71,18 +71,13 @@ pub fn update_aux_channels(
             buzzer.play_tone(2400, 40);
         } else {
             let cur_val = storage.active_model.aux_channels[ctrl.selected_item];
-            let cur_pos = aux_sources.iter().position(|&s| s == cur_val).unwrap_or(0);
             if keys.up {
-                let next_pos = (cur_pos + 1) % aux_sources.len();
-                storage.active_model.aux_channels[ctrl.selected_item] = aux_sources[next_pos];
+                let next_val = storage.next_available_aux_source(cur_val, aux_sources);
+                storage.active_model.aux_channels[ctrl.selected_item] = next_val;
                 buzzer.play_tone(2200, 20);
             } else if keys.down {
-                let next_pos = if cur_pos == 0 {
-                    aux_sources.len() - 1
-                } else {
-                    cur_pos - 1
-                };
-                storage.active_model.aux_channels[ctrl.selected_item] = aux_sources[next_pos];
+                let next_val = storage.prev_available_aux_source(cur_val, aux_sources);
+                storage.active_model.aux_channels[ctrl.selected_item] = next_val;
                 buzzer.play_tone(2200, 20);
             }
         }

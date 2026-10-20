@@ -219,17 +219,17 @@ pub fn update_setup(
             2 => {
                 // Arm switch editing mode (with switch auto-detection)
                 if let Some(sw) = keys.sw_change {
-                    storage.active_model.arm_switch = sw;
-                    buzzer.chime_armed();
+                    if storage.is_arm_switch_available(sw) {
+                        storage.active_model.arm_switch = sw;
+                        buzzer.chime_armed();
+                    }
                 } else if keys.up {
-                    storage.active_model.arm_switch = (storage.active_model.arm_switch + 1) % 15;
+                    storage.active_model.arm_switch =
+                        storage.next_available_arm_switch(storage.active_model.arm_switch);
                     buzzer.play_tone(2200, 20);
                 } else if keys.down {
-                    storage.active_model.arm_switch = if storage.active_model.arm_switch == 0 {
-                        14
-                    } else {
-                        storage.active_model.arm_switch - 1
-                    };
+                    storage.active_model.arm_switch =
+                        storage.prev_available_arm_switch(storage.active_model.arm_switch);
                     buzzer.play_tone(2200, 20);
                 }
                 if keys.ok || keys.cancel {
@@ -257,17 +257,18 @@ pub fn update_setup(
             4 => {
                 // Timer trigger editing mode (with switch auto-detection)
                 if let Some(sw) = keys.sw_change {
-                    storage.active_model.timer_source = sw + 3; // 1..14 maps to 4..17
-                    buzzer.play_tone(2400, 40);
+                    let ts = sw + 3; // 1..14 maps to 4..17
+                    if storage.is_timer_source_available(ts) {
+                        storage.active_model.timer_source = ts;
+                        buzzer.play_tone(2400, 40);
+                    }
                 } else if keys.up {
-                    storage.active_model.timer_source = (storage.active_model.timer_source + 1) % 18;
+                    storage.active_model.timer_source =
+                        storage.next_available_timer_source(storage.active_model.timer_source);
                     buzzer.play_tone(2200, 20);
                 } else if keys.down {
-                    storage.active_model.timer_source = if storage.active_model.timer_source == 0 {
-                        17
-                    } else {
-                        storage.active_model.timer_source - 1
-                    };
+                    storage.active_model.timer_source =
+                        storage.prev_available_timer_source(storage.active_model.timer_source);
                     buzzer.play_tone(2200, 20);
                 }
                 if keys.ok || keys.cancel {
