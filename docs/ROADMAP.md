@@ -6,7 +6,7 @@ This document tracks the phased implementation, historical milestones, and ongoi
 
 ## Current Firmware Footprint
 
-- **Firmware Footprint (v0.24.0)**: **~110.1 KB Flash ROM** (.text = 104,632, .data = 8,064; leaving ~9.9 KB / ~8.2% headroom out of 120 KB partition) and **~8.9 KB static RAM** (.data = 8,064, .bss = 1,032; leaving >7.0 KB stack safety margin in 16 KB SRAM). Unit tests: **122 passed**.
+- **Firmware Footprint (v0.25.0)**: **~106.5 KB Flash ROM** (.vector = 192, .text = 89,092, .rodata = 11,328, .data = 5,876; leaving ~13.5 KB / ~11.3% headroom out of 120 KB partition) and **~6.9 KB static RAM** (.data = 5,876, .bss = 1,032; leaving >9.0 KB stack safety margin in 16 KB SRAM). Unit tests: **143 passed**.
 - **Authoritative Budget & Breakdown**: For exact section sizes (`.text`, `.rodata`, `.data`, `.bss`), partition layouts, and stack guarantees, see [ARCHITECTURE.md (Memory Footprint)](ARCHITECTURE.md#4-memory-footprint).
 
 ---
@@ -211,3 +211,13 @@ This document tracks the phased implementation, historical milestones, and ongoi
 - [x] Transparent in-place EEPROM migration: detects 128-byte v1 model slots, verifies CRC, migrates to 348-byte v2 schema, and re-saves with fresh CRC envelope.
 - [x] UI updates: `WING/MIXER` 34-item viewport (`M01`..`M32`), `EDIT MIX 01`..`32` with `Wt Src:` field, and `THR CURVE` 5-PT/7-PT/9-PT mode cycling with `P01:`..`P09:` formatting.
 - [x] Automated unit test suite expansion to 131 tests passing on host (`cargo test-host`).
+
+### Phase 26: Variometer Telemetry & Acoustic Audio Feedback (COMPLETED / BRANCH: `feat/vario-telemetry-audio`)
+- [x] Telemetry frame decoding: CRSF `0x07` (`CRSF_FRAMETYPE_VARIO`) & `0x09` (`CRSF_FRAMETYPE_BARO_ALTITUDE`), and AFHDS 2A/i-BUS sensor `0x09` (vspeed) and `0x41`/`0x83`/`0xF9` (altitude).
+- [x] Core variometer engine (`src/vario.rs`) featuring 4-tap EMA noise filtering, fallback altitude differentiator ($\Delta h / \Delta t$), configurable climb/sink deadbands, pitch scaling ($1000\dots 2800\,\text{Hz}$), cadence scaling ($550\dots 110\,\text{ms}$), sink modes (`BEEP`, `CONT`, `SILENT`), and automatic motor lockout ($> 10\%$ throttle).
+- [x] Non-blocking background audio synthesis on hardware PWM piezo (`TIM1_CH1`, `PA8`) with zero-latency preemption by higher-priority alarms (battery, RSSI, timer, clicks) and phase-preserved cadence tracking.
+- [x] Model storage integration: persistent `vario_switch`, `vario_climb_deadband`, `vario_sink_deadband`, `vario_sink_mode`, and `vario_motor_mute` in `ModelConfig` with automatic flash sanitization.
+- [x] Dedicated UI editors: `VARIO SETUP` under `MODEL SETUP` with switch auto-detection and live acoustic tone preview.
+- [x] Multi-tile telemetry dashboard integration: `VSPD` (`+X.Xm/s`) and `ALT` (`XXXXm`) tiles added to custom telemetry dashboard slot assignments.
+- [x] Automated unit test expansion to 143 tests passing on host (`cargo test-host`).
+
