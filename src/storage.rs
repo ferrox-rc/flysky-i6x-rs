@@ -1182,7 +1182,7 @@ unsafe fn clear_i2c2_flags(i2c2: &stm32f0xx_hal::pac::i2c1::RegisterBlock) {
 #[cfg(not(test))]
 fn recover_i2c2() {
     let rcc = unsafe { &*stm32f0xx_hal::pac::RCC::ptr() };
-    let i2c2 = unsafe { &*(stm32f0xx_hal::pac::I2C2::ptr() as *const stm32f0xx_hal::pac::i2c1::RegisterBlock) };
+    let i2c2 = unsafe { &*stm32f0xx_hal::pac::I2C2::ptr() };
 
     unsafe {
         // Send STOP request to release the bus if active
@@ -1292,7 +1292,7 @@ impl EepromI2c {
         });
 
         // 5. Clear flags and enable I2C2 peripheral
-        unsafe { clear_i2c2_flags(&*(stm32f0xx_hal::pac::I2C2::ptr() as *const stm32f0xx_hal::pac::i2c1::RegisterBlock)) };
+        unsafe { clear_i2c2_flags(i2c2) };
         i2c2.cr1.modify(|_, w| w.pe().enabled());
 
         // 6. Adaptive Probe:
@@ -1301,9 +1301,8 @@ impl EepromI2c {
             EEPROM_STATUS.bus = 0;
             EEPROM_STATUS.detected = false;
 
-            let reg = &*(stm32f0xx_hal::pac::I2C2::ptr() as *const stm32f0xx_hal::pac::i2c1::RegisterBlock);
             for addr in 0x50..=0x57 {
-                if probe_device(reg, addr) {
+                if probe_device(i2c2, addr) {
                     EEPROM_STATUS.bus = 2; // I2C2
                     EEPROM_STATUS.addr = addr;
                     EEPROM_STATUS.detected = true;
@@ -1680,7 +1679,7 @@ pub fn load_slot<T: Copy>(addr: u16, dst: &mut T) -> Result<(), StorageError> {
     {
         let _ = addr;
         let _ = dst;
-        return Err(StorageError::EmptySlot);
+        Err(StorageError::EmptySlot)
     }
 
     #[cfg(not(test))]
@@ -1747,7 +1746,7 @@ pub fn save_slot<T: Copy>(addr: u16, src: &T) -> Result<(), StorageError> {
     {
         let _ = addr;
         let _ = src;
-        return Ok(());
+        Ok(())
     }
 
     #[cfg(not(test))]
@@ -1841,7 +1840,6 @@ pub fn load_storage_into(storage: &mut RadioStorage) {
     #[cfg(test)]
     {
         storage.init_default();
-        return;
     }
 
     #[cfg(not(test))]
@@ -1926,7 +1924,7 @@ pub fn save_active_model(storage: &RadioStorage) -> bool {
     #[cfg(test)]
     {
         let _ = storage;
-        return true;
+        true
     }
     #[cfg(not(test))]
     {
@@ -1940,7 +1938,7 @@ pub fn save_radio_config(storage: &RadioStorage) -> bool {
     #[cfg(test)]
     {
         let _ = storage;
-        return true;
+        true
     }
     #[cfg(not(test))]
     {

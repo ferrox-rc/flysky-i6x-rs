@@ -1088,8 +1088,10 @@ mod tests {
         let pots = [0i16; 2];
 
         // 1. Throttle Hold Active (SA Down): CH3 must be locked to CHANNEL_MIN_US even at 100% throttle
-        let mut sw_hold = Switches::default();
-        sw_hold.sa = SwitchPos::Down;
+        let sw_hold = Switches {
+            sa: SwitchPos::Down,
+            ..Default::default()
+        };
 
         let out_hold = compute_channels(0, 0, 1000, 0, &pots, &sw_hold, &model, &trims, 0);
         assert_eq!(
@@ -1098,8 +1100,10 @@ mod tests {
         );
 
         // 2. Throttle Hold Disengaged (SA Up): CH3 follows normal throttle output
-        let mut sw_flight = Switches::default();
-        sw_flight.sa = SwitchPos::Up;
+        let sw_flight = Switches {
+            sa: SwitchPos::Up,
+            ..Default::default()
+        };
 
         let out_flight = compute_channels(0, 0, 1000, 0, &pots, &sw_flight, &model, &trims, 0);
         assert_eq!(
@@ -1117,8 +1121,10 @@ mod tests {
         let pots = [0i16; 2];
 
         // 1. Disarmed (SA Down): CH3 must be clamped to CHANNEL_MIN_US
-        let mut sw_disarmed = Switches::default();
-        sw_disarmed.sa = SwitchPos::Down;
+        let sw_disarmed = Switches {
+            sa: SwitchPos::Down,
+            ..Default::default()
+        };
 
         let out_disarmed = compute_channels(0, 0, 1000, 0, &pots, &sw_disarmed, &model, &trims, 0);
         assert_eq!(
@@ -1127,8 +1133,10 @@ mod tests {
         );
 
         // 2. Armed (SA Up): CH3 outputs full throttle
-        let mut sw_armed = Switches::default();
-        sw_armed.sa = SwitchPos::Up;
+        let sw_armed = Switches {
+            sa: SwitchPos::Up,
+            ..Default::default()
+        };
 
         let out_armed = compute_channels(0, 0, 1000, 0, &pots, &sw_armed, &model, &trims, 0);
         assert_eq!(
@@ -1143,10 +1151,12 @@ mod tests {
         let pots = [0i16; 6];
         let channels = [0i32; NUM_CHANNELS];
 
-        let mut switches = Switches::default();
+        let mut switches = Switches {
+            sa: SwitchPos::Up,
+            ..Default::default()
+        };
 
         // SA (source 7)
-        switches.sa = SwitchPos::Up;
         assert_eq!(evaluate_source(7, &cond_sticks, &pots, &switches, &channels), MIXER_MIN as i32);
         switches.sa = SwitchPos::Mid;
         assert_eq!(evaluate_source(7, &cond_sticks, &pots, &switches, &channels), MIXER_CENTER as i32);
