@@ -87,15 +87,15 @@ pub fn update_system_info(
     lcd.draw_str_4x6(4, 14, "MCU:      ", false);
     lcd.draw_str_4x6(48, 14, profile.name, false);
 
-    lcd.draw_str_4x6(4, 21, "Firmware: ", false);
+    lcd.draw_str_4x6(4, 22, "Firmware: ", false);
     lcd.draw_str_4x6(
         48,
-        21,
+        22,
         concat!(env!("FIRMWARE_VERSION"), " (", env!("GIT_HASH"), ")"),
         false,
     );
 
-    lcd.draw_str_4x6(4, 25, "Flash: 128KB | SRAM: 16KB", false);
+    lcd.draw_str_4x6(4, 30, "Flash: 128KB | SRAM: 16KB", false);
 
     let status = crate::storage::get_eeprom_status();
     let mut st_buf = *b"Storage:  xxxx @ 0x00 (OK) ";
@@ -116,12 +116,12 @@ pub fn update_system_info(
             b"(ERR)"
         };
         st_buf[22..27].copy_from_slice(state);
-        lcd.draw_str_4x6(4, 32, ascii_as_str(&st_buf[..27]), false);
+        lcd.draw_str_4x6(4, 38, ascii_as_str(&st_buf[..27]), false);
     } else {
-        lcd.draw_str_4x6(4, 32, "Storage:  None (No EEPROM)", false);
+        lcd.draw_str_4x6(4, 38, "Storage:  None (No EEPROM)", false);
     }
 
-    lcd.draw_str_4x6(4, 39, "Profiles: 20 Models (16KB)", false);
+    lcd.draw_str_4x6(4, 46, "Profiles: 20 Models (16KB)", false);
 
     widgets::draw_footer(lcd, "[ESC] Back");
 }
