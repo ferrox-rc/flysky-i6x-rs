@@ -25,13 +25,13 @@ pub fn update_diag_anas(
 
     if keys.up {
         ctrl.page_idx = if ctrl.page_idx == 0 {
-            3
+            4
         } else {
             ctrl.page_idx - 1
         };
         buzzer.play_tone(2200, 30);
-    } else if keys.down {
-        ctrl.page_idx = (ctrl.page_idx + 1) % 4;
+    } else if keys.down || keys.ok {
+        ctrl.page_idx = (ctrl.page_idx + 1) % 5;
         buzzer.play_tone(2200, 30);
     }
 
@@ -64,7 +64,7 @@ pub fn update_diag_anas(
         crate::hw::draw_diag_ext_page(lcd, ctrl.page_idx, raw_adc, switches);
     }
 
-    widgets::draw_footer(lcd, "[UP/DN] Page  [ESC] Back");
+    widgets::draw_footer(lcd, "[UP/DN/OK] Page  [ESC] Back");
 }
 
 #[inline(never)]
@@ -122,12 +122,6 @@ pub fn update_system_info(
     }
 
     lcd.draw_str_4x6(4, 39, "Profiles: 20 Models (16KB)", false);
-    lcd.draw_str_4x6(4, 46, "Bootloader: [OK] Reboot DFU", false);
 
-    if keys.ok {
-        buzzer.play_tone(2400, 100);
-        crate::boot::reboot_to_dfu();
-    }
-
-    widgets::draw_footer(lcd, "[OK] DFU Mode  [ESC] Back");
+    widgets::draw_footer(lcd, "[ESC] Back");
 }
