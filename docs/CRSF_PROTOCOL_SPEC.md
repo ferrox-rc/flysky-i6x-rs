@@ -314,8 +314,8 @@ Handset (FS-i6X)                                   ELRS Module
 
 - **Wire Serialization & CRC**: [`src/crsf/protocol.rs`](../src/crsf/protocol.rs)
 - **Engine State Machine & Handshake**: [`src/crsf/mod.rs`](../src/crsf/mod.rs)
-- **Hardware UART2 Driver & Power**: [`src/crsf/uart.rs`](../src/crsf/uart.rs)
-- **LCD Menu & Modal Interface**: [`src/ui/menu/screens/elrs.rs`](../src/ui/menu/screens/elrs.rs)
+- **Hardware UART2 Driver & Power**: [`src/hw/uart.rs`](../src/hw/uart.rs)
+- **LCD Menu & Modal Interface**: [`src/ui/menu/screens/crsf.rs`](../src/ui/menu/screens/crsf.rs)
 
 ---
 

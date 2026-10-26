@@ -291,7 +291,7 @@ pub fn update_channel_monitor(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use super::format_channel_label;
     use crate::storage::ModelConfig;
 
     #[test]
@@ -342,4 +342,3 @@ mod tests {
         assert_eq!(format_channel_label(5, &model, &mut buf), "6:R.AIL");
     }
 }
-

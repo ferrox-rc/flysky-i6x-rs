@@ -109,7 +109,7 @@ The piezo buzzer on pin `PA8` is driven by **`TIM1_CH1`** in hardware PWM Mode 1
 
 ---
 
-## 6. Navigation Keypad & Auto-Repeat (`src/boot.rs`, `src/menu.rs`)
+## 6. Navigation Keypad & Auto-Repeat (`src/hw/keys.rs`, `src/ui/menu/mod.rs`)
 
 The transmitter keypad is scanned via the 3 x 4 GPIO key matrix:
 - **`[UP]`** and **`[DOWN]`**:

@@ -6,12 +6,13 @@ This document tracks the phased implementation, historical milestones, and ongoi
 
 ## Current Firmware Footprint
 
-- **Firmware Footprint (v0.25.0)**: **~106.5 KB Flash ROM** (.vector = 192, .text = 89,092, .rodata = 11,328, .data = 5,876; leaving ~13.5 KB / ~11.3% headroom out of 120 KB partition) and **~6.9 KB static RAM** (.data = 5,876, .bss = 1,032; leaving >9.0 KB stack safety margin in 16 KB SRAM). Unit tests: **143 passed**.
+- **Firmware Footprint (v0.26.0)**: **~106.8 KB Flash ROM** (.text = 103,392, .data = 5,948; leaving ~18.7 KB / ~14.6% headroom out of 128 KB partition) and **~7.0 KB static RAM** (.data = 5,948, .bss = 1,040; leaving >9.0 KB stack safety margin in 16 KB SRAM). Unit tests: **146 passed**.
 - **Authoritative Budget & Breakdown**: For exact section sizes (`.text`, `.rodata`, `.data`, `.bss`), partition layouts, and stack guarantees, see [ARCHITECTURE.md (Memory Footprint)](ARCHITECTURE.md#4-memory-footprint).
 
 ---
 
 ## Phase Breakdown
+
 
 ### Phase 1: Board Bring-Up & Display (COMPLETED)
 - [x] Dual MCU support for both `STM32F072VB` and `APM32F072VB` (UID & DFU mapping).
@@ -139,7 +140,8 @@ This document tracks the phased implementation, historical milestones, and ongoi
 - [x] Mode 2 right-aligned throttle bar and physical switch position arrow glyphs (`^`/`-`/`v`).
 - [x] `ModelType::General` support for boats, rovers, and robotics surface craft.
 
-### Phase 18: Voice Audio Subsystem & Hardware Mod (BRANCH: `feat/dfplayer-voice-audio`)
+### Phase 18: Voice Audio Subsystem & Hardware Mod (DORMANT BRANCH: `feat/dfplayer-voice-audio`)
+> **Note**: This feature is preserved on the standalone `feat/dfplayer-voice-audio` branch as a reference for modders who wire a DFPlayer Mini serial audio module. It is deliberately left dormant from `dev`/`main` to keep core firmware footprint lean, but can be integrated on-demand if requested by the community.
 - [x] DFPlayer Mini hardware serial audio driver on `USART` / dedicated pin.
 - [x] Spoken telemetry announcements (battery voltage, low RSSI, timer elapsed).
 - [x] Audible switch position announcements and flight mode voice prompts.
@@ -219,5 +221,24 @@ This document tracks the phased implementation, historical milestones, and ongoi
 - [x] Model storage integration: persistent `vario_switch`, `vario_climb_deadband`, `vario_sink_deadband`, `vario_sink_mode`, and `vario_motor_mute` in `ModelConfig` with automatic flash sanitization.
 - [x] Dedicated UI editors: `VARIO SETUP` under `MODEL SETUP` with switch auto-detection and live acoustic tone preview.
 - [x] Multi-tile telemetry dashboard integration: `VSPD` (`+X.Xm/s`) and `ALT` (`XXXXm`) tiles added to custom telemetry dashboard slot assignments.
-- [x] Automated unit test expansion to 143 tests passing on host (`cargo test-host`).
+- [x] Automated unit test expansion to 146 tests passing on host (`cargo test-host`).
+
+### Phase 27: Aftermarket Hall Effect Gimbal Calibration (COMPLETED)
+- [x] Support for aftermarket Hall effect gimbals alongside stock potentiometers.
+- [x] Non-volatile `Gimbal Type` toggle (`POT` / `HALL`) in `Radio Setup` utilizing reserved radio configuration byte (`RadioConfig` remains 140 bytes).
+- [x] Inverted Hall ADC normalization, calibrated center detent deadband, and full stick throw travel without endpoint clipping.
+- [x] Dedicated documentation guide: [`docs/HALL_GIMBALS.md`](HALL_GIMBALS.md).
+
+### Phase 28: I2C EEPROM Diagnostics, Status Reporting, & Bus Recovery (COMPLETED)
+- [x] Hardware I2C2 EEPROM driver for FT24C128A on `PB10`/`PB11` at ~1000 kHz Fast Mode Plus (Fm+).
+- [x] Runtime adaptive bus probing (`0x50`..`0x57`), automatic peripheral APB1 reset & STOP bit recovery on bus lockup.
+- [x] Dedicated on-radio `STORAGE (EEPROM)` Diagnostics screen (Page 4 in `Analog Diag`) displaying bus, address, device status, and slot metrics.
+- [x] USB Serial interactive CLI command `storage` / `eeprom` reporting live I2C bus counters and slot integrity.
+
+### Phase 29: Global Variables (GV1..GV5) in Mixer & Storage (COMPLETED)
+- [x] Dedicated `GV1`..`GV5` variables (range `-1000..+1000`) per model with persistent EEPROM storage.
+- [x] Mix line integration: use global variables as direct mix sources or dynamic weight modulation sources.
+- [x] Dedicated UI editor under `WING / MIXER -> Global Variables`.
+- [x] Zero-loss in-place EEPROM schema migration from 348, 352, and 360 bytes to 364 bytes.
+
 

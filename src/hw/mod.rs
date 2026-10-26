@@ -54,9 +54,7 @@ pub const AUX_NAMES: [&str; 10] = [
 
 pub const ADAPTIVE_CH_NAMES: [&str; 10] = ["A", "B", "C", "D", "1", "2", "3", "4", "5", "6"];
 
-pub const AUX_SOURCES: &[u8] = &[
-    0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 31, 32, 35, 36, 37, 38,
-];
+pub const AUX_SOURCES: &[u8] = &[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 31, 32, 35, 36, 37, 38];
 
 pub const SETUP_ITEMS: usize = 17;
 pub const INPUT_SETUP_RETURN: (usize, usize) = (13, 10);
@@ -166,16 +164,7 @@ pub fn decode_board_switches(
         (SwitchPos::Up, SwitchPos::Up, SwitchPos::Up, SwitchPos::Up)
     };
 
-    (
-        se,
-        sf,
-        SwitchPos::Up,
-        SwitchPos::Up,
-        swi,
-        swj,
-        swk,
-        swl,
-    )
+    (se, sf, SwitchPos::Up, SwitchPos::Up, swi, swj, swk, swl)
 }
 
 /// Number of visible items in Input Setup menu.
@@ -425,7 +414,11 @@ pub fn draw_diag_ext_page(
         } else {
             "UP (HIGH)"
         };
-        let fill_se = if switches.se == SwitchPos::Down { 30 } else { 0 };
+        let fill_se = if switches.se == SwitchPos::Down {
+            30
+        } else {
+            0
+        };
         widgets::draw_bar_gauge(lcd, 32, 23, 30, 6, fill_se);
         lcd.draw_str_4x6(66, 23, se_state, false);
 
@@ -436,7 +429,11 @@ pub fn draw_diag_ext_page(
         } else {
             "UP (HIGH)"
         };
-        let fill_sf = if switches.sf == SwitchPos::Down { 30 } else { 0 };
+        let fill_sf = if switches.sf == SwitchPos::Down {
+            30
+        } else {
+            0
+        };
         widgets::draw_bar_gauge(lcd, 32, 33, 30, 6, fill_sf);
         lcd.draw_str_4x6(66, 33, sf_state, false);
 

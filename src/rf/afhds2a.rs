@@ -362,7 +362,11 @@ impl Afhds2a {
         out[18] = center_bytes[0];
         out[19] = center_bytes[1]; // 1500 µs center pulse
         out[20] = 0x05;
-        out[21] = if self.rx_serial_proto == 1 { 0xDD } else { 0xDE }; // 0xDE = i-BUS, 0xDD = SBUS
+        out[21] = if self.rx_serial_proto == 1 {
+            0xDD
+        } else {
+            0xDE
+        }; // 0xDE = i-BUS, 0xDD = SBUS
         out[37] = 0x00;
     }
 
@@ -620,8 +624,7 @@ mod tests {
         // 1. Standard channels 0..13 (slots 0..13)
         for (i, ch_val) in decoded[..14].iter_mut().enumerate() {
             let offset = i * 2;
-            *ch_val =
-                (slot_bytes[offset] as u16) | (((slot_bytes[offset + 1] & 0x0F) as u16) << 8);
+            *ch_val = (slot_bytes[offset] as u16) | (((slot_bytes[offset + 1] & 0x0F) as u16) << 8);
         }
 
         // 2. Extended channels 14..17 (CH15..CH18)
@@ -756,8 +759,6 @@ mod tests {
 
     #[test]
     fn test_afhds2a_rf_power_levels() {
-        use crate::rf::a7105;
-
         let mut radio = Afhds2a::new(0x1234_5678);
         assert_eq!(radio.rf_power_idx, 0);
 
@@ -794,7 +795,7 @@ mod tests {
         // Sensor 1: 0x09 (vspeed = +25 * 10 = +250 cm/s = +2.5 m/s)
         rx_buf[10] = 0x09;
         rx_buf[11] = 0x01; // instance
-        rx_buf[12] = 25;   // 25 in 0.1 m/s
+        rx_buf[12] = 25; // 25 in 0.1 m/s
         rx_buf[13] = 0;
 
         // Sensor 2: 0x41 (altitude = 185m)
@@ -809,4 +810,3 @@ mod tests {
         assert_eq!(radio.telemetry.alt_m, 185);
     }
 }
-

@@ -5,6 +5,36 @@ All notable changes to the `flysky-i6x-rs` project will be documented in this fi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.26.0] - 2026-10-26
+
+### Added
+- **Aftermarket Hall Effect Gimbal Support & Calibration ([`src/input.rs`](src/input.rs), [`src/storage.rs`](src/storage.rs), [`src/ui/menu/screens/setup.rs`](src/ui/menu/screens/setup.rs), [`src/ui/menu/screens/diag.rs`](src/ui/menu/screens/diag.rs))**:
+  - Added `gimbal_type: u8` (`0 = Potentiometer [POT]`, `1 = Hall Effect [HALL]`) to `RadioConfig`.
+  - Adapted analog ADC deadband, noise filtering, and software calibration limits for Hall effect sensor voltages.
+  - Added `Gimbals: POT / HALL` toggle in `Radio Setup`.
+  - Retained backward-compatible 140-byte `RadioConfig` layout.
+- **FT24C128A I2C EEPROM Diagnostics, Bus Recovery & CLI ([`src/storage.rs`](src/storage.rs), [`src/ui/menu/screens/diag.rs`](src/ui/menu/screens/diag.rs), [`src/main.rs`](src/main.rs))**:
+  - Added Page 4 (`STORAGE (EEPROM)`) to `Analog Diag` screen displaying EEPROM model detection, I2C bus state (`OK` / `ERR`), write cycle counter, CRC error count, and slot status with `[UP/DN/OK]` cycling.
+  - Implemented automatic I2C2 bus hang recovery with clock toggling routine to unstick SDA line held low by peripheral.
+  - Added serial CLI `storage` diagnostic and recovery command set over UART.
+  - Cleaned up System Info page typography (8px uniform vertical pitch) and removed non-functional soft DFU entrance option.
+- **Global Variables (`GV1`..`GV5`) Architecture ([`src/mixer.rs`](src/mixer.rs), [`src/storage.rs`](src/storage.rs), [`src/ui/menu/screens/mixer.rs`](src/ui/menu/screens/mixer.rs))**:
+  - Added 5 persistent 16-bit Global Variables (`GV1` through `GV5`, range $-1000..+1000$) per model in `ModelConfig`.
+  - Integrated Global Variables into the 32-line freeform matrix mixer as both inputs/sources and dynamic weight modulation sources.
+  - Expanded `ModelConfig` from 348 B to 360 B with transparent zero-loss migration in `load_slot()`.
+- **Variometer Telemetry & Acoustic Pitch Audio Synthesis ([`src/telemetry/vario.rs`](src/telemetry/vario.rs), [`src/buzzer.rs`](src/buzzer.rs), [`src/telemetry/mod.rs`](src/telemetry/mod.rs), [`src/ui/menu/screens/model.rs`](src/ui/menu/screens/model.rs))**:
+  - Real-time vertical speed decoding from CRSF (`CRSF_FRAMETYPE_VARIO` / `0x07`) and i-BUS telemetry sensors.
+  - Dynamic acoustic variometer audio engine driving the passive piezo buzzer via `TIM3_CH3` PWM:
+    - Configurable climb deadband, sink deadband, climb pitch frequency range, and sink tone rate.
+    - Pulsed tone climbing indication with pitch and pulse repetition rate proportional to vertical climb rate.
+    - Continuous sinking warning tones with pitch deepening with sink rate.
+  - Per-model Vario settings screen (`VARIO SETUP`) in model menu with enable toggle, sink/climb thresholds, and volume.
+  - Universal in-place EEPROM migration supporting slots of length 348 B, 352 B, and 360 B to final 364 B layout (`RadioStorage` 504 B static RAM).
+- **Codebase and Documentation Anti-Slop Audit**:
+  - Cleaned up redundant comments, passive buzzer preset explanations, and redundant imports.
+  - Cleaned up link formatting and UI text across docs and display drivers.
+  - Verified 146 unit tests passing on host (`cargo test-host`).
+
 ## [0.25.0] - 2026-10-19
 
 ### Added

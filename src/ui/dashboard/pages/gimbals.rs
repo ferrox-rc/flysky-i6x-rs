@@ -213,7 +213,13 @@ pub fn render_adaptive_layout(lcd: &mut St7567, state: &InputState, storage: &Ra
     } else {
         let min_pot_w: i32 = match pot_count {
             1 => 24,
-            2 => if sw_count >= 12 { 24 } else { 28 },
+            2 => {
+                if sw_count >= 12 {
+                    24
+                } else {
+                    28
+                }
+            }
             _ => 36,
         };
 
@@ -223,7 +229,9 @@ pub fn render_adaptive_layout(lcd: &mut St7567, state: &InputState, storage: &Ra
 
         let max_sw_w = 124 - min_pot_w - 3;
         let natural_sw_w = sw_count as i32 * (if compact { 8 } else { 11 });
-        let actual_sw_w = natural_sw_w.min(max_sw_w).max(sw_count as i32 * (slot_w - 1));
+        let actual_sw_w = natural_sw_w
+            .min(max_sw_w)
+            .max(sw_count as i32 * (slot_w - 1));
 
         let spacing = if sw_count <= 1 {
             actual_sw_w
@@ -342,29 +350,35 @@ mod tests {
             })
         };
 
-        // 1. Default (6 pots VRA..VRF, 6 switches SA..SF)
+        // Default configuration (6 pots VRA..VRF, 6 switches SA..SF)
         let mut lcd1 = St7567::new();
         render_adaptive_layout(&mut lcd1, &state, &storage);
         let div1 = find_divider(&lcd1);
-        assert!(div1.is_some(), "Divider must separate 6 switches and 6 pots");
+        assert!(
+            div1.is_some(),
+            "Divider must separate 6 switches and 6 pots"
+        );
 
-        // 2. Extended channels as switches (2 pots, 10 switches)
+        // Extended channels configured as switches (2 pots, 10 switches)
         for ch in 6..10 {
             storage.radio.set_adc_mode_val(ch, 1);
         }
         let mut lcd2 = St7567::new();
         render_adaptive_layout(&mut lcd2, &state, &storage);
         let div2 = find_divider(&lcd2);
-        assert!(div2.is_some(), "Divider must separate 10 switches and 2 pots");
+        assert!(
+            div2.is_some(),
+            "Divider must separate 10 switches and 2 pots"
+        );
 
-        // 3. Extended switches + SG/SH (2 pots, up to 12 switches)
+        // Extended switches with SG/SH (2 pots, up to 12 switches)
         storage.radio.j4_sg_sh_en = 1;
         let mut lcd3 = St7567::new();
         render_adaptive_layout(&mut lcd3, &state, &storage);
         let div3 = find_divider(&lcd3);
         assert!(div3.is_some(), "Divider must separate switches and 2 pots");
 
-        // 4. 6 pots + up to 8 switches (VRA..VRF + SA..SH)
+        // 6 pots with up to 8 switches (VRA..VRF + SA..SH)
         let mut storage4 = RadioStorage::default_factory();
         storage4.radio.ext_adc = 1;
         storage4.radio.ext_switches = 1;

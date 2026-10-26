@@ -28,13 +28,13 @@ To achieve **instant, sub-millisecond local feedback** with zero hardware requir
                    +----------------------+----------------------+
                    |                                             |
             Target Build                                  Host Test Build
-   (cargo build --release)                             (cargo test-host (runs `cargo test --lib --target x86_64-unknown-linux-gnu -- --test-threads=1`))
+   (cargo build --release)                             (cargo test-host)
                    |                                             |
         Target: thumbv6m-none-eabi                   Target: x86_64 / host OS
         Profile: #![no_std]                          Profile: std enabled
         Peripheral Driver: Hardware MMIO             Peripheral Driver: Mock FIFO
         Hardware: Cortex-M0 (STM32F072)              Harness: Built-in Rust Test Runner
-        Binary: flysky-i6x.bin (Flash)               Speed: 88 tests in 0.01s
+        Binary: flysky-i6x.bin (Flash)               Speed: 132 tests in 0.01s
 ```
 
 1. **`src/lib.rs` Entry Point**: Configured with `#![cfg_attr(not(test), no_std)]`. When compiling firmware binaries, the codebase compiles strictly as `#![no_std]`. When running tests on the host, standard library support (`std`) is conditionally enabled for test assertion macros, vector allocations, and test runners.
@@ -56,17 +56,17 @@ test-host = "test --lib --target x86_64-unknown-linux-gnu -- --test-threads=1"
 
 ```bash
 # Run all host unit tests (sub-millisecond execution)
-cargo test-host (runs `cargo test --lib --target x86_64-unknown-linux-gnu -- --test-threads=1`)
+cargo test-host
 
 # Run only CRSF protocol and state machine tests
-cargo test-host (runs `cargo test --lib --target x86_64-unknown-linux-gnu -- --test-threads=1`) crsf
+cargo test-host crsf
 
 # Run only mixer and curve tests
-cargo test-host (runs `cargo test --lib --target x86_64-unknown-linux-gnu -- --test-threads=1`) mixer
-cargo test-host (runs `cargo test --lib --target x86_64-unknown-linux-gnu -- --test-threads=1`) curve
+cargo test-host mixer
+cargo test-host curve
 
 # Run tests with unsuppressed console output
-cargo test-host (runs `cargo test --lib --target x86_64-unknown-linux-gnu -- --test-threads=1`) -- --nocapture
+cargo test-host -- --nocapture
 ```
 
 ### Why `--test-threads=1` is Mandatory
@@ -211,7 +211,7 @@ CRSF allows communicating with modules (`0xEE`), receivers (`0xEC`), and flight 
 
 ### 4.4 Parameter Chunk Reassembly & Interactive Command Lifecycle
 
-- `test_param_multi_frame_chunk_reassembly`: Simulates a long parameter definition exceeding MTU (e.g. multi-option string) delivered across multiple chunks (`chunks_remain: 1`, then `chunks_remain: 0`). Verifies the accumulator reassembles chunks seamlessly before parsing.
+- `test_param_multi_frame_chunk_reassembly`: Simulates a long parameter definition exceeding MTU (e.g. multi-option string) delivered across multiple chunks (`chunks_remain: 1`, then `chunks_remain: 0`). Verifies the accumulator reassembles chunks into the buffer before parsing.
 - `test_command_action_lifecycle_and_confirmations`: Validates the full interactive lifecycle of action commands:
   1. Triggering an action (`STATUS_START = 1`).
   2. Intercepting module confirmation requests (`STATUS_CONFIRMATION_NEEDED = 3`).
@@ -240,8 +240,8 @@ The test suite covers core flight, calculation, and protocol components:
 Every contribution, bug fix, or feature branch must pass the **Dual Verification Requirement** before merging into `dev` or `main`:
 
 ```bash
-# 1. Run all host unit tests (must pass 88/88 tests with 0 failures)
-cargo test-host (runs `cargo test --lib --target x86_64-unknown-linux-gnu -- --test-threads=1`)
+# 1. Run all host unit tests (must pass 132/132 tests with 0 failures)
+cargo test-host
 
 # 2. Compile bare-metal firmware (must produce 0 warnings and 0 errors)
 cargo build --release --target thumbv6m-none-eabi
@@ -255,7 +255,7 @@ cargo size --release --target thumbv6m-none-eabi -- -A
 In continuous integration environments, both checks can be executed in sequence:
 ```yaml
 - name: Run Host Unit Tests
-  run: cargo test-host (runs `cargo test --lib --target x86_64-unknown-linux-gnu -- --test-threads=1`)
+  run: cargo test-host
 
 - name: Build Bare-Metal Firmware
   run: cargo build --release --target thumbv6m-none-eabi
