@@ -6,12 +6,13 @@ This document tracks the phased implementation, historical milestones, and ongoi
 
 ## Current Firmware Footprint
 
-- **Firmware Footprint (v0.24.0)**: **~110.1 KB Flash ROM** (.text = 104,632, .data = 8,064; leaving ~9.9 KB / ~8.2% headroom out of 120 KB partition) and **~8.9 KB static RAM** (.data = 8,064, .bss = 1,032; leaving >7.0 KB stack safety margin in 16 KB SRAM). Unit tests: **122 passed**.
+- **Firmware Footprint (v0.26.0)**: **~106.8 KB Flash ROM** (.text = 103,392, .data = 5,948; leaving ~18.7 KB / ~14.6% headroom out of 128 KB partition) and **~7.0 KB static RAM** (.data = 5,948, .bss = 1,040; leaving >9.0 KB stack safety margin in 16 KB SRAM). Unit tests: **146 passed**.
 - **Authoritative Budget & Breakdown**: For exact section sizes (`.text`, `.rodata`, `.data`, `.bss`), partition layouts, and stack guarantees, see [ARCHITECTURE.md (Memory Footprint)](ARCHITECTURE.md#4-memory-footprint).
 
 ---
 
 ## Phase Breakdown
+
 
 ### Phase 1: Board Bring-Up & Display (COMPLETED)
 - [x] Dual MCU support for both `STM32F072VB` and `APM32F072VB` (UID & DFU mapping).
@@ -139,7 +140,8 @@ This document tracks the phased implementation, historical milestones, and ongoi
 - [x] Mode 2 right-aligned throttle bar and physical switch position arrow glyphs (`^`/`-`/`v`).
 - [x] `ModelType::General` support for boats, rovers, and robotics surface craft.
 
-### Phase 18: Voice Audio Subsystem & Hardware Mod (BRANCH: `feat/dfplayer-voice-audio`)
+### Phase 18: Voice Audio Subsystem & Hardware Mod (DORMANT BRANCH: `feat/dfplayer-voice-audio`)
+> **Note**: This feature is preserved on the standalone `feat/dfplayer-voice-audio` branch as a reference for modders who wire a DFPlayer Mini serial audio module. It is deliberately left dormant from `dev`/`main` to keep core firmware footprint lean, but can be integrated on-demand if requested by the community.
 - [x] DFPlayer Mini hardware serial audio driver on `USART` / dedicated pin.
 - [x] Spoken telemetry announcements (battery voltage, low RSSI, timer elapsed).
 - [x] Audible switch position announcements and flight mode voice prompts.
@@ -211,3 +213,51 @@ This document tracks the phased implementation, historical milestones, and ongoi
 - [x] Transparent in-place EEPROM migration: detects 128-byte v1 model slots, verifies CRC, migrates to 348-byte v2 schema, and re-saves with fresh CRC envelope.
 - [x] UI updates: `WING/MIXER` 34-item viewport (`M01`..`M32`), `EDIT MIX 01`..`32` with `Wt Src:` field, and `THR CURVE` 5-PT/7-PT/9-PT mode cycling with `P01:`..`P09:` formatting.
 - [x] Automated unit test suite expansion to 131 tests passing on host (`cargo test-host`).
+
+### Phase 26: Variometer Telemetry & Acoustic Audio Feedback (COMPLETED / BRANCH: `feat/vario-telemetry-audio`)
+- [x] Telemetry frame decoding: CRSF `0x07` (`CRSF_FRAMETYPE_VARIO`) & `0x09` (`CRSF_FRAMETYPE_BARO_ALTITUDE`), and AFHDS 2A/i-BUS sensor `0x09` (vspeed) and `0x41`/`0x83`/`0xF9` (altitude).
+- [x] Core variometer engine (`src/vario.rs`) featuring 4-tap EMA noise filtering, fallback altitude differentiator ($\Delta h / \Delta t$), configurable climb/sink deadbands, pitch scaling ($1000\dots 2800\,\text{Hz}$), cadence scaling ($550\dots 110\,\text{ms}$), sink modes (`BEEP`, `CONT`, `SILENT`), and automatic motor lockout ($> 10\%$ throttle).
+- [x] Non-blocking background audio synthesis on hardware PWM piezo (`TIM1_CH1`, `PA8`) with zero-latency preemption by higher-priority alarms (battery, RSSI, timer, clicks) and phase-preserved cadence tracking.
+- [x] Model storage integration: persistent `vario_switch`, `vario_climb_deadband`, `vario_sink_deadband`, `vario_sink_mode`, and `vario_motor_mute` in `ModelConfig` with automatic flash sanitization.
+- [x] Dedicated UI editors: `VARIO SETUP` under `MODEL SETUP` with switch auto-detection and live acoustic tone preview.
+- [x] Multi-tile telemetry dashboard integration: `VSPD` (`+X.Xm/s`) and `ALT` (`XXXXm`) tiles added to custom telemetry dashboard slot assignments.
+- [x] Automated unit test expansion to 146 tests passing on host (`cargo test-host`).
+
+### Phase 27: Aftermarket Hall Effect Gimbal Calibration (COMPLETED)
+- [x] Support for aftermarket Hall effect gimbals alongside stock potentiometers.
+- [x] Non-volatile `Gimbal Type` toggle (`POT` / `HALL`) in `Radio Setup` utilizing reserved radio configuration byte (`RadioConfig` remains 140 bytes).
+- [x] Inverted Hall ADC normalization, calibrated center detent deadband, and full stick throw travel without endpoint clipping.
+- [x] Dedicated documentation guide: [`docs/HALL_GIMBALS.md`](HALL_GIMBALS.md).
+
+### Phase 28: I2C EEPROM Diagnostics, Status Reporting, & Bus Recovery (COMPLETED)
+- [x] Hardware I2C2 EEPROM driver for FT24C128A on `PB10`/`PB11` at ~1000 kHz Fast Mode Plus (Fm+).
+- [x] Runtime adaptive bus probing (`0x50`..`0x57`), automatic peripheral APB1 reset & STOP bit recovery on bus lockup.
+- [x] Dedicated on-radio `STORAGE (EEPROM)` Diagnostics screen (Page 4 in `Analog Diag`) displaying bus, address, device status, and slot metrics.
+- [x] USB Serial interactive CLI command `storage` / `eeprom` reporting live I2C bus counters and slot integrity.
+
+### Phase 29: Global Variables (GV1..GV5) in Mixer & Storage (COMPLETED)
+- [x] Dedicated `GV1`..`GV5` variables (range `-1000..+1000`) per model with persistent EEPROM storage.
+- [x] Mix line integration: use global variables as direct mix sources or dynamic weight modulation sources.
+- [x] Dedicated UI editor under `WING / MIXER -> Global Variables`.
+- [x] Zero-loss in-place EEPROM schema migration from 348, 352, and 360 bytes to 364 bytes.
+
+### Phase 30: Spektrum Protocol & Multi-Module Integration (PROPOSED / LOOSE PLAN)
+> **Flash Space Feasibility Re-Evaluation (v0.26.0 Baseline)**:
+> - **Total MCU Flash**: 131,072 bytes (128 KB).
+> - **Current Flash footprint**: **106.8 KB** (109,340 bytes: `.text` = 103,392, `.data` = 5,948).
+> - **Available Flash headroom**: **21.2 KB** (21,732 bytes / 16.6% margin).
+> - **Estimated Spektrum footprint**: **~2.5 KB – 5.0 KB** across parsers and menu selections.
+> - **Headroom after Spektrum**: **~16.2 KB – 18.7 KB** (>12% margin retained for Phase 21 SBUS trainer, Servo Slow, and diagnostics).
+> - **Conclusion**: Fully viable within single-bank 128 KB flash without requiring banking or flash paging.
+
+- [ ] **Spektrum Satellite Remote Receiver (DSM2 / DSMX) Wireless Trainer Input**:
+  - Serial stream parser on `USART2` (`PA15` RX) decoding standard 16-byte frames (10-bit 1024/22ms and 11-bit 2048/11ms) at 115,200 baud.
+  - Integration with existing `TIM15` instructor handover engine (`SD` Down safety switch) alongside CPPM and SBUS.
+- [ ] **MULTI-Module Serial Protocol for External Spektrum DSM2 / DSMX (iRangeX iRX6)**:
+  - Multi-Protocol serial output telemetry stream at 100,000 baud (8E2) on rear module bay / trainer connector.
+  - Model Setup protocol options: `DSM` with sub-protocol modes (`DSM2-22`, `DSM2-11`, `DSMX-22`, `DSMX-11`) and software auto-bind triggering.
+- [ ] **Spektrum Telemetry & Link Quality Parsing**:
+  - Basic Spektrum flight log frame decoding: Antenna A/B fades, Frame Losses (`FLoss`), and Receiver Holds (`Hold`).
+
+
+

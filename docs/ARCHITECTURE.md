@@ -173,21 +173,21 @@ In `flysky-i6x-rs`, reset recovery is treated as a safety-critical state machine
 
 ## 4. Memory Footprint
  
-Measured on release builds (`thumbv6m-none-eabi`, opt-level = "z", LTO = "fat", v0.24.0):
-- **Flash ROM Partition (`memory.x`)**: **120 KB** (`0x0800_0000 .. 0x0801_DFFF`, Pages 0–59) allocated for firmware execution.
-  - **Firmware Binary**: **~110.1 KB** (112,696 bytes Flash total):
-    - `.text`: 104,632 bytes (code execution)
-    - `.data`: 8,064 bytes (initialized variables in Flash copied to SRAM at reset)
-  - **Free Program Space**: **~9.9 KB** (9,184 bytes / ~8.2% headroom) remaining within the 120 KB partition for future expansions.
-- **Non-Volatile Storage Partition (Flash Pages 60–63)**: **8 KB** (`0x0801_E000 .. 0x0802_0000`, 4 × 2048-byte pages, 8,192 bytes total) managed as a log-structured append-only storage engine via `sequential-storage`. Writes complete in **~2.8 ms** with zero page erases on routine updates, wear-levelled across all 4 pages.
+Measured on release builds (`thumbv6m-none-eabi`, opt-level = "z", LTO = "fat", v0.26.0):
+- **Flash ROM Partition (`memory.x`)**: **128 KB** (`0x0800_0000 .. 0x0802_0000`, 64 × 2048-byte pages) allocated for firmware execution.
+  - **Firmware Binary**: **~106.8 KB** (109,340 bytes Flash total):
+    - `.text`: 103,392 bytes (code execution)
+    - `.data`: 5,948 bytes (initialized variables in Flash copied to SRAM at reset)
+  - **Free Program Space**: **~18.7 KB** (18,660 bytes / ~14.6% headroom) remaining within the 128 KB Flash for future expansions.
+- **Non-Volatile Storage Subsystem**: External FT24C128A 16 KB (128 Kbit) I2C EEPROM on PB10/PB11 at ~1000 kHz Fast Mode Plus (Fm+). Hardware-independent storage featuring A/B ping-pong safety for `RadioConfig` (140 B), dedicated slot boundaries for 20 models (768 B per slot), in-place backward-compatible slot migrations, and automatic bus hang recovery.
 - **SRAM Memory Budget (16 KB total, `0x2000_0000 .. 0x2000_3FFF`)**:
-  - **Static Allocation**: **~8.9 KB** (9,096 bytes total static RAM):
-    - `.data`: 8,064 bytes (`0x2000_0000 .. 0x2000_1F80`)
-    - `.bss`: 1,032 bytes (`0x2000_1F80 .. 0x2000_2388`)
+  - **Static Allocation**: **~6.8 KB** (6,988 bytes total static RAM):
+    - `.data`: 5,948 bytes (`0x2000_0000 .. 0x2000_173C`)
+    - `.bss`: 1,040 bytes (`0x2000_173C .. 0x2000_1B4C`)
   - **Dedicated Peripherals**:
     - **LCD Framebuffer**: 1,024 bytes (128 × 64 monochrome buffer in static memory).
     - **USB Packet Memory Area (PMA)**: 1,024 bytes of dedicated USB SRAM located at `0x4000_6000` (outside main SRAM).
-  - **Stack Safety Margin**: **> 7.0 KB** guaranteed unallocated stack safety margin (stack grows downward from `0x2000_4000`), completely eliminating any risk of stack collision with static variables.
+  - **Stack Safety Margin**: **> 9.0 KB** guaranteed unallocated stack safety margin (stack grows downward from `0x2000_4000`), completely eliminating any risk of stack collision with static variables.
 - **Zero Dynamic Heap Allocations**: Entirely static allocation; zero dynamic heap (`no_std`), zero `alloc` crate, zero memory leaks, and deterministic bounded execution throughout. Model storage loading employs zero-alloc in-place reads (`load_storage_into`).
 
 ---

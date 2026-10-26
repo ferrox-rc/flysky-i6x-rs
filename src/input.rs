@@ -234,6 +234,7 @@ pub struct AxisCalib {
     pub max: u16,
     pub filtered_raw: u32,
     pub invert: bool,
+    pub deadband: u16,
 }
 
 impl AxisCalib {
@@ -244,6 +245,7 @@ impl AxisCalib {
             max,
             filtered_raw: 0,
             invert,
+            deadband: 0,
         }
     }
 
@@ -266,16 +268,21 @@ impl AxisCalib {
     }
 
     /// Normalize raw ADC count (0..4095) around center point to -1000..+1000.
+    /// Supports an optional center deadband for Hall sensors to absorb resting magnetic ripple.
     pub fn normalize(&mut self, raw: u16) -> i16 {
         let smoothed_raw = self.filter_raw(raw);
 
-        let val = if smoothed_raw <= self.center {
-            let span = (self.center - self.min).max(100) as i32;
-            let delta = smoothed_raw as i32 - self.center as i32;
+        let val = if self.deadband > 0 && smoothed_raw.abs_diff(self.center) <= self.deadband {
+            0
+        } else if smoothed_raw <= self.center {
+            let active_center = self.center.saturating_sub(self.deadband);
+            let span = active_center.saturating_sub(self.min).max(100) as i32;
+            let delta = smoothed_raw as i32 - active_center as i32;
             ((delta * 1000) / span).clamp(-1000, 0)
         } else {
-            let span = (self.max - self.center).max(100) as i32;
-            let delta = smoothed_raw as i32 - self.center as i32;
+            let active_center = self.center.saturating_add(self.deadband);
+            let span = self.max.saturating_sub(active_center).max(100) as i32;
+            let delta = smoothed_raw as i32 - active_center as i32;
             ((delta * 1000) / span).clamp(0, 1000)
         };
 
@@ -318,10 +325,10 @@ use crate::adc::{ADC_CENTER, ADC_MAX, ADC_MIN};
 
 #[derive(Copy, Clone, Debug)]
 pub struct InputCalibration {
-    pub rh: AxisCalib, // PA0: Right Horizontal
-    pub rv: AxisCalib, // PA1: Right Vertical
-    pub lv: AxisCalib, // PA2: Left Vertical
-    pub lh: AxisCalib, // PA3: Left Horizontal
+    pub rh: AxisCalib,        // PA0: Right Horizontal
+    pub rv: AxisCalib,        // PA1: Right Vertical
+    pub lv: AxisCalib,        // PA2: Left Vertical
+    pub lh: AxisCalib,        // PA3: Left Horizontal
     pub aux: [AxisCalib; 10], // 0..3: SA..SD, 4..5: VRA..VRB, 6..9: VRC..VRF
     pub adc_modes: [u8; 10],
     pub filtered_battery_mv: u32,
@@ -374,27 +381,34 @@ pub fn apply_calibration(config: &RadioConfig) {
         calib.adc_modes[i] = config.get_adc_mode_val(i);
     }
 
+    // Deadband for physical sticks: 3 counts for Hall effect to eliminate magnetic ripple, 0 for stock pots
+    let stick_deadband = if config.is_hall_gimbals() { 3 } else { 0 };
+
     // Physical Gimbals: PA0 (RH), PA1 (RV), PA2 (LV), PA3 (LH)
     // RH: PA0
-    calib.rh.invert = true;
+    calib.rh.invert = config.is_stick_inverted(0);
+    calib.rh.deadband = stick_deadband;
     calib.rh.min = config.sticks[0].min;
     calib.rh.center = config.sticks[0].center;
     calib.rh.max = config.sticks[0].max;
 
     // RV: PA1
-    calib.rv.invert = true;
+    calib.rv.invert = config.is_stick_inverted(1);
+    calib.rv.deadband = stick_deadband;
     calib.rv.min = config.sticks[1].min;
     calib.rv.center = config.sticks[1].center;
     calib.rv.max = config.sticks[1].max;
 
     // LV: PA2
-    calib.lv.invert = false;
+    calib.lv.invert = config.is_stick_inverted(2);
+    calib.lv.deadband = stick_deadband;
     calib.lv.min = config.sticks[2].min;
     calib.lv.center = config.sticks[2].center;
     calib.lv.max = config.sticks[2].max;
 
     // LH: PA3
-    calib.lh.invert = false;
+    calib.lh.invert = config.is_stick_inverted(3);
+    calib.lh.deadband = stick_deadband;
     calib.lh.min = config.sticks[3].min;
     calib.lh.center = config.sticks[3].center;
     calib.lh.max = config.sticks[3].max;
@@ -678,12 +692,12 @@ mod tests {
 
     #[test]
     fn test_aux_index_to_raw_adc_mapping() {
-        assert_eq!(aux_index_to_raw_adc(0), 4);  // SA: PA4
-        assert_eq!(aux_index_to_raw_adc(1), 5);  // SB: PA5
-        assert_eq!(aux_index_to_raw_adc(2), 8);  // SC: PB0
-        assert_eq!(aux_index_to_raw_adc(3), 9);  // SD: PB1
-        assert_eq!(aux_index_to_raw_adc(4), 6);  // VRA: PA6
-        assert_eq!(aux_index_to_raw_adc(5), 7);  // VRB: PA7
+        assert_eq!(aux_index_to_raw_adc(0), 4); // SA: PA4
+        assert_eq!(aux_index_to_raw_adc(1), 5); // SB: PA5
+        assert_eq!(aux_index_to_raw_adc(2), 8); // SC: PB0
+        assert_eq!(aux_index_to_raw_adc(3), 9); // SD: PB1
+        assert_eq!(aux_index_to_raw_adc(4), 6); // VRA: PA6
+        assert_eq!(aux_index_to_raw_adc(5), 7); // VRB: PA7
         assert_eq!(aux_index_to_raw_adc(6), 11); // VRC
         assert_eq!(aux_index_to_raw_adc(7), 12); // VRD
         assert_eq!(aux_index_to_raw_adc(8), 13); // VRE
@@ -735,5 +749,31 @@ mod tests {
         assert_eq!(state.aux_pots[8], 200);
         // aux_pots[9] for pot at 4095 = 1000
         assert_eq!(state.aux_pots[9], 1000);
+    }
+
+    #[test]
+    fn test_hall_gimbal_inversion_and_deadband() {
+        let mut cfg = RadioConfig::default_factory();
+        cfg.gimbal_type = 1; // Hall effect
+        cfg.stick_invert_mask = 0b0000_1001; // Invert RH (bit 0) and LH (bit 3), NORM RV and LV
+        apply_calibration(&cfg);
+
+        // Test deadband: counts within ±3 of center (2048) produce 0
+        let mut calib_axis = AxisCalib::new(1000, 2048, 3000, false);
+        calib_axis.deadband = 3;
+        assert_eq!(calib_axis.normalize(2048), 0);
+        assert_eq!(calib_axis.normalize(2049), 0);
+        assert_eq!(calib_axis.normalize(2051), 0);
+        assert_eq!(calib_axis.normalize(2045), 0);
+
+        // Moving outside deadband gives non-zero
+        assert!(calib_axis.normalize(2060) > 0);
+        assert!(calib_axis.normalize(2030) < 0);
+
+        // Test inversion
+        let mut inv_axis = AxisCalib::new(1000, 2048, 3000, true);
+        inv_axis.deadband = 3;
+        assert!(inv_axis.normalize(2060) < 0);
+        assert!(inv_axis.normalize(2030) > 0);
     }
 }

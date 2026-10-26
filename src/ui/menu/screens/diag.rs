@@ -25,13 +25,13 @@ pub fn update_diag_anas(
 
     if keys.up {
         ctrl.page_idx = if ctrl.page_idx == 0 {
-            3
+            4
         } else {
             ctrl.page_idx - 1
         };
         buzzer.play_tone(2200, 30);
-    } else if keys.down {
-        ctrl.page_idx = (ctrl.page_idx + 1) % 4;
+    } else if keys.down || keys.ok {
+        ctrl.page_idx = (ctrl.page_idx + 1) % 5;
         buzzer.play_tone(2200, 30);
     }
 
@@ -64,7 +64,7 @@ pub fn update_diag_anas(
         crate::hw::draw_diag_ext_page(lcd, ctrl.page_idx, raw_adc, switches);
     }
 
-    widgets::draw_footer(lcd, "[UP/DN] Page  [ESC] Back");
+    widgets::draw_footer(lcd, "[UP/DN/OK] Page  [ESC] Back");
 }
 
 #[inline(never)]
@@ -87,23 +87,41 @@ pub fn update_system_info(
     lcd.draw_str_4x6(4, 14, "MCU:      ", false);
     lcd.draw_str_4x6(48, 14, profile.name, false);
 
-    lcd.draw_str_4x6(4, 21, "Firmware: ", false);
+    lcd.draw_str_4x6(4, 22, "Firmware: ", false);
     lcd.draw_str_4x6(
         48,
-        21,
+        22,
         concat!(env!("FIRMWARE_VERSION"), " (", env!("GIT_HASH"), ")"),
         false,
     );
 
-    lcd.draw_str_4x6(4, 28, "Flash:    128KB (64 Pages)", false);
-    lcd.draw_str_4x6(4, 35, "SRAM:     16KB (Parity)", false);
-    lcd.draw_str_4x6(4, 42, "Profiles: 20 Models", false);
-    lcd.draw_str_4x6(4, 49, "Bootloader: [OK] Reboot DFU", false);
+    lcd.draw_str_4x6(4, 30, "Flash: 128KB | SRAM: 16KB", false);
 
-    if keys.ok {
-        buzzer.play_tone(2400, 100);
-        crate::boot::reboot_to_dfu();
+    let status = crate::storage::get_eeprom_status();
+    let mut st_buf = *b"Storage:  xxxx @ 0x00 (OK) ";
+    if status.detected {
+        let bus = match status.bus {
+            2 => b"I2C2",
+            1 => b"I2C1",
+            _ => b"I2C?",
+        };
+        st_buf[10..14].copy_from_slice(bus);
+        st_buf[19] = b"0123456789ABCDEF"[(status.addr >> 4) as usize];
+        st_buf[20] = b"0123456789ABCDEF"[(status.addr & 0x0F) as usize];
+        let state = if status.write_err {
+            b"(ERR)"
+        } else if status.read_ok {
+            b"(OK) "
+        } else {
+            b"(ERR)"
+        };
+        st_buf[22..27].copy_from_slice(state);
+        lcd.draw_str_4x6(4, 38, ascii_as_str(&st_buf[..27]), false);
+    } else {
+        lcd.draw_str_4x6(4, 38, "Storage:  None (No EEPROM)", false);
     }
 
-    widgets::draw_footer(lcd, "[OK] DFU Mode  [ESC] Back");
+    lcd.draw_str_4x6(4, 46, "Profiles: 20 Models (16KB)", false);
+
+    widgets::draw_footer(lcd, "[ESC] Back");
 }

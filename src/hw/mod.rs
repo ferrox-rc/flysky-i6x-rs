@@ -54,14 +54,12 @@ pub const AUX_NAMES: [&str; 10] = [
 
 pub const ADAPTIVE_CH_NAMES: [&str; 10] = ["A", "B", "C", "D", "1", "2", "3", "4", "5", "6"];
 
-pub const AUX_SOURCES: &[u8] = &[
-    0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 31, 32, 35, 36, 37, 38,
-];
+pub const AUX_SOURCES: &[u8] = &[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 31, 32, 35, 36, 37, 38];
 
-pub const SETUP_ITEMS: usize = 16;
-pub const INPUT_SETUP_RETURN: (usize, usize) = (12, 10);
-pub const TELEM_SETUP_RETURN: (usize, usize) = (13, 10);
-pub const PPM_OUT_SETUP_IDX: usize = 14;
+pub const SETUP_ITEMS: usize = 17;
+pub const INPUT_SETUP_RETURN: (usize, usize) = (13, 10);
+pub const TELEM_SETUP_RETURN: (usize, usize) = (14, 10);
+pub const PPM_OUT_SETUP_IDX: usize = 15;
 
 /// Early board initialization (no-op on FS-i6X, physical power switch).
 #[inline(always)]
@@ -166,16 +164,7 @@ pub fn decode_board_switches(
         (SwitchPos::Up, SwitchPos::Up, SwitchPos::Up, SwitchPos::Up)
     };
 
-    (
-        se,
-        sf,
-        SwitchPos::Up,
-        SwitchPos::Up,
-        swi,
-        swj,
-        swk,
-        swl,
-    )
+    (se, sf, SwitchPos::Up, SwitchPos::Up, swi, swj, swk, swl)
 }
 
 /// Number of visible items in Input Setup menu.
@@ -231,24 +220,30 @@ pub fn handle_board_setup_ok(
         }
         12 => {
             buzzer.click();
+            storage.radio.gimbal_type = if storage.radio.gimbal_type == 0 { 1 } else { 0 };
+            crate::input::apply_calibration(&storage.radio);
+            crate::storage::save_radio_config(storage);
+        }
+        13 => {
+            buzzer.click();
             ctrl.state = MenuState::InputSetup;
             ctrl.selected_item = 0;
             ctrl.scroll_offset = 0;
         }
-        13 => {
+        14 => {
             buzzer.click();
             ctrl.state = MenuState::TelemSetup;
             ctrl.selected_item = 0;
             ctrl.scroll_offset = 0;
         }
-        14 => {
+        15 => {
             buzzer.click();
             let en = !storage.radio.is_ppm_out_enabled();
             storage.radio.set_ppm_out_enabled(en);
             crate::trainer::set_ppm_out(en);
             crate::storage::save_radio_config(storage);
         }
-        15 => {
+        16 => {
             buzzer.click();
             let en = !storage.radio.is_ppm_in_enabled();
             storage.radio.set_ppm_in_enabled(en);
@@ -302,12 +297,20 @@ pub fn draw_board_setup_row(
             widgets::draw_list_row_right(lcd, slot, is_sel, "Stick Mode:", Some(mode_str));
         }
         12 => {
-            widgets::draw_list_row_right(lcd, slot, is_sel, "Input Setup", Some(">"));
+            let gmb_str = if storage.radio.is_hall_gimbals() {
+                "HALL"
+            } else {
+                "POT"
+            };
+            widgets::draw_list_row_right(lcd, slot, is_sel, "Gimbals:", Some(gmb_str));
         }
         13 => {
-            widgets::draw_list_row_right(lcd, slot, is_sel, "Telem Setup", Some(">"));
+            widgets::draw_list_row_right(lcd, slot, is_sel, "Input Setup", Some(">"));
         }
         14 => {
+            widgets::draw_list_row_right(lcd, slot, is_sel, "Telem Setup", Some(">"));
+        }
+        15 => {
             let ppm_str = if storage.radio.is_ppm_out_enabled() {
                 "ON (PF10)"
             } else {
@@ -315,7 +318,7 @@ pub fn draw_board_setup_row(
             };
             widgets::draw_list_row_right(lcd, slot, is_sel, "PPM Out:", Some(ppm_str));
         }
-        15 => {
+        16 => {
             let trn_str = if storage.radio.is_ppm_in_enabled() {
                 "ON (SD DN)"
             } else {
@@ -374,17 +377,18 @@ pub fn append_extra_switches(
     }
 }
 
-/// Diagnostics page header title for page index 0..3.
+/// Diagnostics page header title for page index 0..4.
 pub fn diag_page_title(page_idx: usize) -> &'static str {
     match page_idx {
         0 => "ANALOG (1-6)",
         1 => "ANALOG (7-11)",
         2 => "EXT SWITCHES (SE/SF)",
-        _ => "EXT ANALOG (P7)",
+        3 => "EXT ANALOG (P7)",
+        _ => "STORAGE (EEPROM)",
     }
 }
 
-/// Render board-specific Diagnostics pages (page 2 and page 3).
+/// Render board-specific Diagnostics pages (pages 2, 3, and 4).
 pub fn draw_diag_ext_page(
     lcd: &mut St7567,
     page_idx: usize,
@@ -410,7 +414,11 @@ pub fn draw_diag_ext_page(
         } else {
             "UP (HIGH)"
         };
-        let fill_se = if switches.se == SwitchPos::Down { 30 } else { 0 };
+        let fill_se = if switches.se == SwitchPos::Down {
+            30
+        } else {
+            0
+        };
         widgets::draw_bar_gauge(lcd, 32, 23, 30, 6, fill_se);
         lcd.draw_str_4x6(66, 23, se_state, false);
 
@@ -421,12 +429,16 @@ pub fn draw_diag_ext_page(
         } else {
             "UP (HIGH)"
         };
-        let fill_sf = if switches.sf == SwitchPos::Down { 30 } else { 0 };
+        let fill_sf = if switches.sf == SwitchPos::Down {
+            30
+        } else {
+            0
+        };
         widgets::draw_bar_gauge(lcd, 32, 33, 30, 6, fill_sf);
         lcd.draw_str_4x6(66, 33, sf_state, false);
 
         lcd.draw_str_4x6(2, 44, "Active-LOW mod to GND", false);
-    } else {
+    } else if page_idx == 3 {
         let ext_active = crate::input::is_ext_adc_enabled();
 
         let cfg_label = if ext_active {
@@ -458,6 +470,37 @@ pub fn draw_diag_ext_page(
             }
             let val_str = ascii_as_str(&val_buf);
             lcd.draw_str_4x6(90, y, val_str, false);
+        }
+    } else {
+        let status = crate::storage::get_eeprom_status();
+        if status.detected {
+            let bus_str = match status.bus {
+                2 => "BUS: I2C2 (PB10/PB11 Fm+)",
+                1 => "BUS: I2C1 (PB8/PB9)",
+                _ => "BUS: Unknown",
+            };
+            lcd.draw_str_4x6(2, 13, bus_str, false);
+
+            let mut addr_buf = *b"ADDR: 0x50 (FT24C128A 16KB)";
+            addr_buf[8] = b"0123456789ABCDEF"[(status.addr >> 4) as usize];
+            addr_buf[9] = b"0123456789ABCDEF"[(status.addr & 0x0F) as usize];
+            lcd.draw_str_4x6(2, 23, ascii_as_str(&addr_buf), false);
+
+            let state_str = if status.write_err {
+                "STATUS: WRITE ERR (FAIL)"
+            } else if status.read_ok {
+                "STATUS: READY (HEALTHY)"
+            } else {
+                "STATUS: READ ERR (FAIL)"
+            };
+            lcd.draw_str_4x6(2, 33, state_str, false);
+
+            lcd.draw_str_4x6(2, 43, "SLOTS: 2xRadio  20xModels", false);
+        } else {
+            lcd.draw_str_4x6(2, 13, "BUS: I2C2 (PB10/PB11)", false);
+            lcd.draw_str_4x6(2, 23, "STATUS: NOT DETECTED", false);
+            lcd.draw_str_4x6(2, 33, "CHECK: Pull-ups / Wiring", false);
+            lcd.draw_str_4x6(2, 43, "FALLBACK: Factory Defaults", false);
         }
     }
 }

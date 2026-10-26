@@ -14,7 +14,7 @@ The FS-i6X open-source journey was pioneered by the remarkable work of the [Open
 - **Zero-Heap, Deterministic Memory:** Fully static allocation with bare-metal `no_std`, eliminating dynamic allocation overhead, allocator stalls, and heap fragmentation.
 - **Lock-Free Concurrency & Watchdog Recovery:** Deterministic priority-driven interrupt scheduling (`TIM16` 260 Hz packet sync, `EXTI2` RF ready) paired with lock-free atomic double-buffering. 2.0s independent hardware watchdog (`pac::IWDG`) with LSI clock isolation, debug halt freezing, bounded sync, and <2 ms in-flight warm reset recovery that bypasses startup interlocks to prevent lockouts.
 - **Strict Scope:** Dedicated support for the built-in hardware (A7105 AFHDS2A + i-BUS), 4-axis gimbals, switches, trims, 20-model storage, 18-channel matrix mixer, and a 128×64 monochrome UI.
-- **Lightweight Footprint:** **~110.1 KB Flash ROM** (leaving ~9.5 KB / ~7.9% headroom out of the 120 KB partition) and **~8.9 KB static RAM** + 1 KB LCD framebuffer + 1 KB USB PMA (leaving >7.0 KB stack safety margin). See [ARCHITECTURE.md](docs/ARCHITECTURE.md#4-memory-footprint) for the complete memory budget.
+- **Lightweight Footprint:** **~106.8 KB Flash ROM** (leaving ~18.7 KB / ~14.6% headroom out of 128 KB Flash) and **~7.0 KB static RAM** + 1 KB LCD framebuffer + 1 KB USB PMA (leaving >9.0 KB stack safety margin). See [ARCHITECTURE.md](docs/ARCHITECTURE.md#4-memory-footprint) for the complete memory budget.
 
 ---
 
@@ -240,7 +240,7 @@ This project was built through a **human-directed, AI-assisted development workf
 
 ### Automated Testing & Dual-Target Harness
 To guarantee mathematical correctness and protocol compliance without requiring a physical radio or slow hardware emulators, `flysky-i6x-rs` features a **zero-file-move dual-target test harness**:
-- **Host Unit Test Execution**: Running `cargo test-host` compiles the codebase against the host target (`x86_64`) with standard library support, executing 36 unit and adversarial regression tests across flight curves, digital trims, matrix mixers, and CRSF/ELRS state machines in **sub-millisecond time**.
+- **Host Unit Test Execution**: Running `cargo test-host` compiles the codebase against the host target (`x86_64`) with standard library support, executing **146** unit and adversarial regression tests across flight curves, digital trims, matrix mixers, variometer audio, and CRSF/ELRS state machines in **sub-millisecond time**.
 - **Peripheral & Timing Decoupling**: Peripheral drivers (`uart.rs`, `time.rs`) use `#[cfg(test)]` mocks to simulate serial UART FIFO queues and advance virtual time deterministically.
 - **Physical Hardware Validation**: Every subsystem (DMA ADC scanning, A7105 SPI/RF state machine, ST7567 parallel bus LCD, USB HID/CDC descriptors, USART2 CRSF/ELRS engine, and Flash storage) has been deployed and verified on real FlySky FS-i6X hardware.
 

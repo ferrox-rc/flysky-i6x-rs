@@ -28,7 +28,7 @@ Anyone developing software for the FS-i6X platform owes deep gratitude to OpenI6
 - **Deterministic RF Timing:** Uses dedicated hardware timers (`TIM16`) for frame synchronization, paired with autonomous DMA ADC scanning and a decoupled execution loop.
 - **Embedded CRSF Support:** Implements native bidirectional CRSF parameter parsing directly in Rust to configure external modules on the monochrome screen without requiring an external script engine.
 
-Both projects share the common goal of empowering pilots and makers to get the absolute most out of their hardware.
+Both projects share the common goal of enabling pilots and makers to get the most out of their hardware.
 
 ---
 

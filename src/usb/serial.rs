@@ -159,8 +159,48 @@ impl SerialHandler {
         if cmd.eq_ignore_ascii_case("help") {
             write_all(
                 serial,
-                b"Commands:\r\n  help      - Show this help\r\n  status    - Firmware & battery info\r\n  channels  - Dump RF channel values (CH1..CH18)\r\n  telem     - Dump single telemetry frame\r\n  stream    - Start continuous telemetry streaming (any key to stop)\r\n  dfu       - Reboot into STM32 factory ROM DFU bootloader\r\n  reboot    - Reboot transmitter\r\n",
+                b"Commands:\r\n  help      - Show this help\r\n  status    - Firmware & battery info\r\n  channels  - Dump RF channel values (CH1..CH18)\r\n  storage   - Dump EEPROM bus, address & I/O diagnostics\r\n  telem     - Dump single telemetry frame\r\n  stream    - Start continuous telemetry streaming (any key to stop)\r\n  dfu       - Reboot into STM32 factory ROM DFU bootloader\r\n  reboot    - Reboot transmitter\r\n",
             );
+        } else if cmd.eq_ignore_ascii_case("storage") || cmd.eq_ignore_ascii_case("eeprom") {
+            let status = crate::storage::get_eeprom_status();
+            write_all(serial, b"Storage Diagnostics:\r\n");
+            if status.detected {
+                let bus = match status.bus {
+                    2 => "I2C2 (PB10/PB11)",
+                    1 => "I2C1 (PB8/PB9)",
+                    _ => "Unknown I2C",
+                };
+                write_all(serial, b"  Detected: YES\r\n  Bus:      ");
+                write_all(serial, bus.as_bytes());
+                write_all(serial, b"\r\n  Address:  0x");
+                let hex = [
+                    b"0123456789ABCDEF"[(status.addr >> 4) as usize],
+                    b"0123456789ABCDEF"[(status.addr & 0x0F) as usize],
+                ];
+                write_all(serial, &hex);
+                write_all(serial, b"\r\n  Read:     ");
+                write_all(
+                    serial,
+                    if status.read_ok {
+                        b"OK\r\n"
+                    } else {
+                        b"FAIL\r\n"
+                    },
+                );
+                write_all(serial, b"  Write:    ");
+                write_all(
+                    serial,
+                    if status.write_err {
+                        b"FAIL\r\n"
+                    } else if status.write_ok {
+                        b"OK\r\n"
+                    } else {
+                        b"OK (READY)\r\n"
+                    },
+                );
+            } else {
+                write_all(serial, b"  Detected: NO (No external I2C EEPROM found)\r\n");
+            }
         } else if cmd.eq_ignore_ascii_case("status") {
             write_all(serial, crate::hw::STATUS_BANNER);
             if crate::crsf::is_enabled() {

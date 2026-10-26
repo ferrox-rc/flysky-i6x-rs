@@ -162,7 +162,9 @@ pub struct RadioConfig {
     pub touch_disabled: u8,        // 134: 0: Touch Enabled, 1: Touch Disabled
     pub j4_sg_sh_en: u8,           // 135: 0: SWD Debug, 1: SG/SH Buttons on PA13/PA14
     pub switch_beep: u8,           // 136: 0: Muted, 1: Beep on switch toggle
-    pub _pad_align: [u8; 3],       // 137..140: Align to 140 bytes (4-byte word boundary)
+    pub gimbal_type: u8,           // 137: 0: Standard Potentiometer, 1: Hall Effect
+    pub stick_invert_mask: u8, // 138: 4 bits (bit 0: RH, bit 1: RV, bit 2: LV, bit 3: LH), default 0x03 (RH+RV inverted)
+    pub _pad_align: [u8; 1],   // 139..140: Align to 140 bytes (4-byte word boundary)
 }
 
 impl RadioConfig {
@@ -259,8 +261,8 @@ impl RadioConfig {
             rx_serial_proto: 0,
             ext_switches: 0,
             ext_adc: 0,
-            adc_modes: [0; 10], // Default hardware modes
-            stick_mode: 1,      // Mode 2 default
+            adc_modes: [0; 10],        // Default hardware modes
+            stick_mode: 1,             // Mode 2 default
             telem_slots: [0, 1, 2, 3], // Default: RxBat, RSSI/LQ, TxBat, Current/Link
             trainer_config: 0,
             rear_left_func: 0,
@@ -268,7 +270,32 @@ impl RadioConfig {
             touch_disabled: 0,
             j4_sg_sh_en: 0,
             switch_beep: 1,
-            _pad_align: [0; 3],
+            gimbal_type: 0,
+            stick_invert_mask: 0x03, // RH (bit 0) and RV (bit 1) inverted by default for factory pot gimbals
+            _pad_align: [0; 1],
+        }
+    }
+
+    /// Check if aftermarket Hall effect gimbals mode is enabled.
+    #[inline(always)]
+    pub fn is_hall_gimbals(&self) -> bool {
+        self.gimbal_type == 1
+    }
+
+    /// Check if a specific stick axis is inverted (0: RH, 1: RV, 2: LV, 3: LH).
+    #[inline(always)]
+    pub fn is_stick_inverted(&self, stick_idx: usize) -> bool {
+        (self.stick_invert_mask & (1 << (stick_idx & 3))) != 0
+    }
+
+    /// Set stick axis inversion bit (0: RH, 1: RV, 2: LV, 3: LH).
+    #[inline(always)]
+    pub fn set_stick_inverted(&mut self, stick_idx: usize, inverted: bool) {
+        let bit = 1 << (stick_idx & 3);
+        if inverted {
+            self.stick_invert_mask |= bit;
+        } else {
+            self.stick_invert_mask &= !bit;
         }
     }
 
@@ -347,14 +374,14 @@ pub const NUM_MIX_LINES: usize = 32;
 #[repr(C)]
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct MixLine {
-    pub target_ch: u8, // 0: Disabled, 1..18: Target Channel CH1..CH18
+    pub target_ch: u8,  // 0: Disabled, 1..18: Target Channel CH1..CH18
     pub source: u8, // 0: None, 1: Roll, 2: Pitch, 3: Thr, 4: Yaw, 5: VRA, 6: VRB, 7: SA, 8: SB, 9: SC, 10: SD, 11: MAX, 12..29: CH1..CH18, 30: ThrUnipolar, 31..40: SE..VRF
     pub weight_src: u8, // 0: Fixed Weight, 1..18: Modulate with CH1..CH18 (Bipolar), 19..36: Modulate (Unipolar 0..100%)
-    pub weight: i8, // -100% .. +100%
-    pub offset: i8, // -100% .. +100%
-    pub switch: u8, // 0: Always On, 1..22: SA_UP..SWJ_DN
-    pub mode: u8,   // 0: Add (+), 1: Multiply (*), 2: Replace (:=)
-    pub _reserved: u8, // 1-byte padding for 8-byte alignment
+    pub weight: i8,     // -100% .. +100%
+    pub offset: i8,     // -100% .. +100%
+    pub switch: u8,     // 0: Always On, 1..22: SA_UP..SWJ_DN
+    pub mode: u8,       // 0: Add (+), 1: Multiply (*), 2: Replace (:=)
+    pub _reserved: u8,  // 1-byte padding for 8-byte alignment
 }
 
 impl MixLine {
@@ -376,25 +403,25 @@ impl MixLine {
 #[repr(C)]
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct ModelConfig {
-    pub name: [u8; 10],         // 0..10: 10-char ASCII name
-    pub model_type: u8,         // 10: 0: Airplane, 1: Glider, 2: Heli, 3: Quad, 4: General
-    pub _pad0: u8,              // 11: align rx_id to 4 bytes
-    pub rx_id: u32,             // 12..16: Model Match bound receiver ID
-    pub trims: [i8; 4],         // 16..20: Roll, Pitch, Throttle, Yaw (-25..+25)
-    pub channel_reverse: u32,   // 20..24: Bitmask for CH1..CH18 inversion
-    pub dr_switch: u8,          // 24: 0: None, 1: SA, 2: SB, 3: SC, 4: SD, 5: SE, 6: SF
-    pub thr_curve_pts: u8,      // 25: 5, 7, or 9 points mode
-    pub thr_curve_smooth: u8,   // 26: 0: Linear, 1: Spline / Smooth
-    pub thr_curve: [u8; 17],    // 27..44: Points buffer (0..100%, reserved up to 17)
-    pub _pad_crv: u8,           // 44..45
-    pub dr_high: [u8; 3],       // 45..48: High rate (AIL, ELE, RUD: 50..100%)
-    pub dr_low: [u8; 3],        // 48..51: Low rate (AIL, ELE, RUD: 30..100%)
-    pub expo_high: [i8; 3],     // 51..54: High expo (-100..+100%)
-    pub expo_low: [i8; 3],      // 54..57: Low expo (-100..+100%)
-    pub _pad1: u8,              // 57..58: align timer_secs to 2-byte boundary
-    pub timer_secs: u16,        // 58..60: Countdown timer in seconds (e.g. 300 = 5 min)
+    pub name: [u8; 10],                  // 0..10: 10-char ASCII name
+    pub model_type: u8,                  // 10: 0: Airplane, 1: Glider, 2: Heli, 3: Quad, 4: General
+    pub _pad0: u8,                       // 11: align rx_id to 4 bytes
+    pub rx_id: u32,                      // 12..16: Model Match bound receiver ID
+    pub trims: [i8; 4],                  // 16..20: Roll, Pitch, Throttle, Yaw (-25..+25)
+    pub channel_reverse: u32,            // 20..24: Bitmask for CH1..CH18 inversion
+    pub dr_switch: u8,                   // 24: 0: None, 1: SA, 2: SB, 3: SC, 4: SD, 5: SE, 6: SF
+    pub thr_curve_pts: u8,               // 25: 5, 7, or 9 points mode
+    pub thr_curve_smooth: u8,            // 26: 0: Linear, 1: Spline / Smooth
+    pub thr_curve: [u8; 17],             // 27..44: Points buffer (0..100%, reserved up to 17)
+    pub _pad_crv: u8,                    // 44..45
+    pub dr_high: [u8; 3],                // 45..48: High rate (AIL, ELE, RUD: 50..100%)
+    pub dr_low: [u8; 3],                 // 48..51: Low rate (AIL, ELE, RUD: 30..100%)
+    pub expo_high: [i8; 3],              // 51..54: High expo (-100..+100%)
+    pub expo_low: [i8; 3],               // 54..57: Low expo (-100..+100%)
+    pub _pad1: u8,                       // 57..58: align timer_secs to 2-byte boundary
+    pub timer_secs: u16,                 // 58..60: Countdown timer in seconds (e.g. 300 = 5 min)
     pub timer_source: u8, // 60: 0: Off, 1: THs (Thr>5%), 2: THt (Thr Latched), 3: Always On, 4..17: SA^..SFv
-    pub rf_power: u8, // 61: AFHDS 2A RF power (0: 100mW, 1: 10mW, 2: 1mW, 3: 100uW)
+    pub rf_power: u8,     // 61: AFHDS 2A RF power (0: 100mW, 1: 10mW, 2: 1mW, 3: 100uW)
     pub failsafe_thr: u16, // 62..64: Failsafe throttle pulse in µs (e.g. 1000)
     pub aux_channels: [u8; 14], // 64..78: Source for CH5..CH18
     pub wing_tail_mix: u8, // 78: 0: Normal, 1: Elevon/Delta, 2: V-Tail, 3: Flaperon
@@ -404,12 +431,19 @@ pub struct ModelConfig {
     pub failsafe_timeout: u8, // 337: 10..50 (1.0s..5.0s)
     pub rf_protocol: u8,  // 338: 0: AFHDS 2A, 1: CRSF / ELRS
     pub crsf_baud: u8,    // 339: 0: 115.2k, 1: 416.6k, 2: 420k, 3: 921.6k, 4: 1.875M
-    pub arm_switch: u8, // 340: 0: None, 1..14: SA^..SFv
-    pub rx_out_mode: u8, // 341: 0: PWM, 1: PPM (default 0)
+    pub arm_switch: u8,   // 340: 0: None, 1..14: SA^..SFv
+    pub rx_out_mode: u8,  // 341: 0: PWM, 1: PPM (default 0)
     pub servo_rate_hz: u16, // 342..344: 50..400 Hz (default 50 Hz)
     pub rx_serial_proto: u8, // 344: 0: i-BUS, 1: S.BUS (default 0)
     pub crsf_half_duplex: u8, // 345: 0: Full-Duplex (2-Wire), 1: Half-Duplex (1-Wire)
-    pub _pad_end: [u8; 2], // 346..348: Align struct to 4-byte word boundary
+    pub _pad_end: [u8; 2], // 346..348: Align struct to 2-byte boundary
+    pub gvars: [i16; 5],  // 348..358: Global Variables GV1..GV5 (-1000..+1000)
+    pub vario_switch: u8, // 358: 0: Off, 1..=14: SA^..SFv (activation switch)
+    pub vario_climb_deadband: u8, // 359: Climb deadband in 0.1 m/s (default 2 = +0.2 m/s)
+    pub vario_sink_deadband: u8, // 360: Sink deadband in 0.1 m/s (default 5 = -0.5 m/s)
+    pub vario_sink_mode: u8, // 361: 0: Mute, 1: Pulse, 2: Continuous (default 1)
+    pub vario_motor_mute: u8, // 362: 0: Disabled, 1: Enabled (default 1)
+    pub _pad_vario: [u8; 1], // 363..364: Align struct to 4-byte word boundary
 }
 
 impl ModelConfig {
@@ -454,6 +488,13 @@ impl ModelConfig {
             rx_serial_proto: 0,
             crsf_half_duplex: 0,
             _pad_end: [0; 2],
+            gvars: [0; 5],
+            vario_switch: 0,
+            vario_climb_deadband: 2,
+            vario_sink_deadband: 5,
+            vario_sink_mode: 1,
+            vario_motor_mute: 1,
+            _pad_vario: [0; 1],
         }
     }
 
@@ -511,11 +552,23 @@ impl RadioStorage {
             0..=4 => true, // None, Roll, Pitch, Thr, Yaw are always available
             5 => self.radio.get_adc_mode(4).is_pot(), // VRA (ADC ch 4)
             6 => self.radio.get_adc_mode(5).is_pot(), // VRB (ADC ch 5)
-            7 => matches!(self.radio.get_adc_mode(0), AdcInputMode::TwoPos | AdcInputMode::ThreePos | AdcInputMode::InstantTrim), // SA
-            8 => matches!(self.radio.get_adc_mode(1), AdcInputMode::TwoPos | AdcInputMode::ThreePos | AdcInputMode::InstantTrim), // SB
-            9 => matches!(self.radio.get_adc_mode(2), AdcInputMode::TwoPos | AdcInputMode::ThreePos | AdcInputMode::InstantTrim), // SC
-            10 => matches!(self.radio.get_adc_mode(3), AdcInputMode::TwoPos | AdcInputMode::ThreePos | AdcInputMode::InstantTrim), // SD
-            11 => true, // MAX constant is always available
+            7 => matches!(
+                self.radio.get_adc_mode(0),
+                AdcInputMode::TwoPos | AdcInputMode::ThreePos | AdcInputMode::InstantTrim
+            ), // SA
+            8 => matches!(
+                self.radio.get_adc_mode(1),
+                AdcInputMode::TwoPos | AdcInputMode::ThreePos | AdcInputMode::InstantTrim
+            ), // SB
+            9 => matches!(
+                self.radio.get_adc_mode(2),
+                AdcInputMode::TwoPos | AdcInputMode::ThreePos | AdcInputMode::InstantTrim
+            ), // SC
+            10 => matches!(
+                self.radio.get_adc_mode(3),
+                AdcInputMode::TwoPos | AdcInputMode::ThreePos | AdcInputMode::InstantTrim
+            ), // SD
+            11 => true,    // MAX constant is always available
             12..=15 => true, // CH1..CH4 primary flight channels are always active
             16..=29 => {
                 // CH5..CH18: available if assigned to an active source or targeted by a mix line
@@ -527,19 +580,35 @@ impl RadioStorage {
                 if self.active_model.aux_channels[aux_idx] != 0 {
                     return true;
                 }
-                self.active_model.mixes.iter().any(|m| m.target_ch == (ch_idx + 1) as u8)
+                self.active_model
+                    .mixes
+                    .iter()
+                    .any(|m| m.target_ch == (ch_idx + 1) as u8)
             }
-            30 => true, // Thr+ is always available
+            30 => true,                         // Thr+ is always available
             31 => self.radio.ext_switches != 0, // SE
             32 => self.radio.ext_switches != 0, // SF
-            33 => self.radio.j4_sg_sh_en != 0,   // SG
-            34 => self.radio.j4_sg_sh_en != 0,   // SH
-            35 => self.radio.ext_adc != 0 && matches!(self.radio.get_adc_mode(6), AdcInputMode::TwoPos | AdcInputMode::ThreePos), // SWI (ADC ch 6)
-            36 => self.radio.ext_adc != 0 && matches!(self.radio.get_adc_mode(7), AdcInputMode::TwoPos | AdcInputMode::ThreePos), // SWJ (ADC ch 7)
+            33 => self.radio.j4_sg_sh_en != 0,  // SG
+            34 => self.radio.j4_sg_sh_en != 0,  // SH
+            35 => {
+                self.radio.ext_adc != 0
+                    && matches!(
+                        self.radio.get_adc_mode(6),
+                        AdcInputMode::TwoPos | AdcInputMode::ThreePos
+                    )
+            } // SWI (ADC ch 6)
+            36 => {
+                self.radio.ext_adc != 0
+                    && matches!(
+                        self.radio.get_adc_mode(7),
+                        AdcInputMode::TwoPos | AdcInputMode::ThreePos
+                    )
+            } // SWJ (ADC ch 7)
             37 => self.radio.ext_adc != 0 && self.radio.get_adc_mode(6).is_pot(), // VRC (ADC ch 6)
             38 => self.radio.ext_adc != 0 && self.radio.get_adc_mode(7).is_pot(), // VRD (ADC ch 7)
             39 => self.radio.ext_adc != 0 && self.radio.get_adc_mode(8).is_pot(), // VRE (ADC ch 8)
             40 => self.radio.ext_adc != 0 && self.radio.get_adc_mode(9).is_pot(), // VRF (ADC ch 9)
+            41..=45 => true,                    // GV1..GV5 (Global Variables) are always available
             _ => false,
         }
     }
@@ -548,18 +617,42 @@ impl RadioStorage {
     pub fn is_switch_cond_available(&self, cond: u8) -> bool {
         match cond {
             0 => true, // Always ON
-            1 | 2 => matches!(self.radio.get_adc_mode(0), AdcInputMode::TwoPos | AdcInputMode::ThreePos | AdcInputMode::InstantTrim), // SA
-            3 | 5 => matches!(self.radio.get_adc_mode(1), AdcInputMode::TwoPos | AdcInputMode::ThreePos | AdcInputMode::InstantTrim), // SB Up, Down
+            1 | 2 => matches!(
+                self.radio.get_adc_mode(0),
+                AdcInputMode::TwoPos | AdcInputMode::ThreePos | AdcInputMode::InstantTrim
+            ), // SA
+            3 | 5 => matches!(
+                self.radio.get_adc_mode(1),
+                AdcInputMode::TwoPos | AdcInputMode::ThreePos | AdcInputMode::InstantTrim
+            ), // SB Up, Down
             4 => self.radio.get_adc_mode(1) == AdcInputMode::ThreePos, // SB Mid
-            6 | 8 => matches!(self.radio.get_adc_mode(2), AdcInputMode::TwoPos | AdcInputMode::ThreePos | AdcInputMode::InstantTrim), // SC Up, Down
+            6 | 8 => matches!(
+                self.radio.get_adc_mode(2),
+                AdcInputMode::TwoPos | AdcInputMode::ThreePos | AdcInputMode::InstantTrim
+            ), // SC Up, Down
             7 => self.radio.get_adc_mode(2) == AdcInputMode::ThreePos, // SC Mid
-            9 | 10 => matches!(self.radio.get_adc_mode(3), AdcInputMode::TwoPos | AdcInputMode::ThreePos | AdcInputMode::InstantTrim), // SD
+            9 | 10 => matches!(
+                self.radio.get_adc_mode(3),
+                AdcInputMode::TwoPos | AdcInputMode::ThreePos | AdcInputMode::InstantTrim
+            ), // SD
             11 | 12 => self.radio.ext_switches != 0, // SE
             13 | 14 => self.radio.ext_switches != 0, // SF
             15 | 16 => self.radio.j4_sg_sh_en != 0, // SG
             17 | 18 => self.radio.j4_sg_sh_en != 0, // SH
-            19 | 20 => self.radio.ext_adc != 0 && matches!(self.radio.get_adc_mode(6), AdcInputMode::TwoPos | AdcInputMode::ThreePos), // SWI
-            21 | 22 => self.radio.ext_adc != 0 && matches!(self.radio.get_adc_mode(7), AdcInputMode::TwoPos | AdcInputMode::ThreePos), // SWJ
+            19 | 20 => {
+                self.radio.ext_adc != 0
+                    && matches!(
+                        self.radio.get_adc_mode(6),
+                        AdcInputMode::TwoPos | AdcInputMode::ThreePos
+                    )
+            } // SWI
+            21 | 22 => {
+                self.radio.ext_adc != 0
+                    && matches!(
+                        self.radio.get_adc_mode(7),
+                        AdcInputMode::TwoPos | AdcInputMode::ThreePos
+                    )
+            } // SWJ
             _ => false,
         }
     }
@@ -583,12 +676,13 @@ impl RadioStorage {
         self.active_model.mixes.iter().any(|m| m.target_ch == ch)
     }
 
-    /// Check if a weight modulation source index (0..=36, matching `WEIGHT_SRC_NAMES`) is available.
+    /// Check if a weight modulation source index (0..=41, matching `WEIGHT_SRC_NAMES`) is available.
     pub fn is_weight_src_available(&self, ws: u8) -> bool {
         match ws {
-            0 => true, // Fixed weight
-            1..=18 => self.is_channel_configured(ws), // Bipolar CH1..CH18
+            0 => true,                                      // Fixed weight
+            1..=18 => self.is_channel_configured(ws),       // Bipolar CH1..CH18
             19..=36 => self.is_channel_configured(ws - 18), // Unipolar CH1+..CH18+
+            37..=41 => true, // GV1..GV5 (Global Variables) are always available
             _ => false,
         }
     }
@@ -614,7 +708,11 @@ impl RadioStorage {
             if self.is_source_available(candidate) {
                 return candidate;
             }
-            candidate = if candidate == 0 { max - 1 } else { candidate - 1 };
+            candidate = if candidate == 0 {
+                max - 1
+            } else {
+                candidate - 1
+            };
         }
         cur
     }
@@ -640,7 +738,11 @@ impl RadioStorage {
             if self.is_weight_src_available(candidate) {
                 return candidate;
             }
-            candidate = if candidate == 0 { max - 1 } else { candidate - 1 };
+            candidate = if candidate == 0 {
+                max - 1
+            } else {
+                candidate - 1
+            };
         }
         cur
     }
@@ -666,7 +768,11 @@ impl RadioStorage {
             if self.is_switch_cond_available(candidate) {
                 return candidate;
             }
-            candidate = if candidate == 0 { max - 1 } else { candidate - 1 };
+            candidate = if candidate == 0 {
+                max - 1
+            } else {
+                candidate - 1
+            };
         }
         cur
     }
@@ -675,10 +781,22 @@ impl RadioStorage {
     pub fn is_dr_switch_available(&self, sw: u8) -> bool {
         match sw {
             0 => true, // None
-            1 => matches!(self.radio.get_adc_mode(0), AdcInputMode::TwoPos | AdcInputMode::ThreePos | AdcInputMode::InstantTrim), // SA
-            2 => matches!(self.radio.get_adc_mode(1), AdcInputMode::TwoPos | AdcInputMode::ThreePos | AdcInputMode::InstantTrim), // SB
-            3 => matches!(self.radio.get_adc_mode(2), AdcInputMode::TwoPos | AdcInputMode::ThreePos | AdcInputMode::InstantTrim), // SC
-            4 => matches!(self.radio.get_adc_mode(3), AdcInputMode::TwoPos | AdcInputMode::ThreePos | AdcInputMode::InstantTrim), // SD
+            1 => matches!(
+                self.radio.get_adc_mode(0),
+                AdcInputMode::TwoPos | AdcInputMode::ThreePos | AdcInputMode::InstantTrim
+            ), // SA
+            2 => matches!(
+                self.radio.get_adc_mode(1),
+                AdcInputMode::TwoPos | AdcInputMode::ThreePos | AdcInputMode::InstantTrim
+            ), // SB
+            3 => matches!(
+                self.radio.get_adc_mode(2),
+                AdcInputMode::TwoPos | AdcInputMode::ThreePos | AdcInputMode::InstantTrim
+            ), // SC
+            4 => matches!(
+                self.radio.get_adc_mode(3),
+                AdcInputMode::TwoPos | AdcInputMode::ThreePos | AdcInputMode::InstantTrim
+            ), // SD
             5 => self.radio.ext_switches != 0, // SE
             6 => self.radio.ext_switches != 0, // SF
             _ => false,
@@ -712,17 +830,41 @@ impl RadioStorage {
     /// Check if an AUX channel input source (from `crate::hw::AUX_SOURCES`) is hardware-available.
     pub fn is_aux_source_available(&self, src: u8) -> bool {
         match src {
-            0..=4 => true, // None, Roll, Pitch, Thr, Yaw
+            0..=4 => true,                            // None, Roll, Pitch, Thr, Yaw
             5 => self.radio.get_adc_mode(4).is_pot(), // VRA
             6 => self.radio.get_adc_mode(5).is_pot(), // VRB
-            7 => matches!(self.radio.get_adc_mode(0), AdcInputMode::TwoPos | AdcInputMode::ThreePos | AdcInputMode::InstantTrim), // SA
-            8 => matches!(self.radio.get_adc_mode(1), AdcInputMode::TwoPos | AdcInputMode::ThreePos | AdcInputMode::InstantTrim), // SB
-            9 => matches!(self.radio.get_adc_mode(2), AdcInputMode::TwoPos | AdcInputMode::ThreePos | AdcInputMode::InstantTrim), // SC
-            10 => matches!(self.radio.get_adc_mode(3), AdcInputMode::TwoPos | AdcInputMode::ThreePos | AdcInputMode::InstantTrim), // SD
-            31 => self.radio.ext_switches != 0, // SE
-            32 => self.radio.ext_switches != 0, // SF
-            35 => self.radio.ext_adc != 0 && matches!(self.radio.get_adc_mode(6), AdcInputMode::TwoPos | AdcInputMode::ThreePos), // SWI
-            36 => self.radio.ext_adc != 0 && matches!(self.radio.get_adc_mode(7), AdcInputMode::TwoPos | AdcInputMode::ThreePos), // SWJ
+            7 => matches!(
+                self.radio.get_adc_mode(0),
+                AdcInputMode::TwoPos | AdcInputMode::ThreePos | AdcInputMode::InstantTrim
+            ), // SA
+            8 => matches!(
+                self.radio.get_adc_mode(1),
+                AdcInputMode::TwoPos | AdcInputMode::ThreePos | AdcInputMode::InstantTrim
+            ), // SB
+            9 => matches!(
+                self.radio.get_adc_mode(2),
+                AdcInputMode::TwoPos | AdcInputMode::ThreePos | AdcInputMode::InstantTrim
+            ), // SC
+            10 => matches!(
+                self.radio.get_adc_mode(3),
+                AdcInputMode::TwoPos | AdcInputMode::ThreePos | AdcInputMode::InstantTrim
+            ), // SD
+            31 => self.radio.ext_switches != 0,       // SE
+            32 => self.radio.ext_switches != 0,       // SF
+            35 => {
+                self.radio.ext_adc != 0
+                    && matches!(
+                        self.radio.get_adc_mode(6),
+                        AdcInputMode::TwoPos | AdcInputMode::ThreePos
+                    )
+            } // SWI
+            36 => {
+                self.radio.ext_adc != 0
+                    && matches!(
+                        self.radio.get_adc_mode(7),
+                        AdcInputMode::TwoPos | AdcInputMode::ThreePos
+                    )
+            } // SWJ
             37 => self.radio.ext_adc != 0 && self.radio.get_adc_mode(6).is_pot(), // VRC
             38 => self.radio.ext_adc != 0 && self.radio.get_adc_mode(7).is_pot(), // VRD
             _ => false,
@@ -880,6 +1022,12 @@ impl RadioStorage {
         if self.radio.switch_beep > 1 {
             self.radio.switch_beep = 1;
         }
+        if self.radio.gimbal_type > 1 {
+            self.radio.gimbal_type = 0;
+        }
+        if self.radio.stick_invert_mask > 0x0F {
+            self.radio.stick_invert_mask = 0x03; // Default RH+RV inverted
+        }
 
         for stick in self.radio.sticks.iter_mut() {
             if stick.min >= stick.center
@@ -907,8 +1055,8 @@ impl RadioStorage {
             }
         }
         for slot in self.radio.telem_slots.iter_mut() {
-            if *slot > 12 {
-                *slot = 12; // OFF
+            if *slot > 14 {
+                *slot = 14; // OFF
             }
         }
         if self.radio.trainer_config > 3 {
@@ -963,9 +1111,17 @@ impl RadioStorage {
             }
         }
         for mix in m.mixes.iter_mut() {
-            if mix.target_ch > 18 || mix.source > 40 || mix.weight_src > 36 || mix.mode > 2 || mix.switch > 22 {
+            if mix.target_ch > 18
+                || mix.source > 45
+                || mix.weight_src > 41
+                || mix.mode > 2
+                || mix.switch > 22
+            {
                 *mix = MixLine::disabled();
             }
+        }
+        for gv in m.gvars.iter_mut() {
+            *gv = (*gv).clamp(-1000, 1000);
         }
         if m.thr_curve_pts != 5 && m.thr_curve_pts != 7 && m.thr_curve_pts != 9 {
             m.thr_curve_pts = 5;
@@ -1000,13 +1156,39 @@ impl RadioStorage {
                 b'M', b'O', b'D', b'E', b'L', b' ', digit1, digit2, b' ', b' ',
             ];
         }
+        if m.vario_switch > 14 {
+            m.vario_switch = 0;
+        }
+        if m.vario_climb_deadband < 1 || m.vario_climb_deadband > 10 {
+            m.vario_climb_deadband = 2;
+        }
+        if m.vario_sink_deadband < 1 || m.vario_sink_deadband > 20 {
+            m.vario_sink_deadband = 5;
+        }
+        if m.vario_sink_mode > 2 {
+            m.vario_sink_mode = 1;
+        }
+        if m.vario_motor_mute > 1 {
+            m.vario_motor_mute = 1;
+        }
+    }
+
+    /// Extract vario configuration for the active model.
+    pub fn vario_config(&self) -> crate::vario::VarioConfig {
+        crate::vario::VarioConfig {
+            switch: self.active_model.vario_switch,
+            climb_deadband_dm_s: self.active_model.vario_climb_deadband,
+            sink_deadband_dm_s: self.active_model.vario_sink_deadband,
+            sink_mode: crate::vario::VarioSinkMode::from_u8(self.active_model.vario_sink_mode),
+            motor_mute: self.active_model.vario_motor_mute != 0,
+        }
     }
 }
 
 const _: () = assert!(core::mem::size_of::<RadioConfig>() == 140);
 const _: () = assert!(core::mem::size_of::<MixLine>() == 8);
-const _: () = assert!(core::mem::size_of::<ModelConfig>() == 348);
-const _: () = assert!(core::mem::size_of::<RadioStorage>() == 488);
+const _: () = assert!(core::mem::size_of::<ModelConfig>() == 364);
+const _: () = assert!(core::mem::size_of::<RadioStorage>() == 504);
 
 static mut GLOBAL_STORAGE: RadioStorage = RadioStorage::empty();
 
@@ -1097,9 +1279,139 @@ impl SlotHeader {
     }
 }
 
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub struct EepromStatus {
+    pub bus: u8,  // 0: None, 2: I2C2 (PB10/PB11)
+    pub addr: u8, // 7-bit slave address, e.g. 0x50
+    pub detected: bool,
+    pub read_ok: bool,
+    pub write_ok: bool,
+    pub write_err: bool,
+}
+
+pub static mut EEPROM_STATUS: EepromStatus = EepromStatus {
+    bus: 0,
+    addr: 0x50,
+    detected: false,
+    read_ok: false,
+    write_ok: false,
+    write_err: false,
+};
+
+pub fn get_eeprom_status() -> EepromStatus {
+    #[cfg(test)]
+    {
+        EepromStatus {
+            bus: 2,
+            addr: 0x50,
+            detected: true,
+            read_ok: true,
+            write_ok: true,
+            write_err: false,
+        }
+    }
+    #[cfg(not(test))]
+    unsafe {
+        EEPROM_STATUS
+    }
+}
+
 /// Direct hardware I2C2 EEPROM driver for FT24C128A (PB10 = SCL, PB11 = SDA).
 #[cfg(not(test))]
 pub struct EepromI2c;
+
+#[cfg(not(test))]
+#[inline(always)]
+unsafe fn clear_i2c2_flags(i2c2: &stm32f0xx_hal::pac::i2c1::RegisterBlock) {
+    // Clear NACKCF, STOPCF, BERRCF, ARLOCF, OVRCF, PECCF, TIMOUTCF, ALERTCF
+    i2c2.icr.write(|w| w.bits(0x3F38));
+}
+
+/// Reset I2C2 peripheral via RCC APB1 reset and restore timing.
+#[cfg(not(test))]
+fn recover_i2c2() {
+    let rcc = unsafe { &*stm32f0xx_hal::pac::RCC::ptr() };
+    let i2c2 = unsafe { &*stm32f0xx_hal::pac::I2C2::ptr() };
+
+    unsafe {
+        // Send STOP request to release the bus if active
+        i2c2.cr2.modify(|r, w| w.bits(r.bits() | (1 << 14)));
+        let mut timeout = 2_000u32;
+        while !i2c2.isr.read().stopf().bit() && timeout > 0 {
+            timeout -= 1;
+        }
+
+        // Disable peripheral and clear flags
+        i2c2.cr1.modify(|_, w| w.pe().disabled());
+        clear_i2c2_flags(i2c2);
+
+        // Reset I2C2 peripheral via APB1 peripheral reset (bit 22)
+        rcc.apb1rstr.modify(|r, w| w.bits(r.bits() | (1 << 22)));
+        rcc.apb1rstr.modify(|r, w| w.bits(r.bits() & !(1 << 22)));
+
+        // Reconfigure timing for 48 MHz APB1 -> 1 MHz Fm+
+        i2c2.cr1.modify(|_, w| w.pe().disabled());
+        i2c2.timingr.write(|w| {
+            w.presc()
+                .bits(0)
+                .scldel()
+                .bits(3)
+                .sdadel()
+                .bits(0)
+                .sclh()
+                .bits(9)
+                .scll()
+                .bits(25)
+        });
+        clear_i2c2_flags(i2c2);
+        i2c2.cr1.modify(|_, w| w.pe().enabled());
+    }
+}
+
+#[cfg(not(test))]
+unsafe fn probe_device(i2c2: &stm32f0xx_hal::pac::i2c1::RegisterBlock, addr_7bit: u8) -> bool {
+    clear_i2c2_flags(i2c2);
+
+    // Try a 1-byte read transaction
+    i2c2.cr2.write(|w| {
+        w.sadd()
+            .bits((addr_7bit as u16) << 1)
+            .nbytes()
+            .bits(1)
+            .rd_wrn()
+            .read()
+            .autoend()
+            .automatic()
+            .start()
+            .start()
+    });
+
+    let mut timeout = 20_000u32;
+    while timeout > 0 {
+        let isr = i2c2.isr.read();
+        if isr.nackf().bit_is_set()
+            || isr.berr().bit_is_set()
+            || isr.arlo().bit_is_set()
+            || isr.ovr().bit_is_set()
+        {
+            clear_i2c2_flags(i2c2);
+            return false;
+        }
+        if isr.rxne().bit_is_set() || isr.stopf().bit_is_set() {
+            let _dummy = i2c2.rxdr.read().rxdata().bits();
+            let mut stop_wait = 10_000u32;
+            while i2c2.isr.read().stopf().bit_is_clear() && stop_wait > 0 {
+                stop_wait -= 1;
+            }
+            clear_i2c2_flags(i2c2);
+            return true;
+        }
+        timeout -= 1;
+    }
+
+    clear_i2c2_flags(i2c2);
+    false
+}
 
 #[cfg(not(test))]
 impl EepromI2c {
@@ -1120,27 +1432,62 @@ impl EepromI2c {
 
         // 3. Configure PB10 and PB11 as Alternate Function 1 (I2C2), Open-Drain, High-Speed, Pull-up
         gpiob.afrh.modify(|_, w| w.afrh10().af1().afrh11().af1());
-        gpiob.moder.modify(|_, w| w.moder10().alternate().moder11().alternate());
-        gpiob.otyper.modify(|_, w| w.ot10().open_drain().ot11().open_drain());
-        gpiob.ospeedr.modify(|_, w| w.ospeedr10().high_speed().ospeedr11().high_speed());
-        gpiob.pupdr.modify(|_, w| w.pupdr10().pull_up().pupdr11().pull_up());
+        gpiob
+            .moder
+            .modify(|_, w| w.moder10().alternate().moder11().alternate());
+        gpiob
+            .otyper
+            .modify(|_, w| w.ot10().open_drain().ot11().open_drain());
+        gpiob
+            .ospeedr
+            .modify(|_, w| w.ospeedr10().high_speed().ospeedr11().high_speed());
+        gpiob
+            .pupdr
+            .modify(|_, w| w.pupdr10().pull_up().pupdr11().pull_up());
 
-        // 4. Disable I2C2 while configuring timing
+        // 4. Reset I2C2 peripheral via APB1 peripheral reset
+        i2c2.cr1.modify(|_, w| w.pe().disabled());
+        rcc.apb1rstr
+            .modify(|r, w| unsafe { w.bits(r.bits() | (1 << 22)) });
+        rcc.apb1rstr
+            .modify(|r, w| unsafe { w.bits(r.bits() & !(1 << 22)) });
         i2c2.cr1.modify(|_, w| w.pe().disabled());
 
         // Timing for 48 MHz APB1/SYSCLK -> 1 MHz (1000 kHz) Fast Mode Plus (Fm+)
         // PRESC=0, SCLDEL=3 (~80ns), SDADEL=0, SCLH=9 (~250ns), SCLL=25 (~650ns)
         // Total I2C cycle = (1 + 9 + 1 + 25) * 20.83ns = 750ns nominal bus + rise/fall -> 1.0 MHz
         i2c2.timingr.write(|w| {
-            w.presc().bits(0)
-                .scldel().bits(3)
-                .sdadel().bits(0)
-                .sclh().bits(9)
-                .scll().bits(25)
+            w.presc()
+                .bits(0)
+                .scldel()
+                .bits(3)
+                .sdadel()
+                .bits(0)
+                .sclh()
+                .bits(9)
+                .scll()
+                .bits(25)
         });
 
-        // 5. Enable I2C2 peripheral
+        // 5. Clear flags and enable I2C2 peripheral
+        unsafe { clear_i2c2_flags(i2c2) };
         i2c2.cr1.modify(|_, w| w.pe().enabled());
+
+        // 6. Adaptive Probe:
+        // Probe I2C2 (PB10/PB11) across addresses 0x50..=0x57
+        unsafe {
+            EEPROM_STATUS.bus = 0;
+            EEPROM_STATUS.detected = false;
+
+            for addr in 0x50..=0x57 {
+                if probe_device(i2c2, addr) {
+                    EEPROM_STATUS.bus = 2; // I2C2
+                    EEPROM_STATUS.addr = addr;
+                    EEPROM_STATUS.detected = true;
+                    break;
+                }
+            }
+        }
     }
 
     /// Read sequential bytes starting at 16-bit EEPROM `addr`.
@@ -1149,27 +1496,44 @@ impl EepromI2c {
             return Ok(());
         }
 
+        let status = unsafe { EEPROM_STATUS };
+        let dev_addr = if status.detected {
+            status.addr
+        } else {
+            EEPROM_I2C_ADDR
+        };
         let i2c2 = unsafe { &*stm32f0xx_hal::pac::I2C2::ptr() };
 
         // 1. Send 2-byte memory address write header without STOP (autoend=false)
         let addr_bytes = addr.to_be_bytes();
         i2c2.cr2.write(|w| {
-            w.sadd().bits((EEPROM_I2C_ADDR << 1) as u16)
-                .nbytes().bits(2)
-                .rd_wrn().write()
-                .autoend().software()
-                .start().start()
+            w.sadd()
+                .bits((dev_addr as u16) << 1)
+                .nbytes()
+                .bits(2)
+                .rd_wrn()
+                .write()
+                .autoend()
+                .software()
+                .start()
+                .start()
         });
 
         for &byte in &addr_bytes {
             let mut timeout = 100_000u32;
             while i2c2.isr.read().txis().bit_is_clear() {
-                if i2c2.isr.read().nackf().bit_is_set() {
-                    i2c2.icr.write(|w| w.nackcf().clear());
+                let isr = i2c2.isr.read();
+                if isr.nackf().bit_is_set()
+                    || isr.berr().bit_is_set()
+                    || isr.arlo().bit_is_set()
+                    || isr.ovr().bit_is_set()
+                {
+                    recover_i2c2();
                     return Err(StorageError::I2cError);
                 }
                 timeout -= 1;
                 if timeout == 0 {
+                    recover_i2c2();
                     return Err(StorageError::I2cError);
                 }
             }
@@ -1179,8 +1543,18 @@ impl EepromI2c {
         // Wait for TC (Transfer Complete)
         let mut timeout = 100_000u32;
         while i2c2.isr.read().tc().bit_is_clear() {
+            let isr = i2c2.isr.read();
+            if isr.nackf().bit_is_set()
+                || isr.berr().bit_is_set()
+                || isr.arlo().bit_is_set()
+                || isr.ovr().bit_is_set()
+            {
+                recover_i2c2();
+                return Err(StorageError::I2cError);
+            }
             timeout -= 1;
             if timeout == 0 {
+                recover_i2c2();
                 return Err(StorageError::I2cError);
             }
         }
@@ -1192,18 +1566,33 @@ impl EepromI2c {
             let is_last = (read_offset + chunk_len) == data.len();
 
             i2c2.cr2.write(|w| {
-                w.sadd().bits((EEPROM_I2C_ADDR << 1) as u16)
-                    .nbytes().bits(chunk_len as u8)
-                    .rd_wrn().read()
-                    .autoend().bit(is_last)
-                    .start().start()
+                w.sadd()
+                    .bits((dev_addr as u16) << 1)
+                    .nbytes()
+                    .bits(chunk_len as u8)
+                    .rd_wrn()
+                    .read()
+                    .autoend()
+                    .bit(is_last)
+                    .start()
+                    .start()
             });
 
             for i in 0..chunk_len {
                 let mut byte_timeout = 100_000u32;
                 while i2c2.isr.read().rxne().bit_is_clear() {
+                    let isr = i2c2.isr.read();
+                    if isr.nackf().bit_is_set()
+                        || isr.berr().bit_is_set()
+                        || isr.arlo().bit_is_set()
+                        || isr.ovr().bit_is_set()
+                    {
+                        recover_i2c2();
+                        return Err(StorageError::I2cError);
+                    }
                     byte_timeout -= 1;
                     if byte_timeout == 0 {
+                        recover_i2c2();
                         return Err(StorageError::I2cError);
                     }
                 }
@@ -1213,17 +1602,34 @@ impl EepromI2c {
             if !is_last {
                 let mut tc_timeout = 100_000u32;
                 while i2c2.isr.read().tc().bit_is_clear() {
+                    let isr = i2c2.isr.read();
+                    if isr.nackf().bit_is_set()
+                        || isr.berr().bit_is_set()
+                        || isr.arlo().bit_is_set()
+                        || isr.ovr().bit_is_set()
+                    {
+                        recover_i2c2();
+                        return Err(StorageError::I2cError);
+                    }
                     tc_timeout -= 1;
                     if tc_timeout == 0 {
+                        recover_i2c2();
                         return Err(StorageError::I2cError);
                     }
                 }
             } else {
                 let mut stop_timeout = 100_000u32;
                 while i2c2.isr.read().stopf().bit_is_clear() {
+                    let isr = i2c2.isr.read();
+                    if isr.berr().bit_is_set() || isr.arlo().bit_is_set() || isr.ovr().bit_is_set()
+                    {
+                        recover_i2c2();
+                        return Err(StorageError::I2cError);
+                    }
                     stop_timeout -= 1;
                     if stop_timeout == 0 {
-                        break;
+                        recover_i2c2();
+                        return Err(StorageError::I2cError);
                     }
                 }
                 i2c2.icr.write(|w| w.stopcf().clear());
@@ -1241,28 +1647,45 @@ impl EepromI2c {
             return Ok(());
         }
 
+        let status = unsafe { EEPROM_STATUS };
+        let dev_addr = if status.detected {
+            status.addr
+        } else {
+            EEPROM_I2C_ADDR
+        };
         let i2c2 = unsafe { &*stm32f0xx_hal::pac::I2C2::ptr() };
         let total_bytes = (2 + chunk.len()) as u8;
         let addr_bytes = addr.to_be_bytes();
 
         i2c2.cr2.write(|w| {
-            w.sadd().bits((EEPROM_I2C_ADDR << 1) as u16)
-                .nbytes().bits(total_bytes)
-                .rd_wrn().write()
-                .autoend().automatic()
-                .start().start()
+            w.sadd()
+                .bits((dev_addr as u16) << 1)
+                .nbytes()
+                .bits(total_bytes)
+                .rd_wrn()
+                .write()
+                .autoend()
+                .automatic()
+                .start()
+                .start()
         });
 
         // 1. Send 2 address bytes
         for &byte in &addr_bytes {
             let mut timeout = 100_000u32;
             while i2c2.isr.read().txis().bit_is_clear() {
-                if i2c2.isr.read().nackf().bit_is_set() {
-                    i2c2.icr.write(|w| w.nackcf().clear());
+                let isr = i2c2.isr.read();
+                if isr.nackf().bit_is_set()
+                    || isr.berr().bit_is_set()
+                    || isr.arlo().bit_is_set()
+                    || isr.ovr().bit_is_set()
+                {
+                    recover_i2c2();
                     return Err(StorageError::I2cError);
                 }
                 timeout -= 1;
                 if timeout == 0 {
+                    recover_i2c2();
                     return Err(StorageError::I2cError);
                 }
             }
@@ -1273,12 +1696,18 @@ impl EepromI2c {
         for &byte in chunk {
             let mut timeout = 100_000u32;
             while i2c2.isr.read().txis().bit_is_clear() {
-                if i2c2.isr.read().nackf().bit_is_set() {
-                    i2c2.icr.write(|w| w.nackcf().clear());
+                let isr = i2c2.isr.read();
+                if isr.nackf().bit_is_set()
+                    || isr.berr().bit_is_set()
+                    || isr.arlo().bit_is_set()
+                    || isr.ovr().bit_is_set()
+                {
+                    recover_i2c2();
                     return Err(StorageError::I2cError);
                 }
                 timeout -= 1;
                 if timeout == 0 {
+                    recover_i2c2();
                     return Err(StorageError::I2cError);
                 }
             }
@@ -1288,21 +1717,27 @@ impl EepromI2c {
         // Wait for STOPF
         let mut stop_timeout = 100_000u32;
         while i2c2.isr.read().stopf().bit_is_clear() {
+            let isr = i2c2.isr.read();
+            if isr.berr().bit_is_set() || isr.arlo().bit_is_set() || isr.ovr().bit_is_set() {
+                recover_i2c2();
+                return Err(StorageError::I2cError);
+            }
             stop_timeout -= 1;
             if stop_timeout == 0 {
-                break;
+                recover_i2c2();
+                return Err(StorageError::I2cError);
             }
         }
         i2c2.icr.write(|w| w.stopcf().clear());
 
         // 3. ACK Polling for EEPROM internal write cycle (max 5ms)
-        Self::poll_ack();
+        Self::poll_ack(dev_addr);
 
         Ok(())
     }
 
     /// Poll I2C address until EEPROM ACKs that its internal self-timed write cycle has completed.
-    fn poll_ack() {
+    fn poll_ack(dev_addr: u8) {
         let i2c2 = unsafe { &*stm32f0xx_hal::pac::I2C2::ptr() };
         let mut retries = 50u32; // up to ~10ms total polling
 
@@ -1312,11 +1747,16 @@ impl EepromI2c {
 
             // Send 0-byte write to test device readiness
             i2c2.cr2.write(|w| {
-                w.sadd().bits((EEPROM_I2C_ADDR << 1) as u16)
-                    .nbytes().bits(0)
-                    .rd_wrn().write()
-                    .autoend().automatic()
-                    .start().start()
+                w.sadd()
+                    .bits((dev_addr as u16) << 1)
+                    .nbytes()
+                    .bits(0)
+                    .rd_wrn()
+                    .write()
+                    .autoend()
+                    .automatic()
+                    .start()
+                    .start()
             });
 
             let mut wait = 20_000u32;
@@ -1470,7 +1910,7 @@ pub fn load_slot<T: Copy>(addr: u16, dst: &mut T) -> Result<(), StorageError> {
     {
         let _ = addr;
         let _ = dst;
-        return Err(StorageError::EmptySlot);
+        Err(StorageError::EmptySlot)
     }
 
     #[cfg(not(test))]
@@ -1483,12 +1923,15 @@ pub fn load_slot<T: Copy>(addr: u16, dst: &mut T) -> Result<(), StorageError> {
         let expected_size = core::mem::size_of::<T>();
 
         // Check if this is a ModelConfig request and the slot holds legacy v1 (128 bytes)
-        if expected_size == core::mem::size_of::<ModelConfig>() && hdr.len == 128 && hdr.magic == SLOT_MAGIC && hdr.flags == 0 {
+        if expected_size == core::mem::size_of::<ModelConfig>()
+            && hdr.len == 128
+            && hdr.magic == SLOT_MAGIC
+            && hdr.flags == 0
+        {
             // Read 128 bytes of legacy model
             let mut v1 = core::mem::MaybeUninit::<LegacyModelConfigV1>::uninit();
-            let v1_bytes = unsafe {
-                core::slice::from_raw_parts_mut(v1.as_mut_ptr() as *mut u8, 128)
-            };
+            let v1_bytes =
+                unsafe { core::slice::from_raw_parts_mut(v1.as_mut_ptr() as *mut u8, 128) };
             EepromI2c::read(addr + HEADER_SIZE as u16, v1_bytes)?;
 
             // Verify CRC-16 of legacy payload
@@ -1513,12 +1956,48 @@ pub fn load_slot<T: Copy>(addr: u16, dst: &mut T) -> Result<(), StorageError> {
             return Ok(());
         }
 
+        // Check if this is a ModelConfig request and the slot holds legacy v2/v3 (348, 352, or 360 bytes)
+        if expected_size == core::mem::size_of::<ModelConfig>()
+            && (hdr.len == 348 || hdr.len == 352 || hdr.len == 360)
+            && hdr.magic == SLOT_MAGIC
+            && hdr.flags == 0
+        {
+            let mut prev_bytes = [0u8; 360];
+            let read_len = hdr.len as usize;
+            EepromI2c::read(addr + HEADER_SIZE as u16, &mut prev_bytes[..read_len])?;
+
+            let computed_crc = crc16(&prev_bytes[..read_len]);
+            if computed_crc != hdr.crc16 {
+                return Err(StorageError::CrcMismatch);
+            }
+
+            let mut upgraded_model = ModelConfig::default_for_index(0);
+            unsafe {
+                core::ptr::copy_nonoverlapping(
+                    prev_bytes.as_ptr(),
+                    &mut upgraded_model as *mut ModelConfig as *mut u8,
+                    read_len.min(360),
+                );
+            }
+            unsafe {
+                core::ptr::copy_nonoverlapping(
+                    &upgraded_model as *const ModelConfig as *const T,
+                    dst as *mut T,
+                    1,
+                );
+            }
+
+            // In-place upgrade: re-save slot as v4 (364 bytes) with updated CRC-16 envelope
+            let _ = save_slot(addr, &upgraded_model);
+
+            return Ok(());
+        }
+
         hdr.is_valid(expected_size)?;
 
         // 2. Read payload directly into destination struct
-        let dst_bytes = unsafe {
-            core::slice::from_raw_parts_mut(dst as *mut T as *mut u8, expected_size)
-        };
+        let dst_bytes =
+            unsafe { core::slice::from_raw_parts_mut(dst as *mut T as *mut u8, expected_size) };
         EepromI2c::read(addr + HEADER_SIZE as u16, dst_bytes)?;
 
         // 3. Verify CRC-16
@@ -1537,15 +2016,13 @@ pub fn save_slot<T: Copy>(addr: u16, src: &T) -> Result<(), StorageError> {
     {
         let _ = addr;
         let _ = src;
-        return Ok(());
+        Ok(())
     }
 
     #[cfg(not(test))]
     {
         let size = core::mem::size_of::<T>();
-        let src_bytes = unsafe {
-            core::slice::from_raw_parts(src as *const T as *const u8, size)
-        };
+        let src_bytes = unsafe { core::slice::from_raw_parts(src as *const T as *const u8, size) };
 
         let crc = crc16(src_bytes);
         let hdr = SlotHeader {
@@ -1558,12 +2035,22 @@ pub fn save_slot<T: Copy>(addr: u16, src: &T) -> Result<(), StorageError> {
 
         // Write header first
         let hdr_bytes = hdr.to_bytes();
-        EepromI2c::write(addr, &hdr_bytes)?;
+        let res = (|| -> Result<(), StorageError> {
+            EepromI2c::write(addr, &hdr_bytes)?;
+            EepromI2c::write(addr + HEADER_SIZE as u16, src_bytes)?;
+            Ok(())
+        })();
 
-        // Write struct payload
-        EepromI2c::write(addr + HEADER_SIZE as u16, src_bytes)?;
+        unsafe {
+            if res.is_ok() {
+                EEPROM_STATUS.write_ok = true;
+                EEPROM_STATUS.write_err = false;
+            } else {
+                EEPROM_STATUS.write_err = true;
+            }
+        }
 
-        Ok(())
+        res
     }
 }
 
@@ -1583,7 +2070,9 @@ pub fn peek_model_name(slot_idx: usize) -> Option<[u8; 10]> {
             return None;
         }
 
-        let hdr = SlotHeader::parse(unsafe { &*(buf[0..HEADER_SIZE].as_ptr() as *const [u8; HEADER_SIZE]) });
+        let hdr = SlotHeader::parse(unsafe {
+            &*(buf[0..HEADER_SIZE].as_ptr() as *const [u8; HEADER_SIZE])
+        });
         if hdr.magic != SLOT_MAGIC || hdr.flags != 0 {
             return None;
         }
@@ -1621,7 +2110,6 @@ pub fn load_storage_into(storage: &mut RadioStorage) {
     #[cfg(test)]
     {
         storage.init_default();
-        return;
     }
 
     #[cfg(not(test))]
@@ -1632,9 +2120,15 @@ pub fn load_storage_into(storage: &mut RadioStorage) {
         let mut radio_loaded = false;
         if load_slot(RADIO_SLOT_A_ADDR, &mut storage.radio).is_ok() {
             radio_loaded = true;
+            unsafe {
+                EEPROM_STATUS.read_ok = true;
+            }
         } else if load_slot(RADIO_SLOT_B_ADDR, &mut storage.radio).is_ok() {
             // Primary Slot A failed, but Backup Slot B succeeded!
             radio_loaded = true;
+            unsafe {
+                EEPROM_STATUS.read_ok = true;
+            }
             // Restore Slot A from Slot B
             let _ = save_slot(RADIO_SLOT_A_ADDR, &storage.radio);
         }
@@ -1700,7 +2194,7 @@ pub fn save_active_model(storage: &RadioStorage) -> bool {
     #[cfg(test)]
     {
         let _ = storage;
-        return true;
+        true
     }
     #[cfg(not(test))]
     {
@@ -1714,7 +2208,7 @@ pub fn save_radio_config(storage: &RadioStorage) -> bool {
     #[cfg(test)]
     {
         let _ = storage;
-        return true;
+        true
     }
     #[cfg(not(test))]
     {
@@ -1787,21 +2281,44 @@ mod tests {
         assert_eq!(pot.min, 100);
         assert_eq!(pot.center, 2000);
         assert_eq!(pot.max, 3900);
+
+        assert_eq!(radio.gimbal_type, 0);
+        assert!(!radio.is_hall_gimbals());
+        assert_eq!(radio.stick_invert_mask, 0x03);
+        assert!(radio.is_stick_inverted(0)); // RH
+        assert!(radio.is_stick_inverted(1)); // RV
+        assert!(!radio.is_stick_inverted(2)); // LV
+        assert!(!radio.is_stick_inverted(3)); // LH
     }
 
     #[test]
     fn test_model_config_size_and_rf_power() {
-        assert_eq!(core::mem::size_of::<ModelConfig>(), 348);
+        assert_eq!(core::mem::size_of::<ModelConfig>(), 364);
         assert_eq!(core::mem::size_of::<RadioConfig>(), 140);
-        assert_eq!(core::mem::size_of::<RadioStorage>(), 488);
+        assert_eq!(core::mem::size_of::<RadioStorage>(), 504);
 
         let default_m = ModelConfig::default_for_index(0);
         assert_eq!(default_m.rf_power, 0);
+        assert_eq!(default_m.vario_switch, 0);
+        assert_eq!(default_m.vario_climb_deadband, 2);
+        assert_eq!(default_m.vario_sink_deadband, 5);
+        assert_eq!(default_m.vario_sink_mode, 1);
+        assert_eq!(default_m.vario_motor_mute, 1);
 
         let mut storage = RadioStorage::default_factory();
         storage.active_model.rf_power = 99;
+        storage.active_model.vario_switch = 99;
+        storage.active_model.vario_climb_deadband = 99;
+        storage.active_model.vario_sink_deadband = 99;
+        storage.active_model.vario_sink_mode = 99;
+        storage.active_model.vario_motor_mute = 99;
         storage.sanitize();
         assert_eq!(storage.active_model.rf_power, 0);
+        assert_eq!(storage.active_model.vario_switch, 0);
+        assert_eq!(storage.active_model.vario_climb_deadband, 2);
+        assert_eq!(storage.active_model.vario_sink_deadband, 5);
+        assert_eq!(storage.active_model.vario_sink_mode, 1);
+        assert_eq!(storage.active_model.vario_motor_mute, 1);
     }
 
     #[test]
@@ -1872,14 +2389,15 @@ mod tests {
         for i in 8..32 {
             assert_eq!(v2.mixes[i], MixLine::disabled());
         }
+        assert_eq!(v2.gvars, [0; 5]);
     }
 
     #[test]
     fn test_telem_slots_sanitize() {
         let mut storage = RadioStorage::default_factory();
-        storage.radio.telem_slots = [0, 11, 12, 13];
+        storage.radio.telem_slots = [0, 11, 14, 15];
         storage.sanitize();
-        assert_eq!(storage.radio.telem_slots, [0, 11, 12, 12]);
+        assert_eq!(storage.radio.telem_slots, [0, 11, 14, 14]);
     }
 
     #[test]
@@ -1938,7 +2456,10 @@ mod tests {
         let mut corrupted_bytes = bytes;
         corrupted_bytes[0] = 0xFF;
         let corrupted_hdr = SlotHeader::parse(&corrupted_bytes);
-        assert_eq!(corrupted_hdr.is_valid(test_payload.len()), Err(StorageError::EmptySlot));
+        assert_eq!(
+            corrupted_hdr.is_valid(test_payload.len()),
+            Err(StorageError::EmptySlot)
+        );
     }
 
     #[test]
@@ -2024,5 +2545,13 @@ mod tests {
         assert!(storage.is_channel_configured(11));
         assert!(storage.is_source_available(22)); // CH11 source
         assert!(storage.is_weight_src_available(11));
+
+        // Global Variables GV1..GV5 (sources 41..45 and weight sources 37..41) are always available
+        for gv in 41..=45 {
+            assert!(storage.is_source_available(gv));
+        }
+        for ws in 37..=41 {
+            assert!(storage.is_weight_src_available(ws));
+        }
     }
 }

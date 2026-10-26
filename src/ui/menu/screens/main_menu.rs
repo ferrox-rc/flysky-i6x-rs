@@ -60,7 +60,10 @@ pub fn update(
             0 => {
                 ctrl.state = MenuState::ModelSelect;
                 ctrl.selected_item = storage.radio.active_model as usize;
-                ctrl.scroll_offset = ctrl.selected_item.saturating_sub(2).min(NUM_MODELS.saturating_sub(4));
+                ctrl.scroll_offset = ctrl
+                    .selected_item
+                    .saturating_sub(2)
+                    .min(NUM_MODELS.saturating_sub(4));
             }
             1 => {
                 ctrl.state = MenuState::ModelSetup;
@@ -115,6 +118,7 @@ pub fn update(
             }
             11 => {
                 ctrl.state = MenuState::DiagAnas;
+                ctrl.page_idx = 0;
                 ctrl.selected_item = 0;
                 ctrl.scroll_offset = 0;
             }

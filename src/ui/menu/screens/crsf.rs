@@ -51,7 +51,7 @@ pub fn update(ctrl: &mut MenuController, lcd: &mut St7567, keys: &NavKeys, buzze
     }
 
     match engine.state {
-        // --- State: Idle / Device Discovery (TBS-Agent Device List) ---
+        // State: Idle / Device Discovery (TBS-Agent Device List)
         CrsfConfigState::Idle | CrsfConfigState::Discovering => {
             if engine.devices_len == 0 {
                 // No devices responded to discovery pings yet
@@ -161,7 +161,7 @@ pub fn update(ctrl: &mut MenuController, lcd: &mut St7567, keys: &NavKeys, buzze
             }
         }
 
-        // --- State: Loading Parameters for Selected Device (Initial Connection) ---
+        // State: Loading parameters for selected device (initial connection)
         CrsfConfigState::Connected | CrsfConfigState::LoadingParam(_) if !engine.folder_loading => {
             if keys.cancel {
                 // Abort loading and return to device list
@@ -180,7 +180,7 @@ pub fn update(ctrl: &mut MenuController, lcd: &mut St7567, keys: &NavKeys, buzze
             widgets::draw_footer(lcd, "Please wait...  [ESC] Abort");
         }
 
-        // --- State: Ready / Interactive Parameter Navigation & On-Demand Folder Paging ---
+        // State: Ready / Interactive parameter navigation & on-demand folder paging
         CrsfConfigState::Ready | CrsfConfigState::LoadingParam(_) | CrsfConfigState::Connected => {
             let current_folder = engine.current_folder;
             let mut folder_indices = [0u8; crsf::MAX_FOLDER_ITEMS];
@@ -573,12 +573,15 @@ pub fn update(ctrl: &mut MenuController, lcd: &mut St7567, keys: &NavKeys, buzze
                                 offset += 1;
                                 let u_bytes = unit_str.as_bytes();
                                 let u_len = u_bytes.len().min(full_val_buf.len() - offset);
-                                full_val_buf[offset..offset + u_len].copy_from_slice(&u_bytes[..u_len]);
+                                full_val_buf[offset..offset + u_len]
+                                    .copy_from_slice(&u_bytes[..u_len]);
                                 offset += u_len;
                             }
-                            let full_val_str = crate::ui::format::ascii_as_str(&full_val_buf[..offset]);
+                            let full_val_str =
+                                crate::ui::format::ascii_as_str(&full_val_buf[..offset]);
                             let val_x = 124i32.saturating_sub((full_val_str.len() as i32) * 6);
-                            let max_name_chars = 20usize.saturating_sub(full_val_str.len() + 1).max(5);
+                            let max_name_chars =
+                                20usize.saturating_sub(full_val_str.len() + 1).max(5);
                             let name_disp = &name[..name.len().min(max_name_chars)];
                             lcd.draw_str_6x10(4, y, name_disp, is_sel);
                             lcd.draw_str_6x10(val_x, y, full_val_str, is_sel);

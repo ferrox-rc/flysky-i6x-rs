@@ -44,11 +44,13 @@ enum SubState {
     Idle,
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct TelemetryData {
     pub connected: bool,
     pub rssi: u8,           // 0..100%
     pub rx_voltage_mv: u16, // in millivolts (e.g. 5000 for 5.00V)
+    pub alt_m: i16,         // in meters (e.g. 150 for 150m)
+    pub vspeed_cms: i16,    // in cm/s (e.g. +120 for +1.2 m/s)
     pub packets_sent: u32,
     pub packets_received: u32,
 }
@@ -65,6 +67,8 @@ impl TelemetryData {
             connected: false,
             rssi: 0,
             rx_voltage_mv: 0,
+            alt_m: 0,
+            vspeed_cms: 0,
             packets_sent: 0,
             packets_received: 0,
         }
@@ -358,7 +362,11 @@ impl Afhds2a {
         out[18] = center_bytes[0];
         out[19] = center_bytes[1]; // 1500 µs center pulse
         out[20] = 0x05;
-        out[21] = if self.rx_serial_proto == 1 { 0xDD } else { 0xDE }; // 0xDE = i-BUS, 0xDD = SBUS
+        out[21] = if self.rx_serial_proto == 1 {
+            0xDD
+        } else {
+            0xDE
+        }; // 0xDE = i-BUS, 0xDD = SBUS
         out[37] = 0x00;
     }
 
@@ -503,6 +511,14 @@ impl Afhds2a {
                         // External battery voltage
                         self.telemetry.rx_voltage_mv = val * 10;
                     }
+                    0x09 => {
+                        // Climb / Vertical speed (signed 16-bit in 0.1 m/s = 10 cm/s units)
+                        self.telemetry.vspeed_cms = (val as i16) * 10;
+                    }
+                    0x41 | 0x83 | 0xF9 => {
+                        // Altitude sensor (signed 16-bit altitude in meters)
+                        self.telemetry.alt_m = val as i16;
+                    }
                     0xFE => {
                         // Link Quality indicator (100 - error_rate)
                         let lqi = (100u16).saturating_sub(val);
@@ -608,8 +624,7 @@ mod tests {
         // 1. Standard channels 0..13 (slots 0..13)
         for (i, ch_val) in decoded[..14].iter_mut().enumerate() {
             let offset = i * 2;
-            *ch_val =
-                (slot_bytes[offset] as u16) | (((slot_bytes[offset + 1] & 0x0F) as u16) << 8);
+            *ch_val = (slot_bytes[offset] as u16) | (((slot_bytes[offset + 1] & 0x0F) as u16) << 8);
         }
 
         // 2. Extended channels 14..17 (CH15..CH18)
@@ -744,8 +759,6 @@ mod tests {
 
     #[test]
     fn test_afhds2a_rf_power_levels() {
-        use crate::rf::a7105;
-
         let mut radio = Afhds2a::new(0x1234_5678);
         assert_eq!(radio.rf_power_idx, 0);
 
@@ -767,5 +780,33 @@ mod tests {
         assert_eq!(a7105::power_from_index(2), a7105::POWER_1MW);
         assert_eq!(a7105::power_from_index(3), a7105::POWER_100UW);
         assert_eq!(a7105::power_from_index(4), a7105::HIGH_POWER);
+    }
+
+    #[test]
+    fn test_afhds2a_vario_and_altitude_telemetry() {
+        let mut radio = Afhds2a::new(0x1234_5678);
+        radio.rx_id = 0x9ABC_DEF0;
+
+        let mut rx_buf = [0u8; RX_PACKET_SIZE];
+        rx_buf[0] = 0xAA; // Downlink packet
+        rx_buf[1..5].copy_from_slice(&radio.tx_id.to_le_bytes());
+        rx_buf[5..9].copy_from_slice(&radio.rx_id.to_le_bytes());
+
+        // Sensor 1: 0x09 (vspeed = +25 * 10 = +250 cm/s = +2.5 m/s)
+        rx_buf[10] = 0x09;
+        rx_buf[11] = 0x01; // instance
+        rx_buf[12] = 25; // 25 in 0.1 m/s
+        rx_buf[13] = 0;
+
+        // Sensor 2: 0x41 (altitude = 185m)
+        rx_buf[14] = 0x41;
+        rx_buf[15] = 0x02; // instance
+        rx_buf[16] = 185;
+        rx_buf[17] = 0;
+
+        radio.process_rx_packet(&rx_buf);
+        assert!(radio.telemetry.connected);
+        assert_eq!(radio.telemetry.vspeed_cms, 250);
+        assert_eq!(radio.telemetry.alt_m, 185);
     }
 }

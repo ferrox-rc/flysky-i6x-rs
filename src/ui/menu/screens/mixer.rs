@@ -4,8 +4,8 @@ use crate::buzzer::Buzzer;
 use crate::curve;
 use crate::display::St7567;
 use crate::menu::format::{
-    ascii_as_str, i8_to_dec, u8_to_dec, AXIS_NAMES, DR_SWITCH_NAMES, MODE_NAMES, SOURCE_NAMES, SWITCH_COND_NAMES,
-    TEMPLATE_NAMES, WEIGHT_SRC_NAMES,
+    ascii_as_str, i8_to_dec, u8_to_dec, AXIS_NAMES, DR_SWITCH_NAMES, MODE_NAMES, SOURCE_NAMES,
+    SWITCH_COND_NAMES, TEMPLATE_NAMES, WEIGHT_SRC_NAMES,
 };
 use crate::menu::widgets;
 use crate::menu::{MenuController, MenuState, NavKeys};
@@ -142,8 +142,7 @@ pub fn update_dual_rate(
 
         match idx {
             0 => {
-                let sw_name =
-                    DR_SWITCH_NAMES[(storage.active_model.dr_switch as usize).min(6)];
+                let sw_name = DR_SWITCH_NAMES[(storage.active_model.dr_switch as usize).min(6)];
                 widgets::draw_list_row(lcd, slot, is_sel, "Switch:", Some(sw_name), 60);
             }
             1 => {
@@ -277,7 +276,8 @@ pub fn update_throttle_curve(
                     let mut new_crv = [0u8; 17];
                     for (i, pt) in new_crv.iter_mut().enumerate().take(7) {
                         let in_pct = (i as u16 * 1000) / 6;
-                        *pt = ((curve::evaluate_curve(in_pct, 5, false, &c) + 5) / 10).min(100) as u8;
+                        *pt =
+                            ((curve::evaluate_curve(in_pct, 5, false, &c) + 5) / 10).min(100) as u8;
                     }
                     storage.active_model.thr_curve = new_crv;
                     storage.active_model.thr_curve_pts = 7;
@@ -288,7 +288,8 @@ pub fn update_throttle_curve(
                     let mut new_crv = [0u8; 17];
                     for (i, pt) in new_crv.iter_mut().enumerate().take(9) {
                         let in_pct = (i as u16 * 1000) / 8;
-                        *pt = ((curve::evaluate_curve(in_pct, 7, false, &c) + 5) / 10).min(100) as u8;
+                        *pt =
+                            ((curve::evaluate_curve(in_pct, 7, false, &c) + 5) / 10).min(100) as u8;
                     }
                     storage.active_model.thr_curve = new_crv;
                     storage.active_model.thr_curve_pts = 9;
@@ -432,7 +433,8 @@ pub fn update_wing_mixer(
 ) {
     let template = storage.active_model.wing_tail_mix;
     let has_diff = template == 1 || template == 3;
-    let mix_items = if has_diff { 34 } else { 33 };
+    let gvar_item_idx = if has_diff { 2 } else { 1 };
+    let mix_items = if has_diff { 35 } else { 34 };
 
     if ctrl.editing {
         if keys.cancel {
@@ -474,17 +476,20 @@ pub fn update_wing_mixer(
             buzzer.click();
             if ctrl.selected_item == 0 {
                 // Cycle Wing Template (0..3)
-                storage.active_model.wing_tail_mix =
-                    (storage.active_model.wing_tail_mix + 1) % 4;
+                storage.active_model.wing_tail_mix = (storage.active_model.wing_tail_mix + 1) % 4;
             } else if has_diff && ctrl.selected_item == 1 {
                 ctrl.editing = true;
+            } else if ctrl.selected_item == gvar_item_idx {
+                // Open Global Variables Editor
+                ctrl.selected_item = 0;
+                ctrl.scroll_offset = 0;
+                ctrl.editing = false;
+                ctrl.state = MenuState::GlobalVars;
+                ctrl.waiting_release = true;
+                return;
             } else {
                 // Open Mix Line Editor
-                let m_idx = if has_diff {
-                    ctrl.selected_item - 2
-                } else {
-                    ctrl.selected_item - 1
-                };
+                let m_idx = ctrl.selected_item - (gvar_item_idx + 1);
                 ctrl.page_idx = m_idx.min(31);
                 ctrl.selected_item = 0;
                 ctrl.scroll_offset = 0;
@@ -519,8 +524,10 @@ pub fn update_wing_mixer(
             let d_str = i8_to_dec(storage.active_model.template_diff, &mut b6);
             lcd.draw_str_6x10(4, y, "Diff:", is_sel);
             lcd.draw_str_6x10(36, y, d_str, is_sel);
+        } else if idx == gvar_item_idx {
+            lcd.draw_str_6x10(4, y, "GVars: [Edit GV1..5]", is_sel);
         } else {
-            let m_idx = if has_diff { idx - 2 } else { idx - 1 };
+            let m_idx = idx - (gvar_item_idx + 1);
             let mix = storage.active_model.mixes[m_idx];
             let mut m_buf = *b"M00: ";
             let m_num = (m_idx + 1) as u8;
@@ -629,10 +636,12 @@ pub fn update_mixer_line_edit(
             2 => {
                 // Weight Modulation Source: 0..=36 (WEIGHT_SRC_NAMES)
                 if keys.up {
-                    mix.weight_src = storage.next_available_weight_src(mix.weight_src, WEIGHT_SRC_NAMES.len());
+                    mix.weight_src =
+                        storage.next_available_weight_src(mix.weight_src, WEIGHT_SRC_NAMES.len());
                     buzzer.play_tone(2200, 20);
                 } else if keys.down {
-                    mix.weight_src = storage.prev_available_weight_src(mix.weight_src, WEIGHT_SRC_NAMES.len());
+                    mix.weight_src =
+                        storage.prev_available_weight_src(mix.weight_src, WEIGHT_SRC_NAMES.len());
                     buzzer.play_tone(2200, 20);
                 }
             }
@@ -661,10 +670,12 @@ pub fn update_mixer_line_edit(
                         buzzer.play_tone(2400, 40);
                     }
                 } else if keys.up {
-                    mix.switch = storage.next_available_switch_cond(mix.switch, SWITCH_COND_NAMES.len());
+                    mix.switch =
+                        storage.next_available_switch_cond(mix.switch, SWITCH_COND_NAMES.len());
                     buzzer.play_tone(2200, 20);
                 } else if keys.down {
-                    mix.switch = storage.prev_available_switch_cond(mix.switch, SWITCH_COND_NAMES.len());
+                    mix.switch =
+                        storage.prev_available_switch_cond(mix.switch, SWITCH_COND_NAMES.len());
                     buzzer.play_tone(2200, 20);
                 }
             }
@@ -726,7 +737,14 @@ pub fn update_mixer_line_edit(
             }
             2 => {
                 let ws_idx = (mix.weight_src as usize).min(WEIGHT_SRC_NAMES.len() - 1);
-                widgets::draw_list_row(lcd, slot, is_sel, "Wt Src:", Some(WEIGHT_SRC_NAMES[ws_idx]), 56);
+                widgets::draw_list_row(
+                    lcd,
+                    slot,
+                    is_sel,
+                    "Wt Src:",
+                    Some(WEIGHT_SRC_NAMES[ws_idx]),
+                    56,
+                );
             }
             3 => {
                 let w_str = i8_to_dec(mix.weight, &mut b6);
@@ -753,6 +771,79 @@ pub fn update_mixer_line_edit(
             }
             _ => {}
         }
+    }
+
+    let footer = if ctrl.editing {
+        "[OK] Done   [UP/DN] Value"
+    } else {
+        "[OK] Edit   [ESC] Back"
+    };
+    widgets::draw_footer(lcd, footer);
+}
+
+#[inline(never)]
+pub fn update_global_vars(
+    ctrl: &mut MenuController,
+    lcd: &mut St7567,
+    keys: &NavKeys,
+    storage: &mut RadioStorage,
+    buzzer: &mut Buzzer,
+) {
+    const GVAR_COUNT: usize = 5;
+
+    if ctrl.editing {
+        let gv_idx = ctrl.selected_item.min(GVAR_COUNT - 1);
+        let cur = storage.active_model.gvars[gv_idx];
+        if keys.up && cur <= 950 {
+            storage.active_model.gvars[gv_idx] = cur + 50; // 5% step
+            buzzer.play_tone(2200, 20);
+        } else if keys.down && cur >= -950 {
+            storage.active_model.gvars[gv_idx] = cur - 50; // 5% step
+            buzzer.play_tone(2200, 20);
+        }
+        if keys.ok || keys.cancel {
+            ctrl.editing = false;
+            storage::save_active_model(storage);
+            buzzer.click();
+        }
+    } else {
+        if keys.cancel {
+            storage::save_active_model(storage);
+            ctrl.return_to_main_menu();
+            buzzer.click();
+            return;
+        }
+
+        widgets::navigate_4slot_list(
+            &mut ctrl.selected_item,
+            &mut ctrl.scroll_offset,
+            GVAR_COUNT,
+            keys.up,
+            keys.down,
+            buzzer,
+        );
+
+        if keys.ok {
+            ctrl.editing = true;
+            buzzer.click();
+        }
+    }
+
+    widgets::draw_header(lcd, "GLOBAL VARIABLES");
+
+    let mut b5 = [0u8; 5];
+    for slot in 0..4 {
+        let idx = ctrl.scroll_offset + slot;
+        if idx >= GVAR_COUNT {
+            break;
+        }
+        let is_sel = idx == ctrl.selected_item;
+        let mut label_buf = *b"GV0:";
+        label_buf[2] = b'1' + (idx as u8);
+        let label_str = ascii_as_str(&label_buf);
+        let val = storage.active_model.gvars[idx];
+        let val_str = crate::ui::format::format_percent(val, &mut b5);
+        widgets::draw_list_row(lcd, slot, is_sel, label_str, Some(val_str), 56);
     }
 
     let footer = if ctrl.editing {

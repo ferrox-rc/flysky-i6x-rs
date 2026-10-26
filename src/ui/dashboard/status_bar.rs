@@ -30,16 +30,20 @@ pub fn render(
 ) {
     let is_crsf = storage.active_model().rf_protocol == 1;
 
-    // --- Model Name (x = 2..60, y = 2) ---
+    // Model Name (x = 2..60, y = 2)
     let act_idx = storage.radio.active_model as usize;
     let raw_name = ascii_as_str(&storage.active_model().name).trim();
     let mut m_buf = *b"M00";
     write_dec2((act_idx + 1) as u8, &mut m_buf[1..3]);
     let m_fallback = ascii_as_str(&m_buf);
-    let m_display = if raw_name.is_empty() { m_fallback } else { raw_name };
+    let m_display = if raw_name.is_empty() {
+        m_fallback
+    } else {
+        raw_name
+    };
     lcd.draw_str_6x10(2, 2, m_display, false);
 
-    // --- RF / Telemetry / Link Status (x = 64..84, y = 3) ---
+    // RF / Telemetry / Link Status (x = 64..84, y = 3)
     // Using 4x6 px, max 5 chars = 20px wide (e.g. "RF:OK", "NO RF", "R:100", "U:SIM").
     // Perfectly centered in the middle zone (x = 64..84) between model name and right-aligned battery block.
     if !rf_ok && !is_crsf {
@@ -71,7 +75,7 @@ pub fn render(
         lcd.draw_str_4x6(64, 3, "NO RF", false);
     }
 
-    // --- Battery Voltage Alarm & Display (Right-aligned, x = 93..126, y = 3) ---
+    // Battery Voltage Alarm & Display (Right-aligned, x = 93..126, y = 3)
     // Battery text: 5 chars with 4x6 (20px wide, e.g. "4.12V"), (93, 3) -> x = 93..112.
     // Battery gauge: x = 116..126, y = 2..8 (11x7 px with tip on left at 116, body at 117..126).
     let mut vbat_buf = [0u8; 6];
@@ -91,7 +95,14 @@ pub fn render(
             lcd.fill_rect(92, 1, 22, 8, true);
             lcd.draw_str_4x6(93, 3, vbat_str, true);
         } else {
-            draw_battery_gauge(lcd, 116, 2, battery_mv, vbat_warn_mv, vbat_warn_mv.max(6000));
+            draw_battery_gauge(
+                lcd,
+                116,
+                2,
+                battery_mv,
+                vbat_warn_mv,
+                vbat_warn_mv.max(6000),
+            );
             lcd.draw_str_4x6(93, 3, vbat_str, false);
         }
     } else {
@@ -101,7 +112,7 @@ pub fn render(
         lcd.draw_str_4x6(93, 3, vbat_str, false);
     }
 
-    // --- Telemetry RSSI Range Alarms & Stats Tracking ---
+    // Telemetry RSSI Range Alarms & Stats Tracking
     if telem.connected {
         if !*telem_seen {
             *telem_seen = true;
