@@ -130,7 +130,7 @@ This document tracks the phased implementation, historical milestones, and ongoi
 
 ### Phase 17: Modern UI Glyphs & Visual Experience (COMPLETED)
 - [x] Ferrox-RC startup splash screen with 28x27 kinetic delta emblem, firmware identifier, and version display (1200 ms).
-- [x] Synchronized power-on welcome fanfare (4-note ascending chime $C_6 \to E_6 \to G_6 \to C_7$, 660 ms) with monotonic cadence independence.
+- [x] Synchronized power-on welcome fanfare (4-note ascending chime C6 -> E6 -> G6 -> C7, 660 ms) with monotonic cadence independence.
 - [x] 12x12 Material Design vector icon glyphs for model types (Airplane, Heli, Quad, Glider, General) and system features.
 - [x] 3-slot graphical list navigation (14px row height) with smooth viewport scrolling and return position preservation.
 - [x] Right-edge proportional scrollbar widget with position indicator (`1/13`).
@@ -216,7 +216,7 @@ This document tracks the phased implementation, historical milestones, and ongoi
 
 ### Phase 26: Variometer Telemetry & Acoustic Audio Feedback (COMPLETED / BRANCH: `feat/vario-telemetry-audio`)
 - [x] Telemetry frame decoding: CRSF `0x07` (`CRSF_FRAMETYPE_VARIO`) & `0x09` (`CRSF_FRAMETYPE_BARO_ALTITUDE`), and AFHDS 2A/i-BUS sensor `0x09` (vspeed) and `0x41`/`0x83`/`0xF9` (altitude).
-- [x] Core variometer engine (`src/vario.rs`) featuring 4-tap EMA noise filtering, fallback altitude differentiator ($\Delta h / \Delta t$), configurable climb/sink deadbands, pitch scaling ($1000\dots 2800\,\text{Hz}$), cadence scaling ($550\dots 110\,\text{ms}$), sink modes (`BEEP`, `CONT`, `SILENT`), and automatic motor lockout ($> 10\%$ throttle).
+- [x] Core variometer engine (`src/vario.rs`) featuring 4-tap EMA noise filtering, fallback altitude differentiator (Δh / Δt), configurable climb/sink deadbands, pitch scaling (1000..2800 Hz), cadence scaling (550..110 ms), sink modes (`BEEP`, `CONT`, `SILENT`), and automatic motor lockout (> 10% throttle).
 - [x] Non-blocking background audio synthesis on hardware PWM piezo (`TIM1_CH1`, `PA8`) with zero-latency preemption by higher-priority alarms (battery, RSSI, timer, clicks) and phase-preserved cadence tracking.
 - [x] Model storage integration: persistent `vario_switch`, `vario_climb_deadband`, `vario_sink_deadband`, `vario_sink_mode`, and `vario_motor_mute` in `ModelConfig` with automatic flash sanitization.
 - [x] Dedicated UI editors: `VARIO SETUP` under `MODEL SETUP` with switch auto-detection and live acoustic tone preview.

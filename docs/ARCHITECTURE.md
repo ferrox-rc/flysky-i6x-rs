@@ -124,8 +124,10 @@ flowchart TD
 The Independent Watchdog (`IWDG`) runs off the dedicated 40 kHz Low-Speed Internal (`LSI`) RC oscillator. This oscillator is physically decoupled from the primary high-speed crystal oscillator (`HSE`), internal high-speed oscillator (`HSI`), and Phase-Locked Loop (`PLL`).
 - **Oscillator Failure Immunity**: If the 8 MHz external crystal fractures due to physical shock or vibration, or if the PLL loses lock, the watchdog continues counting down unhindered and forces a hardware MCU reset.
 - **Deterministic Timeout**: With prescaler `/64` (PR = 4) and reload count `1250`, each counter tick is:
-  $$\tau = \frac{64}{40{,}000\text{ Hz}} = 1.6\text{ ms}$$
-  $$T_{\text{timeout}} = 1250 \times 1.6\text{ ms} = 2.000\text{ seconds}$$
+  ```text
+  tau = 64 / 40,000 Hz = 1.6 ms
+  T_timeout = 1250 * 1.6 ms = 2.000 seconds
+  ```
 - **Zero-Cost Standalone Feed**: The `watchdog::feed()` function is marked `#[inline(always)]` and directly writes the reload key `0xAAAA` into `IWDG_KR`. It compiles down to a single Cortex-M0 assembly instruction:
   ```armasm
   str r0, [r1]
@@ -145,7 +147,7 @@ During multi-page log-structured compaction cycles within `sequential-storage` (
 A catastrophic hazard in conventional open-source and commercial RC firmware is the **watchdog in-flight trap**:
 1. An electrostatic discharge (ESD) event, RF power amplifier surge, or voltage sag triggers an unexpected MCU watchdog reset mid-flight.
 2. The MCU reboots in under 2 ms.
-3. The firmware enters standard cold-boot safety checks: it tests whether the throttle stick is at idle ($\le 2\%$ / $20‰$ on unipolar models, centered within $\pm 2\%$ on General surface models, or Throttle Hold engaged on Heli) across the configured stick mode (Mode 1..4), and all switches are in the UP position.
+3. The firmware enters standard cold-boot safety checks: it tests whether the throttle stick is at idle (<= 2% / 20‰ on unipolar models, centered within ±2% on General surface models, or Throttle Hold engaged on Heli) across the configured stick mode (Mode 1..4), and all switches are in the UP position.
 4. Because the aircraft is actively flying, the pilot's throttle is elevated, and flight switches (e.g., Arm, Flight Mode) are engaged.
 5. The transmitter flags a safety violation, traps the pilot on a warning screen, forces all over-the-air channels to 1000 µs failsafe, and refuses to send flight control packets until the throttle is lowered.
 6. The aircraft crashes before the pilot can diagnose or clear the screen.
@@ -157,7 +159,7 @@ In `flysky-i6x-rs`, reset recovery is treated as a safety-critical state machine
 - **Inhibition of Modal Wizards**: Bind-on-boot and direct calibration wizard entry (`initial_keys & (1 << 10)`) are inhibited during watchdog recovery, ensuring active model binding and calibration states are untouched.
 - **Non-Blocking Acoustic Pilot Alert**: The standard multi-note startup melodic chime is replaced with an urgent, non-blocking 3-beep alarm pattern (`buzzer.play_tone_pattern(2600, 60, 40, 3)`). This alerts the pilot through acoustic feedback that a reset occurred while consuming zero CPU wait cycles.
 - **Pre-Flight Safety Check Bypass**: When `was_watchdog_reset` is true, the pre-flight safety check loop is bypassed entirely. The runtime immediately instantiates the `FlightPipeline` and enters the 100 Hz flight loop.
-- **Sub-2 Millisecond Recovery**: Total elapsed time from reset vector execution to the first active, calibrated over-the-air RF packet is measured at **$< 2.0\text{ ms}$**—well within the typical 50–100 ms receiver failsafe timeout window, preventing any loss of aircraft altitude or attitude control.
+- **Sub-2 Millisecond Recovery**: Total elapsed time from reset vector execution to the first active, calibrated over-the-air RF packet is measured at **< 2.0 ms**—well within the typical 50–100 ms receiver failsafe timeout window, preventing any loss of aircraft altitude or attitude control.
 - **Panic Fast Warm Reset with Boot-Loop Guard**: Instead of halting in an infinite dead loop (`panic_halt`) during rare firmware panics, the panic handler triggers a warm Cortex-M0 software reset (`SCB->AIRCR = VECTKEY | SYSRESETREQ`). A crash counter maintained in battery-backed RTC backup register `RTC->BKP0R` protects against recurring boot-loops; if 3 consecutive unhandled panics occur without achieving 10 seconds of stable flight loop runtime, the firmware latches into a fail-safe diagnostic halt with audio alert.
 
 ---

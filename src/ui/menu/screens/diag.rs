@@ -48,7 +48,7 @@ pub fn update_diag_anas(
 
         for (i, &name) in names.iter().enumerate() {
             let adc_idx = start_idx + i;
-            let y = 12 + (i as i32 * 7);
+            let y = 13 + (i as i32 * 7);
             lcd.draw_str_4x6(2, y, name, false);
 
             let raw = raw_adc[adc_idx].min(4095);

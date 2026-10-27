@@ -120,7 +120,9 @@ The HID descriptor adheres strictly to OpenI6X and EdgeTX mapping conventions to
 
 #### Axis Normalization
 All stick and potentiometer channels are calculated through the flight mixer pipeline (incorporating calibration, dual rates, expos, and trims), clamped to 1000..2000 µs, and linearly scaled to 11-bit USB axis units (0..2047, centered at 1024):
-$$ \text{USB Axis} = \left( \frac{\text{Pulse}_{\mu s} - 1000}{1000} \right) \times 2047 $$
+```text
+USB Axis = ((Pulse_µs - 1000) * 2047) / 1000
+```
 
 #### Button Mapping (Switches SA..SD & Aux Channels)
 Physical switches and auxiliary channels are mapped cleanly to digital buttons. In standard neutral position (all switches UP), **all buttons report 0 (released)**, eliminating phantom keystrokes or desktop focus lock on Linux systems:

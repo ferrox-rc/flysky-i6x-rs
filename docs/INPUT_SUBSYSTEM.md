@@ -36,7 +36,7 @@ Every one of the 10 auxiliary ADC channels (`SA`, `SB`, `SC`, `SD`, `VRA`, `VRB`
 | **2-Position Switch** | `1` (`TwoPos`) | -1000 (UP) / +1000 (DOWN) | Thresholded at calibrated midpoint. |
 | **3-Position Switch** | `2` (`ThreePos`) | -1000 (UP) / 0 (MID) / +1000 (DOWN) | Three-way window comparator around calibrated center and endpoints. |
 | **Potentiometer** | `3` (`Pot`) | Continuous -1000 .. +1000 | Linearly scaled between calibrated min, center, and max endpoints with deadband margin. |
-| **Pot with Detent** | `4` (`PotDetent`) | Continuous -1000 .. +1000 + Acoustic Click | Identical continuous analog output to `Pot`, but actively triggers a subtle acoustic haptic click (`2200 Hz`, 10 ms) whenever the knob sweeps across mechanical neutral ($0$). |
+| **Pot with Detent** | `4` (`PotDetent`) | Continuous -1000 .. +1000 + Acoustic Click | Identical continuous analog output to `Pot`, but actively triggers a subtle acoustic haptic click (`2200 Hz`, 10 ms) whenever the knob sweeps across mechanical neutral (0). |
 | **6-Position Switch** | `5` (`SixPos`) | Steps 1..6 (mapped to flight mode pulses) | Resistor-ladder voltage divider decoding for multi-position flight mode switch assemblies. |
 
 ### Potentiometer Center Acoustic Detent Haptics
@@ -99,7 +99,7 @@ The piezo buzzer on pin `PA8` is driven by **`TIM1_CH1`** in hardware PWM Mode 1
 - Generates precise audio tones at 50% duty cycle (`CCR1 = ARR / 2`).
 
 ### Audio Tones & Chimes
-- **Power-On Welcome Fanfare**: 4-note ascending fanfare ($C_6 \to E_6 \to G_6 \to C_7$, 660 ms) played during the startup splash screen when Tone Style is set to `Rich`. Plays a single tactile click (15 ms) when set to `Simple`.
+- **Power-On Welcome Fanfare**: 4-note ascending fanfare (C6 -> E6 -> G6 -> C7, 660 ms) played during the startup splash screen when Tone Style is set to `Rich`. Plays a single tactile click (15 ms) when set to `Simple`.
 - **Arming / Disarming Chimes**: 2-note rising chirp (`1800 Hz` -> `2400 Hz`) on motor arm, and falling chirp (`2400 Hz` -> `1800 Hz`) on disarm.
 - **Pitch-Shifted Trim Step**: Tones scale dynamically with trim position (`1500 Hz` to `2500 Hz`).
 - **Trim Center Confirm**: High-pitched distinctive tone (`2800 Hz`, 60 ms) when crossing zero.

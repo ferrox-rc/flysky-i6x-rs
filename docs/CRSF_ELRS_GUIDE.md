@@ -18,7 +18,7 @@ The FlySky FS-i6X motherboard provides an internal rear module connector and bac
 | `PA15` | **USART2_RX** | AF1 | Interrupt-driven telemetry RX with 128-byte lock-free ring buffer (IRQ 28, priority `0x40`) |
 | `PC13` | **MOD_PWR** | GPIO Out | External module power rail switch (Configurable polarity: Active HIGH or Active LOW) |
 
-Implemented in [`src/hw/uart.rs`](../src/hw/uart.rs). Dedicated `USART2` interrupt handler clears hardware overrun (`USART_ISR_ORE`) and buffers incoming high-speed bytes with zero dropped packets during LCD flushes. Inter-byte silence timeout ($\ge 3\text{ ms}$) guarantees deterministic frame resynchronization.
+Implemented in [`src/hw/uart.rs`](../src/hw/uart.rs). Dedicated `USART2` interrupt handler clears hardware overrun (`USART_ISR_ORE`) and buffers incoming high-speed bytes with zero dropped packets during LCD flushes. Inter-byte silence timeout (>= 3 ms) guarantees deterministic frame resynchronization.
 
 ### Power Switch Polarity (PC13)
 Hardware power circuits vary depending on how external modules are wired to the transmitter:

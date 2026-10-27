@@ -45,7 +45,7 @@ All serial communication over USART2 (`PD5` TX / `PA15` RX) adheres strictly to 
 > - **Standard Telemetry Frames (`0x14`, `0x08`, `0x07`, `0x09`, `0x02`, `0x0B`)**: Start with `frame[0] = 0xC8` (`CRSF_SYNC_BYTE`), followed by length (`frame[1]`), type (`frame[2]`), and sensor payload directly at `frame[3..]` without destination or origin addresses.
 
 ### Checksum Calculation (`CRC8-DVB`)
-- **Polynomial**: `0xD5` ($x^8 + x^7 + x^6 + x^4 + x^2 + 1$)
+- **Polynomial**: `0xD5` (x^8 + x^7 + x^6 + x^4 + x^2 + 1)
 - **Initial Value**: `0x00`
 - **Data Coverage**: Calculated strictly over `[Frame Type]` through the end of `[Payload]`.
 - **Exclusions**: The first two bytes (`Dest Addr` and `Frame Len`) are **excluded** from the CRC.
@@ -53,30 +53,32 @@ All serial communication over USART2 (`PD5` TX / `PA15` RX) adheres strictly to 
 Implemented in [`src/crsf/protocol.rs`](../src/crsf/protocol.rs#L90-L117).
 
 ### 11-Bit RC Channel Scaling Formula (`0x16`)
-CRSF encodes 16 RC channels into 11-bit integers ($0..2047$) packed into 22 payload bytes. The channel conversion maps standard microsecond pulse widths ($988..\text{2012 µs}$) to standard CRSF endpoints:
+CRSF encodes 16 RC channels into 11-bit integers (0..2047) packed into 22 payload bytes. The channel conversion maps standard microsecond pulse widths (988..2012 µs) to standard CRSF endpoints:
 - **Minimum (~988 µs)**: `172` counts
 - **Neutral / Center (1500 µs)**: `992` counts
 - **Maximum (~2012 µs)**: `1811` counts
 
 Formula implemented in [`src/crsf/protocol.rs`](../src/crsf/protocol.rs#L122-L128):
-$$\text{CRSF\_Value} = \left\lfloor\frac{(\text{clamped\_µs} - 988) \times 1639 + 512}{1024}\right\rfloor + 172$$
+```text
+CRSF_Value = ((clamped_µs - 988) * 1639 + 512) / 1024 + 172
+```
 
 ### Hardware UART & Real-Time Ingestion Architecture
 
-At 420,000 baud, 1 byte arrives every **$23.8\,\mu\text{s}$**. The STM32F072 USART2 peripheral features only a 1-byte Receive Data Register (`RDR`) and **no hardware FIFO**. If CPU execution is occupied for $>47.6\,\mu\text{s}$ (such as drawing/flushing the ST7567 LCD at ~330 µs or ADC DMA handling), the hardware triggers an Overrun Error (`USART_ISR_ORE`), which silently drops subsequent bytes and truncates packets.
+At 420,000 baud, 1 byte arrives every **23.8 µs**. The STM32F072 USART2 peripheral features only a 1-byte Receive Data Register (`RDR`) and **no hardware FIFO**. If CPU execution is occupied for > 47.6 µs (such as drawing/flushing the ST7567 LCD at ~330 µs or ADC DMA handling), the hardware triggers an Overrun Error (`USART_ISR_ORE`), which silently drops subsequent bytes and truncates packets.
 
 To eliminate data loss and guarantee high-speed stability:
 1. **Interrupt-Driven Ring Buffer (`RXNEIE`)**: `USART2` is configured with receive interrupt enable (`RXNEIE` in `CR1`).
-2. **128-Byte Atomic Ring Buffer**: Bytes are pushed into `RX_RING` inside the `USART2` interrupt handler in $< 1\,\mu\text{s}$.
+2. **128-Byte Atomic Ring Buffer**: Bytes are pushed into `RX_RING` inside the `USART2` interrupt handler in < 1 µs.
 3. **High NVIC Priority (`0x40`)**: IRQ 28 is unmasked with priority `0x40` (higher than TIM16/EXTI at `0x80` and USB at `0xC0`), guaranteeing preemption of any blocking loop tasks.
 4. **Hardware ORE Auto-Recovery**: The ISR inspects and clears `USART_ISR_ORE` on every entry.
-5. **Inter-Byte Silence Resynchronization**: If an electrical glitch or wire disconnect interrupts a packet mid-frame, `poll_telemetry()` tracks `LAST_RX_BYTE_MS`. If $\ge 3\text{ ms}$ elapses with an incomplete frame, `RX_LEN` automatically resets to 0 to resynchronize for the next frame.
+5. **Inter-Byte Silence Resynchronization**: If an electrical glitch or wire disconnect interrupts a packet mid-frame, `poll_telemetry()` tracks `LAST_RX_BYTE_MS`. If >= 3 ms elapses with an incomplete frame, `RX_LEN` automatically resets to 0 to resynchronize for the next frame.
 7. **Configurable Baud Divisors & High-Speed Clocks**:
-   - `420,000 baud`: $\text{BRR} = 114$ ($48\text{ MHz} / 420{,}000 = 114.28$)
-   - `416,666 baud`: $\text{BRR} = 115$ ($48\text{ MHz} / 416{,}666.67 = 115.20$)
-   - `115,200 baud`: $\text{BRR} = 417$ ($48\text{ MHz} / 115{,}200 = 416.66$)
-   - `921,600 baud`: $\text{BRR} = 52$ ($48\text{ MHz} / 921{,}600 = 52.08$)
-   - `1,875,000 baud`: $\text{BRR} = 26$ ($48\text{ MHz} / 1{,}875{,}000 = 25.6 \to 1{,}846{,}154\text{ bps}$, 1.5% timing margin)
+   - `420,000 baud`: BRR = 114 (48 MHz / 420,000 = 114.28)
+   - `416,666 baud`: BRR = 115 (48 MHz / 416,666.67 = 115.20)
+   - `115,200 baud`: BRR = 417 (48 MHz / 115,200 = 416.66)
+   - `921,600 baud`: BRR = 52 (48 MHz / 921,600 = 52.08)
+   - `1,875,000 baud`: BRR = 26 (48 MHz / 1,875,000 = 25.6 -> 1,846,154 bps, 1.5% timing margin)
 8. **Single-Wire Half-Duplex (`HDSEL`) & Echo Suppression**:
    - When configured in Half-Duplex mode, `USART2_CR3` sets bit 3 (`HDSEL`).
    - Pin `PD5` operates in Alternate Function 0 (AF0), **Open-Drain** with internal Pull-Up. `PA15` is unconfigured.
@@ -223,7 +225,9 @@ Parameters exceeding the CRSF MTU (~56 bytes) are split across multiple frames. 
 When the user selects an option parameter and presses **`[OK]`**:
 
 1. **Index Increment (`cycle_param`)**:
-   $$\text{new\_value} = (\text{current\_value} + 1) \pmod{\text{max\_value} + 1}$$
+   ```text
+   new_value = (current_value + 1) % (max_value + 1)
+   ```
 2. **Wire Frame (`build_param_write_frame`)**:
    ```text
    Byte 0: 0xC8         (Sync: CRSF_SYNC_BYTE per TBS spec)
@@ -300,13 +304,13 @@ Handset (FS-i6X)                                   ELRS Module
 | **`DEVICE_PING`** | `0x28` | 6 bytes | Radio &rarr; Module | Discovery ping to broadcast target |
 | **`DEVICE_INFO`** | `0x29` | Variable (18–40B) | Module &rarr; Radio | Module identity, serial, hardware ID, param count |
 | **`PARAMETER_READ`** | `0x2C` | 8 bytes | Radio &rarr; Module | Read parameter chunk by ID and chunk index |
-| **`PARAMETER_SETTINGS_ENTRY`** | `0x2B` | Variable (8–50B) | Module &rarr; Radio | Parameter type, name, options string, value, status |
-| **`PARAMETER_WRITE`**| `0x2D` | 8 bytes | Radio &rarr; Module | Update select value or step command execution |
-| **`RC_CHANNELS_PACKED`** | `0x16` | 26 bytes | Radio &rarr; Module | 16-channel 11-bit packed RC stream at ~100 Hz |
-| **`LINK_STATISTICS`** | `0x14` | 14 bytes | Module &rarr; Radio | Downlink telemetry (RSSI 1/2, LQ, SNR, Power, Antenna) |
-| **`BATTERY_SENSOR`** | `0x08` | 12 bytes | Module &rarr; Radio | Flight pack voltage (0.1V), current (0.1A), capacity (mAh) |
-| **`VARIO`** | `0x07` | 4 bytes | Module &rarr; Radio | Vertical speed ($10\,\text{cm/s}$, signed 16-bit big-endian) |
-| **`BARO_ALTITUDE`** | `0x09` | 6 bytes | Module &rarr; Radio | Barometric altitude ($10{,}000\,\text{m}$ offset, unsigned 16-bit) |
+| **`PARAMETER_SETTINGS_ENTRY`** | `0x2B` | Variable (8–50B) | Module -> Radio | Parameter type, name, options string, value, status |
+| **`PARAMETER_WRITE`**| `0x2D` | 8 bytes | Radio -> Module | Update select value or step command execution |
+| **`RC_CHANNELS_PACKED`** | `0x16` | 26 bytes | Radio -> Module | 16-channel 11-bit packed RC stream at ~100 Hz |
+| **`LINK_STATISTICS`** | `0x14` | 14 bytes | Module -> Radio | Downlink telemetry (RSSI 1/2, LQ, SNR, Power, Antenna) |
+| **`BATTERY_SENSOR`** | `0x08` | 12 bytes | Module -> Radio | Flight pack voltage (0.1V), current (0.1A), capacity (mAh) |
+| **`VARIO`** | `0x07` | 4 bytes | Module -> Radio | Vertical speed (10 cm/s, signed 16-bit big-endian) |
+| **`BARO_ALTITUDE`** | `0x09` | 6 bytes | Module -> Radio | Barometric altitude (10,000 m offset, unsigned 16-bit) |
 
 ---
 
@@ -337,7 +341,7 @@ cargo test-host
 3. **Receiver Address Filter Acceptance (`test_rx_accepts_receiver_address_0xec`)**:
    - Verifies incoming frames addressed to `0xEC` (`CRSF_ADDRESS_CRSF_RECEIVER`) are ingested into `RX_BUF` rather than rejected.
 4. **Inter-Byte Timeout Resynchronization (`test_inter_byte_timeout_resync`)**:
-   - Verifies truncated partial frames hold during short pauses (<3 ms) and reset cleanly after $\ge 3\text{ ms}$ of bus silence, allowing the next valid frame to parse with 100% fidelity.
+   - Verifies truncated partial frames hold during short pauses (<3 ms) and reset cleanly after >= 3 ms of bus silence, allowing the next valid frame to parse with 100% fidelity.
 
 For full architectural details on dual-target execution, mock serial FIFOs, and deterministic timeout simulation, see the **[Testing Methodology & Verification Guide](TESTING.md)**.
 

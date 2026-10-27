@@ -50,7 +50,7 @@ A comprehensive guide to operating the `flysky-i6x-rs` firmware on the FlySky FS
 
 ### Power-On Startup & Splash Screen
 - **Ferrox-RC Splash Screen**: When the transmitter powers on, the LCD immediately displays the 28x27 Ferrox-RC kinetic delta emblem, firmware identifier (`flysky-i6x-rs`), and build version for 1200 ms while ADC, DMA, and RF peripherals initialize in the background.
-- **Synchronized Welcome Fanfare**: Concurrently with the splash screen, the buzzer plays a 4-note ascending fanfare ($C_6 \to E_6 \to G_6 \to C_7$, 660 ms) under the `Rich` tone style (or a single tactile click under `Simple`). The cadence is driven by monotonic SysTick elapsed time for consistent musical timing.
+- **Synchronized Welcome Fanfare**: Concurrently with the splash screen, the buzzer plays a 4-note ascending fanfare (C6 -> E6 -> G6 -> C7, 660 ms) under the `Rich` tone style (or a single tactile click under `Simple`). The cadence is driven by monotonic SysTick elapsed time for consistent musical timing.
 - **Watchdog Recovery Bypass (<2 ms)**: In the event of an in-flight watchdog reset, splash delays and melodic chimes are completely bypassed. An urgent 3-beep warning pattern sounds, and active RF control is restored in under 2 ms.
 
 ---
@@ -174,7 +174,7 @@ When any slot in `TELEM DASH SETUP` is customized from default, Page 5/5 automat
 | P5/5                      CUSTOM TELEM                      | <- Footer Bar (y=57..62)
 +-------------------------------------------------------------+
 ```
-- **Grid Layout**: 4 dedicated quadrants (Top-Left: $x=4, y=14$, Top-Right: $x=68, y=14$, Bottom-Left: $x=4, y=33$, Bottom-Right: $x=68, y=33$) separated by vertical ($x=64$) and horizontal ($y=31$) divider lines.
+- **Grid Layout**: 4 dedicated quadrants (Top-Left: x=4, y=14, Top-Right: x=68, y=14, Bottom-Left: x=4, y=33, Bottom-Right: x=68, y=33) separated by vertical (x=64) and horizontal (y=31) divider lines.
 - **15 Selectable Sensors**: Each quadrant can be independently assigned to any of the 15 available sensors via **`Radio Setup` -> `Telem Page: [SETUP]`**:
   1. **`RX BAT`**: Flight battery / receiver BEC voltage (`X.XXV` or `----` when disconnected).
   2. **`LQ/RSSI`**: Link Quality (`100%` in CRSF) or RSSI percentage (`100%` in AFHDS 2A).
@@ -222,9 +222,9 @@ All trim adjustments are debounced (2000 ms) and automatically saved to the acti
 Built-in acoustic soaring variometer providing real-time glider and thermal audio feedback directly from CRSF/ELRS (`0x07` Vario / `0x09` Baro Altitude) or AFHDS 2A/i-BUS (`0x09` Vspeed / `0x41`/`0x83`/`0xF9` Altitude) telemetry:
 
 - **Audio Characteristics**:
-  - **Lift / Climb**: High-frequency pulsing tones ($1000\,\text{Hz} \dots 2800\,\text{Hz}$). As thermal climb rate strengthens ($+0.2\,\text{m/s} \to +5.0\,\text{m/s}$), pitch rises and pulse cadence accelerates ($550\,\text{ms} \to 110\,\text{ms}$ cycle with 50% duty cycle) for intuitive spatial feedback without glancing at the screen.
+  - **Lift / Climb**: High-frequency pulsing tones (1000 Hz..2800 Hz). As thermal climb rate strengthens (+0.2 m/s -> +5.0 m/s), pitch rises and pulse cadence accelerates (550 ms -> 110 ms cycle with 50% duty cycle) for intuitive spatial feedback without glancing at the screen.
   - **Deadband**: Pure acoustic silence when vertical speed is between `-Sink DB` and `+Climb DB`, preventing nuisance beeping in calm, level air.
-  - **Sink / Sink Modes**: Low-frequency warning rumble ($400\,\text{Hz} \dots 200\,\text{Hz}$). Configurable in `VARIO SETUP` as periodic chirps (`BEEP`), continuous warning drone (`CONT`), or completely muted (`SILENT`).
+  - **Sink / Sink Modes**: Low-frequency warning rumble (400 Hz..200 Hz). Configurable in `VARIO SETUP` as periodic chirps (`BEEP`), continuous warning drone (`CONT`), or completely muted (`SILENT`).
 - **Smart Motor Mute**:
   - Automatically suppresses vario audio whenever throttle stick exceeds 10% (when `Motor Mute` is `YES`), ensuring quiet motor climbs and instant vario resumption the moment throttle is cut for thermal searching.
 - **Zero-Latency Hardware Preemption**:
@@ -277,7 +277,7 @@ Hold **`[OK]` for 1.2 seconds** from any flight screen to open the Settings Menu
 - **Field 4: Timer Trigger (`T-Trig:`)**:
   - Select the event that starts and runs the timer:
     - **`OFF`**: Timer disabled.
-    - **`THs (RUN)`**: Throttle Switch mode—runs only while throttle stick $> 5\%$ ($> -900$), pauses when brought back to idle.
+    - **`THs (RUN)`**: Throttle Switch mode—runs only while throttle stick > 5% (> -900), pauses when brought back to idle.
     - **`THt (LTCH)`**: Throttle Trigger / Latched mode—starts counting when throttle stick first exceeds 5%, and continues running non-stop throughout zero-throttle glides or multirotor descents.
     - **`ALWAYS ON`**: Continuous timer whenever the radio is powered on.
     - **Switch Conditions (`SA^` through `SDv`, plus `SE^..SFv`)**: Runs while the specified switch condition is active.
@@ -434,7 +434,7 @@ Configurable per-model in **`MODEL SETUP`** -> **`T-Trig:`**:
 | Mode | LCD Display | Trigger Behavior | Ideal Application |
 | :--- | :--- | :--- | :--- |
 | **Disabled** | `OFF` | Timer is completely disabled. | Bench testing / non-timed setups |
-| **Throttle Run** | `THs (RUN)` | Timer runs while throttle stick is $> 5\%$ ($> -900$), and **pauses** whenever throttle drops back to idle. | Electric airplanes & gliders where battery only discharges under motor power |
+| **Throttle Run** | `THs (RUN)` | Timer runs while throttle stick is > 5% (> -900), and **pauses** whenever throttle drops back to idle. | Electric airplanes & gliders where battery only discharges under motor power |
 | **Throttle Latched** | `THt (LTCH)` | Starts counting when throttle stick first exceeds 5%, and **latches ON**, continuously running throughout the flight even during low-throttle descents or inverted glides. | FPV quadcopters & aerobatic aircraft |
 | **Always On** | `ALWAYS ON` | Runs continuously whenever the transmitter is turned on. | Session duration / general stopwatch |
 | **Switch Condition** | `SA^` .. `SDv` | Runs while the assigned switch position is active; pauses when inactive. | Manual switch timing / glider thermaling |
@@ -468,7 +468,7 @@ The audio engine provides distinctive non-blocking tone patterns during flight:
 
 ### 5. Non-Visual Potentiometer Center Detent Haptics
 Because the FS-i6X hardware potentiometers (`VRA` and `VRB`) lack physical center detents, the firmware monitors knob rotation in real time:
-- Whenever `VRA` or `VRB` crosses through mechanical center ($0$), a subtle audio click (`2200 Hz`, 10 ms) sounds.
+- Whenever `VRA` or `VRB` crosses through mechanical center (0), a subtle audio click (`2200 Hz`, 10 ms) sounds.
 - Enables pilots wearing FPV goggles or maintaining visual line-of-sight on their model to center flaps, gimbal pitch, or gain dials without glancing at the screen.
 
 ---
@@ -596,8 +596,8 @@ The firmware includes five levels of proactive safety protection inspired by Ope
 ### 1. Pre-Flight Startup Checks (Throttle & Switch Safety Interlock)
 - **Normalized Safety Architecture**: Startup preflight checks operate strictly on normalized input channels rather than ad-hoc raw ADC limits, supporting all four radio stick modes (**Mode 1**, **Mode 2**, **Mode 3**, and **Mode 4**) configured in `RADIO SETUP` -> `Stick Mode:`.
 - **Model-Specific Rules**:
-  - **Airplane / Glider / Quad**: Unipolar throttle ($0\%\dots 100\%$). Requires throttle stick at or below **$\le 2\%$** ($20‰$). Displays `"THROTTLE NOT AT IDLE!"` if high.
-  - **General (Surface / Car / Boat)**: Bipolar throttle ($-100\%\dots +100\%$) for spring-centered gimbals. Checks that the throttle stick is centered within neutral deadband $\pm 2\%$ ($\pm 20‰$). Displays `"CENTER THROTTLE STICK!"` if displaced.
+  - **Airplane / Glider / Quad**: Unipolar throttle (0%..100%). Requires throttle stick at or below **<= 2%** (20‰). Displays `"THROTTLE NOT AT IDLE!"` if high.
+  - **General (Surface / Car / Boat)**: Bipolar throttle (-100%..+100%) for spring-centered gimbals. Checks that the throttle stick is centered within neutral deadband ±2% (±20‰). Displays `"CENTER THROTTLE STICK!"` if displaced.
   - **Helicopter**: Collective pitch / throttle curves. Requires **Throttle Hold switch (`SA` Down)** engaged on boot. Displays `"THROTTLE HOLD OFF!"` if disengaged.
 - **Switch Interlock**: Verifies all switches are in safe starting positions (`SA` Down for Helicopters; `SA`, `SB`, `SC`, `SD` UP for other models).
 - **In-Flight Throttle Safety Lockout**:

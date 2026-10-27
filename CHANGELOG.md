@@ -19,7 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Added serial CLI `storage` diagnostic and recovery command set over UART.
   - Cleaned up System Info page typography (8px uniform vertical pitch) and removed non-functional soft DFU entrance option.
 - **Global Variables (`GV1`..`GV5`) Architecture ([`src/mixer.rs`](src/mixer.rs), [`src/storage.rs`](src/storage.rs), [`src/ui/menu/screens/mixer.rs`](src/ui/menu/screens/mixer.rs))**:
-  - Added 5 persistent 16-bit Global Variables (`GV1` through `GV5`, range $-1000..+1000$) per model in `ModelConfig`.
+  - Added 5 persistent 16-bit Global Variables (`GV1` through `GV5`, range -1000..+1000) per model in `ModelConfig`.
   - Integrated Global Variables into the 32-line freeform matrix mixer as both inputs/sources and dynamic weight modulation sources.
   - Expanded `ModelConfig` from 348 B to 360 B with transparent zero-loss migration in `load_slot()`.
 - **Variometer Telemetry & Acoustic Pitch Audio Synthesis ([`src/telemetry/vario.rs`](src/telemetry/vario.rs), [`src/buzzer.rs`](src/buzzer.rs), [`src/telemetry/mod.rs`](src/telemetry/mod.rs), [`src/ui/menu/screens/model.rs`](src/ui/menu/screens/model.rs))**:
@@ -41,19 +41,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **32-Line Freeform Matrix Mixer & Dynamic Weight Modulation ([`src/mixer.rs`](src/mixer.rs), [`src/storage.rs`](src/storage.rs), [`src/ui/menu/screens/mixer.rs`](src/ui/menu/screens/mixer.rs))**:
   - Expanded freeform matrix mixer from 8 to 32 mix rules (`M01` through `M32`) per model.
   - Packed `MixLine` into an 8-byte layout (`target_ch`, `source`, `weight_src`, `weight`, `offset`, `switch`, `mode`, `_reserved`).
-  - Implemented Dynamic Weight Modulation (`weight_src`): scale mix authority dynamically via channels/knobs (`Fixed`, Bipolar `CH1`..`CH18` $-100\%..+100\%$, or Unipolar `CH1+`..`CH18+` $0..100\%$).
+  - Implemented Dynamic Weight Modulation (`weight_src`): scale mix authority dynamically via channels/knobs (`Fixed`, Bipolar `CH1`..`CH18` -100%..+100%, or Unipolar `CH1+`..`CH18+` 0..100%).
   - Updated mixer editor with 34-item viewport (`WING/MIXER`) and 7-field line editor (`EDIT MIX 01`..`32`).
 - **5-Point, 7-Point, and 9-Point Throttle & Collective Pitch Curves ([`src/curve.rs`](src/curve.rs), [`src/ui/menu/screens/mixer.rs`](src/ui/menu/screens/mixer.rs))**:
   - Switchable 5-point, 7-point, and 9-point throttle/pitch curves with real-time on-screen 49x37 curve graph visualization and active-point 3x3 indicator dot.
-  - Piecewise linear and $C^1$-continuous Catmull-Rom cubic Hermite spline smoothing with boundary tangent extrapolation.
-  - Smooth curve resampling when cycling between point counts ($5 \to 7 \to 9 \to 5$) preventing flat/zero dropoffs.
+  - Piecewise linear and C1-continuous Catmull-Rom cubic Hermite spline smoothing with boundary tangent extrapolation.
+  - Smooth curve resampling when cycling between point counts (5 -> 7 -> 9 -> 5) preventing flat/zero dropoffs.
 - **Dynamic Hardware & Channel Selection Filtering ([`src/storage.rs`](src/storage.rs), [`src/ui/menu/screens/mixer.rs`](src/ui/menu/screens/mixer.rs), [`src/ui/menu/screens/channels.rs`](src/ui/menu/screens/channels.rs), [`src/ui/menu/screens/model.rs`](src/ui/menu/screens/model.rs))**:
   - Dynamically filters selection lists for mixer sources, weight modulation channels, physical switches, switch conditions, and auxiliary channels based on active hardware configuration (`RadioConfig`) and model setup.
   - Automatically skips unconfigured expansion hardware (e.g. `SE`..`SWJ`, `VRC`..`VRF`) and inactive channels.
 - **Active-Model SRAM Cache Architecture ([`src/storage.rs`](src/storage.rs), [`src/ui/menu/mod.rs`](src/ui/menu/mod.rs))**:
   - Re-architected `RadioStorage` to cache only `RadioConfig` (140 B) and the active `ModelConfig` (348 B) in RAM (488 B total).
   - Reduced static RAM utilization from 82% to **42.0%**, liberating **9,496 bytes (>58.0%) of free stack headroom** on STM32F072.
-  - Added fast model slot name peeking and transparent in-place v1 (128 B) $\to$ v2 (348 B) EEPROM migration with CRC16 verification.
+  - Added fast model slot name peeking and transparent in-place v1 (128 B) -> v2 (348 B) EEPROM migration with CRC16 verification.
 - **Expanded Host Unit Test Suite**:
   - 132 automated tests passing on host (`cargo test-host`), verifying 32-line cascading mixes, dynamic weight modulation, 7-point splines, active-model caching, and dynamic hardware filtering.
 
@@ -89,14 +89,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - **Configurable 4-Tile Telemetry Dashboard (`CUSTOM TELEM`) ([`src/ui/dashboard/pages/telemetry.rs`](src/ui/dashboard/pages/telemetry.rs), [`src/ui/dashboard/mod.rs`](src/ui/dashboard/mod.rs))**:
-  - Implemented high-visibility 2x2 quadrant telemetry dashboard on Flight Page 5/5 (`CUSTOM TELEM`) with centered vertical ($x=64$) and horizontal ($y=31$) divider lines.
+  - Implemented high-visibility 2x2 quadrant telemetry dashboard on Flight Page 5/5 (`CUSTOM TELEM`) with centered vertical (x=64) and horizontal (y=31) divider lines.
   - Dynamically activates whenever telemetry slots are configured, retaining the legacy sensor list view when default slots are kept.
   - Added support for 13 selectable telemetry items: `RX BAT`, `LQ/RSSI`, `TX BAT`, `CURRENT`, `CAP mAh`, `TX PWR`, `SNR`, `PKT RATE`, `ANTENNA`, `PKTS TX`, `PKTS RX`, `TIMER`, and `OFF`.
   - Added live flight timer rendering (`TIMER`) within the telemetry dashboard, displaying `MM:SS` countdown or count-up directly within any quadrant.
 - **Dedicated Telemetry Dashboard Setup Menu ([`src/ui/menu/screens/setup.rs`](src/ui/menu/screens/setup.rs))**:
   - Added **`TELEM DASH SETUP`** configuration menu accessible directly from `Radio Setup` (item 13).
   - Configures four quadrant slots: `Top-L:`, `Top-R:`, `Btm-L:`, and `Btm-R:`.
-  - Resolved text overlap and guaranteed $\ge 36\text{ px}$ layout clearance across all slot label and sensor name combinations.
+  - Resolved text overlap and guaranteed >= 36 px layout clearance across all slot label and sensor name combinations.
   - Added automated host tests `test_telem_setup_no_text_overlap` and `test_telem_setup_full_cycle_and_timer` validating clearance and 13-item cycling.
 - **AFHDS 2A Transmitter RF Power Configuration ([`src/ui/menu/screens/setup.rs`](src/ui/menu/screens/setup.rs), [`src/storage.rs`](src/storage.rs), [`src/rf/mod.rs`](src/rf/mod.rs))**:
   - Added per-model configurable RF output power under `Protocol Setup`: `100mW (HI)`, `10mW (MID)`, `1mW (LOW)`, and `100uW (TST)` (range-test mode).
@@ -159,7 +159,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Gated over-the-air packet transmission until the flight pipeline has published its first calculated channel frame (`has_published`), preventing transmission of uninitialized zero-state channels on startup.
   - Implemented an atomic staleness watchdog counter (~115 ms / 30 consecutive ticks); if the flight loop stalls or fails to publish fresh frames, the RF engine automatically transitions to pre-configured failsafe channel pulses (`PACKET_FAILSAFE`).
 - **Warm Software Reset Panic Recovery ([`src/chip/mod.rs`](src/chip/mod.rs))**:
-  - Replaced infinite loop `panic_halt` with a rapid Cortex-M0 warm software reset (`AIRCR.SYSRESETREQ`), returning control to the flight loop in $<2\text{ ms}$ under DO-178C principles.
+  - Replaced infinite loop `panic_halt` with a rapid Cortex-M0 warm software reset (`AIRCR.SYSRESETREQ`), returning control to the flight loop in < 2 ms under DO-178C principles.
   - Added a battery-backed crash counter in RTC backup register `RTC->BKP0R` to guard against boot-loops (trips to diagnostic halt after 3 consecutive panics within 10 seconds).
 - **In-Flight Flash Write Protection & Safe RX ID Persistence ([`src/main.rs`](src/main.rs))**:
   - Strictly inhibited Flash writes while armed (`!pipeline.prev_armed`) to eliminate SPI bus contention, flash programming latency spikes, and CPU jitter during flight.
@@ -203,7 +203,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Implemented TX self-echo suppression in the `USART2` interrupt handler to automatically discard local transmitted bytes before routing incoming telemetry frames to `RX_RING`.
   - Added per-model `Duplex: Full (2W) / Half (1W)` selection in **Protocol Setup**, persisted in `ModelConfig.crsf_half_duplex` without altering the 128-byte model struct size.
 - **1.875M High-Speed Baud Rate for CRSF ([`src/crsf/uart.rs`](src/crsf/uart.rs), [`src/ui/menu/screens/setup.rs`](src/ui/menu/screens/setup.rs))**:
-  - Added `1.875M (Max)` (`1,875,000 bps`, divisor $\text{BRR} = 26$, 1.5% timing margin on 48 MHz MCU clock) for ultra-low latency telemetry and high-rate packet modes on compatible ExpressLRS modules and backpacks.
+  - Added `1.875M (Max)` (`1,875,000 bps`, divisor BRR = 26, 1.5% timing margin on 48 MHz MCU clock) for ultra-low latency telemetry and high-rate packet modes on compatible ExpressLRS modules and backpacks.
   - Harmonized ascending baud rate index sequence across storage, UART divisor, and UI: `115.2k (Low)`, `416.6k (TBS)`, `420k (ELRS)`, `921.6k (Fast)`, `1.875M (Max)`.
 - **UI Right-Alignment & Navigation Enhancements ([`src/ui/widgets.rs`](src/ui/widgets.rs), [`src/ui/menu/screens/setup.rs`](src/ui/menu/screens/setup.rs))**:
   - Right-aligned parameter items across **Radio Setup** and **Protocol Setup** (AFHDS 2A and CRSF) with symmetrical 2px inner margin (`draw_list_row_right`).
@@ -235,9 +235,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Ferrox-RC Power-On Splash Screen & Synchronized Fanfare ([`src/ui/splash.rs`](src/ui/splash.rs), [`src/ui/glyphs.rs`](src/ui/glyphs.rs), [`src/main.rs`](src/main.rs))**:
   - Kinetic 28x27 Ferrox-RC delta logo emblem rendered directly on LCD initialization with firmware name (`flysky-i6x-rs`) and version display.
   - 1200 ms non-blocking splash screen hold while ADC, DMA, and RF peripherals initialize in parallel.
-  - Concurrently triggered 4-note ascending fanfare chime ($C_6 \to E_6 \to G_6 \to C_7$, 660 ms) under `ToneStyle::Rich` (or tactile click under `Simple`).
+  - Concurrently triggered 4-note ascending fanfare chime (C6 -> E6 -> G6 -> C7, 660 ms) under `ToneStyle::Rich` (or tactile click under `Simple`).
   - Monotonic SysTick delta-time updates (`now.wrapping_sub(buzzer_last_ms)`) maintaining consistent musical cadence independent of MCU load or flash reads.
-  - DO-178C safety principle: warm watchdog recovery completely bypasses splash hold and melody to restore active RF control in $<2$ ms.
+  - DO-178C safety principle: warm watchdog recovery completely bypasses splash hold and melody to restore active RF control in < 2 ms.
 - **12x12 Material Design Glyph Icon System ([`src/ui/glyphs.rs`](src/ui/glyphs.rs))**:
   - Dedicated 12x12 vector glyphs for all model types: Airplane, Helicopter, Multirotor/Quad, Glider, and General/Boat.
   - System and telemetry glyphs for RF signal, battery level, timers, gimbals, channels, switches, settings, curves, and matrix mixer.
@@ -252,9 +252,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - High-visibility switch position arrow glyphs (`^` UP, `-` MID, `v` DOWN).
 - **Procedural Continuous Battery Gauge & Status Bar Layout Alignment ([`src/ui/glyphs.rs`](src/ui/glyphs.rs), [`src/ui/dashboard/status_bar.rs`](src/ui/dashboard/status_bar.rs), [`docs/USER_GUIDE.md`](docs/USER_GUIDE.md))**:
   - Implemented continuous procedural min-max subtraction algorithm (`((val_mv.saturating_sub(min_mv) * 8) / span).min(8)`) rendering an 8-pixel solid fill cavity without interior gap columns.
-  - Linear right-to-left fill orientation: fills from base ($x+9$) towards tip ($x+2$) as battery charges, emptying tip-to-base as cells deplete.
+  - Linear right-to-left fill orientation: fills from base (x+9) towards tip (x+2) as battery charges, emptying tip-to-base as cells deplete.
   - Zero `.rodata` tables: compiles down to ~32 bytes of Thumb-1 instructions, saving flash over bitmap tables and multi-branch match statements.
-  - Right-aligned power indicator cluster ($x=93..126$): voltage readout text (`X.YYV`, $x=93$) positioned left of the right-edge battery gauge ($x=116..126$), equalizing margins with the center RF/link status block ($x=64..83$) and left-aligned model name ($x=2..61$).
+  - Right-aligned power indicator cluster (x=93..126): voltage readout text (`X.YYV`, x=93) positioned left of the right-edge battery gauge (x=116..126), equalizing margins with the center RF/link status block (x=64..83) and left-aligned model name (x=2..61).
 - **`ModelType::General` Support ([`src/storage.rs`](src/storage.rs), [`src/main.rs`](src/main.rs), [`src/ui/menu/screens/model_setup.rs`](src/ui/menu/screens/model_setup.rs))**:
   - Added `General` model type for surface models (boats, rovers, cars, robotics) with dedicated ship icon glyph.
   - Pre-flight throttle safety interlocks adapted to bypass raised throttle warnings for spring-centered surface throttles.
@@ -315,7 +315,7 @@ Major feature release delivering 18-channel i-BUS over-the-air encoding and mixe
   - Dedicated `ActiveCommandState::Completed` state displaying final status strings (e.g. `[OK]`, `[Done]`, `[Failed]`) for ~2.5s or dismissed immediately on `[OK]` / `[ESC]` (per ExpressLRS Lua Issue #17).
 - **Clamped Info & String Parameter Rendering ([`src/ui/menu/screens/elrs.rs`](src/ui/menu/screens/elrs.rs))**:
   - Parsed `0x0C INFO` and `0x0A STRING` parameter values into the unified string pool.
-  - Right-aligned info values at $x = 124$ with dynamic character clamping and automatic fallback to `FONT_4X6` for long strings, strictly preventing right-edge display overflow.
+  - Right-aligned info values at x = 124 with dynamic character clamping and automatic fallback to `FONT_4X6` for long strings, strictly preventing right-edge display overflow.
   - Integrated split footer display (`draw_footer_split`) showing complete, un-truncated info strings when highlighted.
 - **Expanded CRSF Device Role Tags ([`src/crsf/protocol.rs`](src/crsf/protocol.rs), [`src/ui/menu/screens/elrs.rs`](src/ui/menu/screens/elrs.rs))**:
   - Expanded role tag strings from the TBS CRSF specification (`[TX]`, `[RX]`, `[FC]`, `[VTX]`, `[WIFI]`, `[ESC1..4]`, `[OSD]`, `[GIMB]`, `[BLU]`).
@@ -323,9 +323,9 @@ Major feature release delivering 18-channel i-BUS over-the-air encoding and mixe
 - **System Info Git Commit Hash Display ([`src/ui/menu/screens/diag.rs`](src/ui/menu/screens/diag.rs), [`build.rs`](build.rs))**:
   - Captured current shortened git commit hash during build and rendered `v0.18.0 (<hash>)` in small font on the System Info screen.
 - **EdgeTX-Parity Flight Timer Subsystem ([`src/main.rs`](src/main.rs), [`src/mixer.rs`](src/mixer.rs), [`src/storage.rs`](src/storage.rs))**:
-  - **Multi-Trigger Engine (`is_timer_active`)**: Supports `OFF`, `THs (RUN)` (active while throttle $> 5\%$), `THt (LTCH)` (latched running once throttle $> 5\%$), `ALWAYS ON` (continuous stopwatch), and switch conditions `SA^` through `SDv`.
+  - **Multi-Trigger Engine (`is_timer_active`)**: Supports `OFF`, `THs (RUN)` (active while throttle > 5%), `THt (LTCH)` (latched running once throttle > 5%), `ALWAYS ON` (continuous stopwatch), and switch conditions `SA^` through `SDv`.
   - **Arm Switch Integration**: Disarming unlatches and pauses the timer (freezing final flight time for post-landing review). Re-arming automatically resets the timer back to its configured duration and clears elapsed seconds for the next flight pack.
-  - **Visual Hold-to-Reset HUD Progress Modal**: Holding `[CANCEL]` for $\ge 1.0\text{ s}$ on any flight dashboard displays a centered modal with a 0..100% animated progress bar, confirmation tone, and `"TIMER RESET!"` toast.
+  - **Visual Hold-to-Reset HUD Progress Modal**: Holding `[CANCEL]` for >= 1.0 s on any flight dashboard displays a centered modal with a 0..100% animated progress bar, confirmation tone, and `"TIMER RESET!"` toast.
   - **Acoustic Countdown & Alarms**: 1-minute warning chimes, 10s..1s countdown tick beeps, zero-second elapsed alarm, and inverted/blinking negative overdue time display.
   - **Dashboard Navigation**: Added `[UP]` / `[DOWN]` keys to step between flight dashboard pages 1–4.
 - **Unipolar Throttle Mixer Source (`Thr+`) ([`src/mixer.rs`](src/mixer.rs))**:
@@ -335,7 +335,7 @@ Major feature release delivering 18-channel i-BUS over-the-air encoding and mixe
 - **Model Copy / Duplicate Utility ([`src/ui/menu/screens/model.rs`](src/ui/menu/screens/model.rs))**:
   - Added Field 5 (`Copy -> Mxx`) to `MODEL SETUP` allowing instant cloning of model configurations to other slots.
 - **Potentiometer Center Acoustic Detent ([`src/input.rs`](src/input.rs), [`src/buzzer.rs`](src/buzzer.rs))**:
-  - Emits a crisp non-blocking click tone (`2200 Hz`, 10 ms) whenever `VRA` or `VRB` crosses through neutral center ($0$).
+  - Emits a crisp non-blocking click tone (`2200 Hz`, 10 ms) whenever `VRA` or `VRB` crosses through neutral center (0).
 - **Wing/Tail Differential Mixing ([`src/mixer.rs`](src/mixer.rs))**:
   - Enabled active differential throw scaling using the `template_diff` parameter.
 
@@ -346,11 +346,11 @@ Major protocol and architecture release delivering full TBS Crossfire Protocol R
 
 ### Added
 - **Unified 255-Parameter Pool ([`src/crsf/mod.rs`](src/crsf/mod.rs))**:
-  - Expanded parameter capacity from 24 to the full protocol ceiling of **255 parameters** using an ultra-compact 12-byte descriptor table and a centralized 3.5 KB static string pool (`STRING_POOL`). Fully accommodates complex flight controllers (80+ parameters) and multi-channel PWM receivers (35+ parameters) while leaving $> 6.5\text{ KB}$ of free SRAM stack headroom.
+  - Expanded parameter capacity from 24 to the full protocol ceiling of **255 parameters** using an ultra-compact 12-byte descriptor table and a centralized 3.5 KB static string pool (`STRING_POOL`). Fully accommodates complex flight controllers (80+ parameters) and multi-channel PWM receivers (35+ parameters) while leaving > 6.5 KB of free SRAM stack headroom.
 - **CRSF / ExpressLRS Hidden Parameter Flag Support ([`src/crsf/mod.rs`](src/crsf/mod.rs))**:
   - Obeyed bit 7 (`0x80`) of the parameter type byte (`is_hidden()`) to filter out internal/unintended receiver configuration fields (such as internal UIDs) from folder navigation views.
 - **128×64 LCD Parameter Layout & Overlap Bugfix ([`src/ui/menu/screens/elrs.rs`](src/ui/menu/screens/elrs.rs))**:
-  - Dynamically calculated maximum name widths based on value length, right-aligned values ending cleanly at $x = 124$, eliminated the off-screen clipping bug, and cleanly stripped parenthetical sensitivity suffixes (e.g. `250Hz(-108dBm)` $\to$ `250Hz`) when line space is constrained.
+  - Dynamically calculated maximum name widths based on value length, right-aligned values ending cleanly at x = 124, eliminated the off-screen clipping bug, and cleanly stripped parenthetical sensitivity suffixes (e.g. `250Hz(-108dBm)` -> `250Hz`) when line space is constrained.
 - **Immediate High-Speed Query Dispatch ([`src/crsf/mod.rs`](src/crsf/mod.rs))**:
   - Outbound sequential parameter queries and multi-chunk requests are dispatched immediately upon receipt and validation of preceding chunks/parameters, eliminating artificial pacing delays and matching native TBS-Agent and ELRS Lua wire performance.
 - **Dynamic Device List Auto-Pruning ([`src/crsf/mod.rs`](src/crsf/mod.rs), [`src/ui/menu/screens/elrs.rs`](src/ui/menu/screens/elrs.rs))**:
@@ -399,7 +399,7 @@ Major protocol and architecture release delivering full TBS Crossfire Protocol R
 - **CRSF Receiver Wire Filter Acceptance ([`src/crsf/mod.rs`](src/crsf/mod.rs))**:
   - Added `CRSF_ADDRESS_CRSF_RECEIVER` (`0xEC`) to the frame start address filter in `poll_telemetry()`.
 - **Parser Inter-Byte Framing Timeout ([`src/crsf/mod.rs`](src/crsf/mod.rs))**:
-  - Added `LAST_RX_BYTE_MS` tracking. If $\ge 3\text{ ms}$ of bus silence elapses with an incomplete frame in `RX_BUF`, `RX_LEN` automatically resets to 0 to prevent parser desynchronization.
+  - Added `LAST_RX_BYTE_MS` tracking. If >= 3 ms of bus silence elapses with an incomplete frame in `RX_BUF`, `RX_LEN` automatically resets to 0 to prevent parser desynchronization.
 - **RadioMaster RP2 Receiver Device Info Ingestion ([`src/crsf/mod.rs`](src/crsf/mod.rs))**:
   - Verified and regression-tested real-world 27-byte capture from RadioMaster RP2 ExpressLRS receiver (`0xC8 0x19 0x29 0xEA 0xEE 52 4D 20 52 50 32 ... 15 00 0D`), ensuring proper parsing of `"RM RP2"`, 21 parameters, and generation of the outbound parameter read response.
 
@@ -413,7 +413,7 @@ Safety-critical release resolving the watchdog in-flight trap hazard by introduc
 ### Fixed
 - **Watchdog In-Flight Trap Resolution (`862dd55`)**:
   - **Hardware Reset Cause Latching ([`src/chip/mod.rs`](src/chip/mod.rs))**: Implemented `chip::check_and_clear_reset_flags()` to inspect STM32 `RCC_CSR` for `IWDGRSTF` (Independent Watchdog) and `WWDGRSTF` (Window Watchdog) status bits before atomically clearing all reset flags via `RMVF`.
-  - **$< 2\text{ ms}$ Flight Recovery Pipeline ([`src/main.rs`](src/main.rs))**:
+  - **< 2 ms Flight Recovery Pipeline ([`src/main.rs`](src/main.rs))**:
     - **DFU Settling Delay Bypass**: Skips `boot::check_dfu_entry` (eliminating ~6.25 ms contact debounce delay and preventing unintentional System ROM bootloader entry mid-flight) and calls `boot::init_keys()` directly.
     - **Interlock Invalidation**: Inhibits bind-on-boot and direct calibration wizard modal entry when rebooting from a watchdog event.
     - **Pre-Flight Safety Check Bypass**: Bypasses the throttle-at-idle and switch-position warning loop (`SAFETY WARNING!`), which previously trapped the transmitter in an infinite warning state with over-the-air channels locked to 1000 µs failsafe during mid-flight reboots.
@@ -498,7 +498,7 @@ Comprehensive architectural upgrade migrating the peripheral driver layer to dir
   - `src/ui/format.rs`: Shared zero-allocation stack formatters (`format_vbat`, `format_percent`, `format_throttle_percent`, `format_trim`, `u32_to_hex`, `u32_to_dec_5`, `u16_to_dec_4`, `i8_to_dec`, `u8_to_dec`).
   - `src/ui/dashboard/`: Modular 4-page live flight dashboard (`pages/gimbals.rs`, `pages/channels.rs`, `pages/model.rs`, `pages/telemetry.rs`, `status_bar.rs`).
   - `src/ui/menu/`: Modular settings menu decomposed into discrete screen controllers.
-  - Standardized 8-pixel footer geometry ($y = 55$ divider, $y = 62$ `FONT_4X6` baseline) across all flight dashboards and settings screens, eliminating text clipping on 128px displays.
+  - Standardized 8-pixel footer geometry (y = 55 divider, y = 62 `FONT_4X6` baseline) across all flight dashboards and settings screens, eliminating text clipping on 128px displays.
 - **Rich Audio & Switch Chimes (PR #4)**:
   - Melodic welcome and goodbye chimes with selectable tone styles (`RICH` vs `SIMPLE`).
   - Per-model configurable arm switch assignments and armed/disarmed audio notifications.
@@ -533,7 +533,7 @@ Comprehensive architectural upgrade migrating the peripheral driver layer to dir
 - **CRSF Protocol Framing & Sync Byte Compliance (`tbs-fpv/tbs-crsf-spec`)**:
   - **Serial Sync Byte Compliance (`0xC8`)**: Conformed all outgoing extended frames (`DEVICE_PING` 0x28, `PARAMETER_READ` 0x2C, `PARAMETER_WRITE` 0x2D) to start with `0xC8` (`CRSF_SYNC_BYTE`). Previously `build_ping_frame` emitted broadcast `0x00` on the wire and parameter frames emitted destination `0xEE`, causing external module serial parsers to discard packets.
   - **Frame Length Field Off-By-One Fix**: Corrected length field (`out_frame[1]`) from 5 to 6 in `build_param_read_frame()` and `build_param_write_frame()` to accurately encompass `Type (1) + Dest (1) + Origin (1) + Param (1) + Chunk/Val (1) + CRC (1) = 6` per TBS specification.
-  - **Unbounded Null-Terminator Search**: Fixed premature loop exit when scanning device and parameter names with lengths $\ge$ 20 or $\ge$ 16 bytes, preventing memory offset miscalculations when parsing parameter counts, options lists, and current values.
+  - **Unbounded Null-Terminator Search**: Fixed premature loop exit when scanning device and parameter names with lengths >= 20 or >= 16 bytes, preventing memory offset miscalculations when parsing parameter counts, options lists, and current values.
   - **Multi-Chunk Parameter Retrieval & Rapid Pipeline**: Automatically request subsequent parameter chunks when `chunks_remain > 0`, and immediately dispatch parameter 1 request upon receiving device info `0x29`.
   - **ELRS Status Keep-Alive**: Extended telemetry parser to accept and keep the telemetry connection alive on incoming `0x2E` (`CRSF_FRAMETYPE_ELRS_STATUS`) packets.
 ---
