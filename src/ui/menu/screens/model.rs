@@ -2,7 +2,7 @@
 
 use crate::buzzer::Buzzer;
 use crate::display::St7567;
-use crate::menu::format::{ascii_as_str, next_ascii, prev_ascii, u32_to_hex};
+use crate::menu::format::{ascii_as_str, next_ascii, prev_ascii};
 use crate::menu::widgets;
 use crate::menu::{MenuController, MenuState, NavKeys};
 use crate::rf;
@@ -117,7 +117,7 @@ pub fn update_setup(
     buzzer: &mut Buzzer,
 ) {
     let active_idx = storage.radio.active_model as usize;
-    const FIELD_COUNT: usize = 9;
+    const FIELD_COUNT: usize = 10;
 
     if !ctrl.editing {
         if keys.cancel {
@@ -178,12 +178,20 @@ pub fn update_setup(
                     buzzer.click();
                 }
                 7 => {
-                    ctrl.request_bind = true;
-                    ctrl.state = MenuState::Closed;
+                    // Open Telem Setup submenu
+                    ctrl.state = MenuState::TelemSetup;
+                    ctrl.selected_item = 0;
+                    ctrl.scroll_offset = 0;
                     buzzer.click();
-                    return;
                 }
                 8 => {
+                    // Open Protocol Setup (RxSetup)
+                    ctrl.state = MenuState::RxSetup;
+                    ctrl.selected_item = 0;
+                    ctrl.scroll_offset = 0;
+                    buzzer.click();
+                }
+                9 => {
                     storage.active_model = ModelConfig::default_for_index(active_idx);
                     storage::save_active_model(storage);
                     buzzer.play_tone_pattern(2200, 80, 50, 2);
@@ -400,14 +408,18 @@ pub fn update_setup(
                 lcd.draw_str_6x10(4, y, "Vario: [SETUP]", inverted);
             }
             7 => {
-                let mut rx_buf = [b'0'; 8];
-                u32_to_hex(storage.active_model.rx_id, &mut rx_buf);
-                let rx_hex_str = ascii_as_str(&rx_buf);
-                lcd.draw_str_6x10(4, y, "Rx:", inverted);
-                lcd.draw_str_6x10(24, y, rx_hex_str, inverted);
-                lcd.draw_str_6x10(74, y, "[OK Bind]", inverted);
+                lcd.draw_str_6x10(4, y, "Telemetry: [SETUP]", inverted);
             }
             8 => {
+                let proto_str = if storage.active_model.rf_protocol == 1 {
+                    "CRSF"
+                } else {
+                    "AFHDS2A"
+                };
+                lcd.draw_str_6x10(4, y, "Protocol:", inverted);
+                lcd.draw_str_6x10(64, y, proto_str, inverted);
+            }
+            9 => {
                 lcd.draw_str_6x10(4, y, "Reset: [OK Defaults]", inverted);
             }
             _ => {}
@@ -435,7 +447,7 @@ pub fn update_vario_setup(
     storage: &mut RadioStorage,
     buzzer: &mut Buzzer,
 ) {
-    const FIELD_COUNT: usize = 6;
+    const FIELD_COUNT: usize = 5;
 
     if !ctrl.editing {
         if keys.cancel {
@@ -494,27 +506,24 @@ pub fn update_vario_setup(
                     storage::save_active_model(storage);
                     buzzer.click();
                 }
-                5 => {
-                    // Audio Preview: plays a rising lift chirp
-                    buzzer.play_tone_pattern(2200, 60, 40, 3);
-                }
                 _ => {}
             }
         }
     } else {
-        // Switch editing mode
+        // Switch editing mode (0: OFF, 1: ON, 2..=23: SA^..SWJv)
         if let Some(sw) = keys.sw_change {
-            if storage.is_arm_switch_available(sw) {
-                storage.active_model.vario_switch = sw;
+            let vario_sw = sw + 1; // 1..=22 mapped to 2..=23
+            if storage.is_vario_switch_available(vario_sw) {
+                storage.active_model.vario_switch = vario_sw;
                 buzzer.chime_armed();
             }
         } else if keys.up {
             storage.active_model.vario_switch =
-                storage.next_available_arm_switch(storage.active_model.vario_switch);
+                storage.next_available_vario_switch(storage.active_model.vario_switch);
             buzzer.play_tone(2200, 20);
         } else if keys.down {
             storage.active_model.vario_switch =
-                storage.prev_available_arm_switch(storage.active_model.vario_switch);
+                storage.prev_available_vario_switch(storage.active_model.vario_switch);
             buzzer.play_tone(2200, 20);
         }
         if keys.ok || keys.cancel {
@@ -534,11 +543,12 @@ pub fn update_vario_setup(
 
         match idx {
             0 => {
-                let sw_idx = (storage.active_model.vario_switch as usize).min(14);
-                let sw_str = if sw_idx == 0 {
-                    "OFF"
-                } else {
-                    crate::ui::format::SWITCH_COND_NAMES[sw_idx]
+                let sw = storage.active_model.vario_switch;
+                let sw_str = match sw {
+                    0 => "OFF",
+                    1 => "ON",
+                    2..=23 => crate::ui::format::SWITCH_COND_NAMES[(sw - 1) as usize],
+                    _ => "OFF",
                 };
                 let is_sel = idx == ctrl.selected_item;
                 widgets::draw_list_row_right(lcd, slot, is_sel, "Switch:", Some(sw_str));

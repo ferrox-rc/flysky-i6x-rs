@@ -93,6 +93,7 @@ impl FlightPipeline {
         storage: &storage::RadioStorage,
         trims: &trim::TrimController,
         menu_active: bool,
+        is_vario_setup: bool,
         buzzer: &mut buzzer::Buzzer,
     ) -> FlightSnapshot {
         // 1. Poll continuous DMA analog and digital inputs (sub-microsecond)
@@ -210,7 +211,9 @@ impl FlightPipeline {
                 rssi: ct.uplink_link_quality,
                 rx_voltage_mv: ct.rx_battery_mv,
                 alt_m: ct.baro_alt_m,
+                alt_dm: ct.baro_alt_dm,
                 vspeed_cms: ct.vspeed_cms,
+                has_vspeed: ct.has_vspeed,
                 packets_sent: 0,
                 packets_received: 0,
             }
@@ -223,20 +226,24 @@ impl FlightPipeline {
         usb::poll(now, &rf_chs, &state.switches, &telem, state.battery_mv);
 
         // 9. Variometer Acoustic Evaluation & Background Audio Generation
-        if !menu_active {
+        let is_in_vario_setup = menu_active && is_vario_setup;
+        if !menu_active || is_in_vario_setup {
             let vario_cfg = storage.vario_config();
-            let sw_active = if vario_cfg.switch > 0 && vario_cfg.switch <= 14 {
-                mixer::eval_arm_switch(vario_cfg.switch, &state.switches)
-            } else {
-                false
+            let sw_active = match vario_cfg.switch {
+                0 => false,
+                1 => true,
+                sw @ 2..=23 => mixer::eval_arm_switch(sw - 1, &state.switches),
+                _ => false,
             };
             let thr_ch = rf_chs[2]; // CH3 Throttle in µs (1000..2000)
             let tone = self.vario.update(
                 now,
                 telem.alt_m,
+                telem.alt_dm,
                 telem.vspeed_cms,
+                telem.has_vspeed,
                 telem.connected,
-                sw_active,
+                sw_active || is_in_vario_setup,
                 thr_ch,
                 &vario_cfg,
             );
@@ -1207,8 +1214,9 @@ fn main() -> ! {
             }
         }
 
+        let is_vario_setup = menu_controller.is_vario_setup();
         // Tier 1: High-Rate Flight Pipeline Tick (multi-kHz)
-        let flight_snapshot = pipeline.tick(now, storage, &trims, menu_active, &mut buzzer);
+        let flight_snapshot = pipeline.tick(now, storage, &trims, menu_active, is_vario_setup, &mut buzzer);
 
         // Tier 2: Background Idle & UI Tick (30 Hz rate-governed)
         idle_manager.tick(

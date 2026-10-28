@@ -50,7 +50,9 @@ pub struct TelemetryData {
     pub rssi: u8,           // 0..100%
     pub rx_voltage_mv: u16, // in millivolts (e.g. 5000 for 5.00V)
     pub alt_m: i16,         // in meters (e.g. 150 for 150m)
+    pub alt_dm: i16,        // in decimeters (0.1m, e.g. 1500 for 150.0m)
     pub vspeed_cms: i16,    // in cm/s (e.g. +120 for +1.2 m/s)
+    pub has_vspeed: bool,   // true if explicit vertical speed is reported by telemetry
     pub packets_sent: u32,
     pub packets_received: u32,
 }
@@ -68,7 +70,9 @@ impl TelemetryData {
             rssi: 0,
             rx_voltage_mv: 0,
             alt_m: 0,
+            alt_dm: 0,
             vspeed_cms: 0,
+            has_vspeed: false,
             packets_sent: 0,
             packets_received: 0,
         }
@@ -514,10 +518,13 @@ impl Afhds2a {
                     0x09 => {
                         // Climb / Vertical speed (signed 16-bit in 0.1 m/s = 10 cm/s units)
                         self.telemetry.vspeed_cms = (val as i16) * 10;
+                        self.telemetry.has_vspeed = true;
                     }
                     0x41 | 0x83 | 0xF9 => {
                         // Altitude sensor (signed 16-bit altitude in meters)
-                        self.telemetry.alt_m = val as i16;
+                        let alt = val as i16;
+                        self.telemetry.alt_m = alt;
+                        self.telemetry.alt_dm = alt.saturating_mul(10);
                     }
                     0xFE => {
                         // Link Quality indicator (100 - error_rate)

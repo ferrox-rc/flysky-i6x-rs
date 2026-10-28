@@ -56,10 +56,10 @@ pub const ADAPTIVE_CH_NAMES: [&str; 10] = ["A", "B", "C", "D", "1", "2", "3", "4
 
 pub const AUX_SOURCES: &[u8] = &[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 31, 32, 35, 36, 37, 38];
 
-pub const SETUP_ITEMS: usize = 17;
+pub const SETUP_ITEMS: usize = 16;
 pub const INPUT_SETUP_RETURN: (usize, usize) = (13, 10);
-pub const TELEM_SETUP_RETURN: (usize, usize) = (14, 10);
-pub const PPM_OUT_SETUP_IDX: usize = 15;
+pub const PPM_OUT_SETUP_IDX: usize = 14;
+pub const PPM_IN_SETUP_IDX: usize = 15;
 
 /// Early board initialization (no-op on FS-i6X, physical power switch).
 #[inline(always)]
@@ -232,18 +232,12 @@ pub fn handle_board_setup_ok(
         }
         14 => {
             buzzer.click();
-            ctrl.state = MenuState::TelemSetup;
-            ctrl.selected_item = 0;
-            ctrl.scroll_offset = 0;
-        }
-        15 => {
-            buzzer.click();
             let en = !storage.radio.is_ppm_out_enabled();
             storage.radio.set_ppm_out_enabled(en);
             crate::trainer::set_ppm_out(en);
             crate::storage::save_radio_config(storage);
         }
-        16 => {
+        15 => {
             buzzer.click();
             let en = !storage.radio.is_ppm_in_enabled();
             storage.radio.set_ppm_in_enabled(en);
@@ -308,9 +302,6 @@ pub fn draw_board_setup_row(
             widgets::draw_list_row_right(lcd, slot, is_sel, "Input Setup", Some(">"));
         }
         14 => {
-            widgets::draw_list_row_right(lcd, slot, is_sel, "Telem Setup", Some(">"));
-        }
-        15 => {
             let ppm_str = if storage.radio.is_ppm_out_enabled() {
                 "ON (PF10)"
             } else {
@@ -318,7 +309,7 @@ pub fn draw_board_setup_row(
             };
             widgets::draw_list_row_right(lcd, slot, is_sel, "PPM Out:", Some(ppm_str));
         }
-        16 => {
+        15 => {
             let trn_str = if storage.radio.is_ppm_in_enabled() {
                 "ON (SD DN)"
             } else {
