@@ -5,6 +5,14 @@ All notable changes to the `flysky-i6x-rs` project will be documented in this fi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.1] - 2026-10-27
+
+### Added
+- **ExpressLRS / CRSF Switch-Based Arming (`0x16` Extended Frame) ([`src/crsf/protocol.rs`](src/crsf/protocol.rs), [`src/crsf/mod.rs`](src/crsf/mod.rs), [`src/storage.rs`](src/storage.rs), [`src/ui/menu/screens/setup.rs`](src/ui/menu/screens/setup.rs))**:
+  - Implemented the ExpressLRS 4.0+ extended `0x16` RC channels packet appending a 23rd payload status byte (`CRSF_CHANNELS_STATUS_ARMED`, 27-byte wire frame) to communicate arming state directly from the transmitter.
+  - Added configurable `Arm Mode: CH5 (Std) / Switch` toggle under `PROTOCOL SETUP -> CRSF` to freely select between legacy Channel 5 arming and switch-based arming without locking `CH5` (`AUX1`).
+  - Extended arm switch selection to all 22 transmitter switch positions (`SA^`..`SWJv`), enabling `SG`/`SH` on header `J4` or `SWI`/`SWJ` on `P7` to act as dedicated arm switches.
+
 ## [0.26.0] - 2026-10-26
 
 ### Added

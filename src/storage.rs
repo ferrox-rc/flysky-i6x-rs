@@ -431,12 +431,13 @@ pub struct ModelConfig {
     pub failsafe_timeout: u8, // 337: 10..50 (1.0s..5.0s)
     pub rf_protocol: u8,  // 338: 0: AFHDS 2A, 1: CRSF / ELRS
     pub crsf_baud: u8,    // 339: 0: 115.2k, 1: 416.6k, 2: 420k, 3: 921.6k, 4: 1.875M
-    pub arm_switch: u8,   // 340: 0: None, 1..14: SA^..SFv
+    pub arm_switch: u8,   // 340: 0: None, 1..22: SA^..SWJv
     pub rx_out_mode: u8,  // 341: 0: PWM, 1: PPM (default 0)
     pub servo_rate_hz: u16, // 342..344: 50..400 Hz (default 50 Hz)
     pub rx_serial_proto: u8, // 344: 0: i-BUS, 1: S.BUS (default 0)
     pub crsf_half_duplex: u8, // 345: 0: Full-Duplex (2-Wire), 1: Half-Duplex (1-Wire)
-    pub _pad_end: [u8; 2], // 346..348: Align struct to 2-byte boundary
+    pub crsf_arm_mode: u8, // 346: 0: CH5 (Standard 22B payload), 1: Switch (Extended 23B payload with arm flag)
+    pub _pad_end: [u8; 1], // 347..348: Align struct to 2-byte boundary
     pub gvars: [i16; 5],  // 348..358: Global Variables GV1..GV5 (-1000..+1000)
     pub vario_switch: u8, // 358: 0: Off, 1..=14: SA^..SFv (activation switch)
     pub vario_climb_deadband: u8, // 359: Climb deadband in 0.1 m/s (default 2 = +0.2 m/s)
@@ -487,7 +488,8 @@ impl ModelConfig {
             rx_out_mode: 0,
             rx_serial_proto: 0,
             crsf_half_duplex: 0,
-            _pad_end: [0; 2],
+            crsf_arm_mode: 0,
+            _pad_end: [0; 1],
             gvars: [0; 5],
             vario_switch: 0,
             vario_climb_deadband: 2,
@@ -901,35 +903,35 @@ impl RadioStorage {
         cur
     }
 
-    /// Check if an Arm Switch condition (0..=14: 0: None, 1..=14: SA^..SFv) is available.
+    /// Check if an Arm Switch condition (0..=22: 0: None, 1..=22: SA^..SWJv) is available.
     pub fn is_arm_switch_available(&self, sw: u8) -> bool {
         match sw {
             0 => true, // None
-            1..=14 => self.is_switch_cond_available(sw),
+            1..=22 => self.is_switch_cond_available(sw),
             _ => false,
         }
     }
 
-    /// Cycle to next available Arm Switch (0..=14).
+    /// Cycle to next available Arm Switch (0..=22).
     pub fn next_available_arm_switch(&self, cur: u8) -> u8 {
-        let mut candidate = (cur + 1) % 15;
+        let mut candidate = (cur + 1) % 23;
         while candidate != cur {
             if self.is_arm_switch_available(candidate) {
                 return candidate;
             }
-            candidate = (candidate + 1) % 15;
+            candidate = (candidate + 1) % 23;
         }
         cur
     }
 
-    /// Cycle to previous available Arm Switch (0..=14).
+    /// Cycle to previous available Arm Switch (0..=22).
     pub fn prev_available_arm_switch(&self, cur: u8) -> u8 {
-        let mut candidate = if cur == 0 { 14 } else { cur - 1 };
+        let mut candidate = if cur == 0 { 22 } else { cur - 1 };
         while candidate != cur {
             if self.is_arm_switch_available(candidate) {
                 return candidate;
             }
-            candidate = if candidate == 0 { 14 } else { candidate - 1 };
+            candidate = if candidate == 0 { 22 } else { candidate - 1 };
         }
         cur
     }
@@ -1076,6 +1078,9 @@ impl RadioStorage {
         if m.crsf_half_duplex > 1 {
             m.crsf_half_duplex = 0;
         }
+        if m.crsf_arm_mode > 1 {
+            m.crsf_arm_mode = 0;
+        }
         for axis in 0..3 {
             if m.dr_high[axis] < 30 || m.dr_high[axis] > 100 {
                 m.dr_high[axis] = 100;
@@ -1127,7 +1132,7 @@ impl RadioStorage {
             m.thr_curve_pts = 5;
             m.thr_curve = [0, 25, 50, 75, 100, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
         }
-        if m.arm_switch > 14 {
+        if m.arm_switch > 22 {
             m.arm_switch = 0;
         }
         if m.timer_source > 17 {
