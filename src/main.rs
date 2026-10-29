@@ -214,6 +214,13 @@ impl FlightPipeline {
                 alt_dm: ct.baro_alt_dm,
                 vspeed_cms: ct.vspeed_cms,
                 has_vspeed: ct.has_vspeed,
+                rpm: ct.rpm,
+                temp_c_x10: ct.temp_c_x10,
+                last_rx_voltage_ms: ct.last_vbat_ms,
+                last_alt_ms: ct.last_alt_ms,
+                last_vspd_ms: ct.last_vspd_ms,
+                last_rpm_ms: ct.last_rpm_ms,
+                last_temp_ms: ct.last_temp_ms,
                 packets_sent: 0,
                 packets_received: 0,
             }
@@ -734,6 +741,7 @@ impl BackgroundIdleManager {
         let frame_keys = self.board_idle.take_frame_keys(keys, menu_active);
 
         self.render_display_frame(
+            now,
             lcd,
             frame_keys,
             dt_ms,
@@ -752,6 +760,7 @@ impl BackgroundIdleManager {
     #[allow(clippy::too_many_arguments)]
     fn render_display_frame(
         &mut self,
+        now: u32,
         lcd: &mut St7567,
         keys: u16,
         dt_ms: u16,
@@ -825,6 +834,7 @@ impl BackgroundIdleManager {
                 timer_str,
                 timer_expired,
                 buzzer,
+                now,
             );
 
             if self.timer_reset_toast_ms > 0 {

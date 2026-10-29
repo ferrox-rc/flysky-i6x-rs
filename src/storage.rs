@@ -1196,8 +1196,8 @@ impl RadioStorage {
             m.vario_switch = 0;
         }
         for slot in m.telem_slots.iter_mut() {
-            if *slot > 14 {
-                *slot = 14; // OFF
+            if *slot > 22 {
+                *slot = 22; // OFF
             }
         }
         if m.vario_climb_deadband < 1 || m.vario_climb_deadband > 10 {
@@ -2437,9 +2437,9 @@ mod tests {
     #[test]
     fn test_telem_slots_sanitize() {
         let mut storage = RadioStorage::default_factory();
-        storage.active_model.telem_slots = [0, 11, 14, 15];
+        storage.active_model.telem_slots = [0, 11, 22, 23];
         storage.sanitize();
-        assert_eq!(storage.active_model.telem_slots, [0, 11, 14, 14]);
+        assert_eq!(storage.active_model.telem_slots, [0, 11, 22, 22]);
     }
 
     #[test]
