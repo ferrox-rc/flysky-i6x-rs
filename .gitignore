@@ -1,6 +1,7 @@
 /target
 /bak
 /ELRSdata
+/anti-slop
 *.elf
 *.bin
 *.hex
