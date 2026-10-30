@@ -145,6 +145,11 @@ impl MenuController {
         self.state != MenuState::Closed
     }
 
+    /// Returns true if the vario setup screen is currently open.
+    pub fn is_vario_setup(&self) -> bool {
+        self.state == MenuState::VarioSetup
+    }
+
     /// Process navigation keys, update menu state, and render display.
     #[inline(never)]
     #[allow(clippy::too_many_arguments)]
@@ -810,7 +815,7 @@ mod tests {
         ctrl.selected_item = 0;
         ctrl.scroll_offset = 0;
 
-        assert_eq!(storage.radio.telem_slots, [0, 1, 2, 3]);
+        assert_eq!(storage.active_model.telem_slots, [0, 1, 2, 3]);
 
         let mut nav = NavKeys {
             ok: true,
@@ -825,7 +830,7 @@ mod tests {
 
         // Press OK on slot 0 -> cycle to 1 (LQ / RSSI)
         screens::setup::update_telem_setup(&mut ctrl, &mut lcd, &nav, &mut storage, &mut buzzer);
-        assert_eq!(storage.radio.telem_slots[0], 1);
+        assert_eq!(storage.active_model.telem_slots[0], 1);
 
         // Move down to slot 1
         nav.ok = false;
@@ -837,14 +842,14 @@ mod tests {
         nav.down = false;
         nav.ok = true;
         screens::setup::update_telem_setup(&mut ctrl, &mut lcd, &nav, &mut storage, &mut buzzer);
-        assert_eq!(storage.radio.telem_slots[1], 2);
+        assert_eq!(storage.active_model.telem_slots[1], 2);
 
-        // Press Cancel -> return to RadioSetup
+        // Press Cancel -> return to ModelSetup
         nav.ok = false;
         nav.cancel = true;
         screens::setup::update_telem_setup(&mut ctrl, &mut lcd, &nav, &mut storage, &mut buzzer);
-        assert_eq!(ctrl.state, MenuState::RadioSetup);
-        assert_eq!(ctrl.selected_item, crate::hw::TELEM_SETUP_RETURN.0);
+        assert_eq!(ctrl.state, MenuState::ModelSetup);
+        assert_eq!(ctrl.selected_item, 7);
     }
 
     #[test]
@@ -869,8 +874,8 @@ mod tests {
             pot_change: None,
         };
 
-        // Cycle through all 15 sensor slots on slot 0: starts at 0
-        for expected in 1..=14 {
+        // Cycle through all 23 sensor slots on slot 0: starts at 0
+        for expected in 1..=22 {
             screens::setup::update_telem_setup(
                 &mut ctrl,
                 &mut lcd,
@@ -878,17 +883,25 @@ mod tests {
                 &mut storage,
                 &mut buzzer,
             );
-            assert_eq!(storage.radio.telem_slots[0], expected);
+            assert_eq!(storage.active_model.telem_slots[0], expected);
         }
-        // Slot 11 is TIMER, Slot 12 is VSPD, Slot 13 is ALT, Slot 14 is OFF
+        // Slot 11 is TIMER, Slot 12 is VSPD, Slot 13 is ALT, Slot 14 is CELLS, ..., Slot 22 is OFF
         assert_eq!(screens::setup::TELEM_SENSOR_NAMES[11], "TIMER");
         assert_eq!(screens::setup::TELEM_SENSOR_NAMES[12], "VSPD");
         assert_eq!(screens::setup::TELEM_SENSOR_NAMES[13], "ALT");
-        assert_eq!(screens::setup::TELEM_SENSOR_NAMES[14], "OFF");
+        assert_eq!(screens::setup::TELEM_SENSOR_NAMES[14], "CELLS");
+        assert_eq!(screens::setup::TELEM_SENSOR_NAMES[15], "RPM");
+        assert_eq!(screens::setup::TELEM_SENSOR_NAMES[16], "TEMP");
+        assert_eq!(screens::setup::TELEM_SENSOR_NAMES[17], "GSPD");
+        assert_eq!(screens::setup::TELEM_SENSOR_NAMES[18], "SATS");
+        assert_eq!(screens::setup::TELEM_SENSOR_NAMES[19], "HDG");
+        assert_eq!(screens::setup::TELEM_SENSOR_NAMES[20], "PITCH");
+        assert_eq!(screens::setup::TELEM_SENSOR_NAMES[21], "ROLL");
+        assert_eq!(screens::setup::TELEM_SENSOR_NAMES[22], "OFF");
 
         // Next cycle wraps back to 0 (RX BAT)
         screens::setup::update_telem_setup(&mut ctrl, &mut lcd, &nav, &mut storage, &mut buzzer);
-        assert_eq!(storage.radio.telem_slots[0], 0);
+        assert_eq!(storage.active_model.telem_slots[0], 0);
         assert_eq!(screens::setup::TELEM_SENSOR_NAMES[0], "RX BAT");
     }
 

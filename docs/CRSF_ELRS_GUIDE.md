@@ -40,6 +40,11 @@ Selectable in `9. Protocol Setup` -> `Duplex:`:
 - **Full (2-Wire)** (Default): Standard CRSF wiring using `PD5` (TX) and `PA15` (RX).
 - **Half (1-Wire)**: Single-wire bidirectional serial over `PD5` via STM32 hardware `HDSEL`. In this mode, `PD5` is driven in open-drain with internal pull-up, and transmitted self-echo bytes are automatically suppressed in the interrupt handler. `PA15` remains unasserted, simplifying wiring for compact single-wire micro modules and backpacks.
 
+### Arming Mode (CH5 vs. Switch-Based Arming)
+Configured per-model in `9. Protocol Setup` -> `Arm Mode:`:
+- **`CH5 (Std)`**: Classic ExpressLRS and TBS Crossfire arming via `CH5` (`AUX1`). Sends the standard 26-byte `0x16` frame with 22-byte channel payload.
+- **`Switch`**: Modern ExpressLRS 4.0+ switch-based arming. Sends the extended 27-byte `0x16` frame with an additional status byte containing `CRSF_CHANNELS_STATUS_ARMED` (`bit 0`). The arm state is driven directly by the model's configured `Arm Sw` (`Model Setup`), freeing `CH5` to be used as a full proportional channel for pan/tilt, flaps, flight modes, or extra switches.
+
 ---
 
 ## 2. Flight Dashboard: Native CRSF Link Diagnostics

@@ -86,6 +86,7 @@ impl DashboardController {
         timer_str: Option<&str>,
         timer_expired: bool,
         buzzer: &mut Buzzer,
+        now_ms: u32,
     ) {
         lcd.clear_buffer();
 
@@ -121,7 +122,7 @@ impl DashboardController {
             ),
             1 => pages::channels::render(lcd, rf_chs, is_binding, 0),
             2 => pages::channels::render(lcd, rf_chs, is_binding, 1),
-            3 => pages::model::render(lcd, storage, telem, is_binding),
+            3 => pages::model::render(lcd, storage, telem, is_binding, now_ms),
             _ => {
                 let is_crsf = storage.active_model().rf_protocol == 1;
                 pages::telemetry::render(
@@ -135,6 +136,7 @@ impl DashboardController {
                     self.telem_seen,
                     is_binding,
                     timer_str,
+                    now_ms,
                 );
             }
         }
@@ -183,7 +185,7 @@ mod tests {
         let mut storage = RadioStorage::default_factory();
         let telem = TelemetryData::default();
 
-        storage.radio.telem_slots = [4, 5, 6, 11]; // Custom slots: CAPACITY, TX POWER, SNR, TIMER
+        storage.active_model.telem_slots = [4, 5, 6, 11]; // Custom slots: CAPACITY, TX POWER, SNR, TIMER
 
         pages::telemetry::render(
             &mut lcd,
@@ -196,6 +198,60 @@ mod tests {
             false,
             false,
             Some("05:32"),
+            10000,
         );
+    }
+
+    #[test]
+    fn test_dashboard_stale_telemetry_indicator() {
+        let mut lcd = St7567::new();
+        let mut storage = RadioStorage::default_factory();
+        // Custom slots: RPM (15), TEMP (16), VSPD (12), ALT (13)
+        storage.active_model.telem_slots = [15, 16, 12, 13];
+
+        let mut telem = TelemetryData::default();
+        telem.connected = true;
+        telem.rpm = 4500;
+        telem.last_rpm_ms = 1000;
+        telem.temp_c_x10 = 350; // 35.0 C
+        telem.last_temp_ms = 1000;
+        telem.vspeed_cms = 150;
+        telem.last_vspd_ms = 1000;
+        telem.alt_m = 120;
+        telem.last_alt_ms = 1000;
+
+        // Render at 2000ms: only 1000ms elapsed (< 2500ms) -> Live, no stale indicator
+        pages::telemetry::render(
+            &mut lcd, &storage, false, &telem, 4000, 100, 4000, true, false, None, 2000,
+        );
+
+        // Render at 5000ms: 4000ms elapsed (>= 2500ms) -> Stale, displays last known values with *
+        pages::telemetry::render(
+            &mut lcd, &storage, false, &telem, 4000, 100, 4000, true, false, None, 5000,
+        );
+    }
+
+    #[test]
+    fn test_model_dashboard_stale_telemetry_indicator() {
+        let mut lcd = St7567::new();
+        let storage = RadioStorage::default_factory();
+
+        let mut telem = TelemetryData::default();
+        telem.connected = true;
+        telem.rx_voltage_mv = 12600;
+        telem.last_rx_voltage_ms = 1000;
+        telem.rssi = 99;
+
+        // Render at 2000ms: 1000ms elapsed (< 2500ms) -> Live, no stale indicator
+        pages::model::render(&mut lcd, &storage, &telem, false, 2000);
+
+        // Render at 5000ms: 4000ms elapsed (>= 2500ms) -> Stale, displays last known values with *
+        pages::model::render(&mut lcd, &storage, &telem, false, 5000);
+
+        // Also test CRSF mode (rf_protocol = 1)
+        let mut storage_crsf = RadioStorage::default_factory();
+        storage_crsf.active_model.rf_protocol = 1;
+        pages::model::render(&mut lcd, &storage_crsf, &telem, false, 2000);
+        pages::model::render(&mut lcd, &storage_crsf, &telem, false, 5000);
     }
 }

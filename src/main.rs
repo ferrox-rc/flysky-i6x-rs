@@ -93,6 +93,7 @@ impl FlightPipeline {
         storage: &storage::RadioStorage,
         trims: &trim::TrimController,
         menu_active: bool,
+        is_vario_setup: bool,
         buzzer: &mut buzzer::Buzzer,
     ) -> FlightSnapshot {
         // 1. Poll continuous DMA analog and digital inputs (sub-microsecond)
@@ -113,7 +114,7 @@ impl FlightPipeline {
         let mut just_disarmed = false;
         let is_armed = mixer::eval_arm_switch(active_model.arm_switch, &state.switches);
         if active_model.arm_switch > 0
-            && active_model.arm_switch <= 14
+            && active_model.arm_switch <= 22
             && is_armed != self.prev_armed
         {
             if is_armed {
@@ -189,7 +190,8 @@ impl FlightPipeline {
                 active_model.crsf_half_duplex != 0,
             );
             if crsf_active {
-                crsf::update_channels(now, &rf_chs);
+                let arm_mode_switch = active_model.crsf_arm_mode != 0;
+                crsf::update_channels(now, &rf_chs, arm_mode_switch, is_armed);
                 crsf::poll_telemetry(now);
             }
             rf::set_silenced(true);
@@ -209,7 +211,16 @@ impl FlightPipeline {
                 rssi: ct.uplink_link_quality,
                 rx_voltage_mv: ct.rx_battery_mv,
                 alt_m: ct.baro_alt_m,
+                alt_dm: ct.baro_alt_dm,
                 vspeed_cms: ct.vspeed_cms,
+                has_vspeed: ct.has_vspeed,
+                rpm: ct.rpm,
+                temp_c_x10: ct.temp_c_x10,
+                last_rx_voltage_ms: ct.last_vbat_ms,
+                last_alt_ms: ct.last_alt_ms,
+                last_vspd_ms: ct.last_vspd_ms,
+                last_rpm_ms: ct.last_rpm_ms,
+                last_temp_ms: ct.last_temp_ms,
                 packets_sent: 0,
                 packets_received: 0,
             }
@@ -222,20 +233,24 @@ impl FlightPipeline {
         usb::poll(now, &rf_chs, &state.switches, &telem, state.battery_mv);
 
         // 9. Variometer Acoustic Evaluation & Background Audio Generation
-        if !menu_active {
+        let is_in_vario_setup = menu_active && is_vario_setup;
+        if !menu_active || is_in_vario_setup {
             let vario_cfg = storage.vario_config();
-            let sw_active = if vario_cfg.switch > 0 && vario_cfg.switch <= 14 {
-                mixer::eval_arm_switch(vario_cfg.switch, &state.switches)
-            } else {
-                false
+            let sw_active = match vario_cfg.switch {
+                0 => false,
+                1 => true,
+                sw @ 2..=23 => mixer::eval_arm_switch(sw - 1, &state.switches),
+                _ => false,
             };
             let thr_ch = rf_chs[2]; // CH3 Throttle in µs (1000..2000)
             let tone = self.vario.update(
                 now,
                 telem.alt_m,
+                telem.alt_dm,
                 telem.vspeed_cms,
+                telem.has_vspeed,
                 telem.connected,
-                sw_active,
+                sw_active || is_in_vario_setup,
                 thr_ch,
                 &vario_cfg,
             );
@@ -627,7 +642,7 @@ impl BackgroundIdleManager {
         }
 
         // Arm Switch transitions: auto-reset upon Arming, unlatch upon Disarming
-        if model.arm_switch > 0 && model.arm_switch <= 14 {
+        if model.arm_switch > 0 && model.arm_switch <= 22 {
             if flight.just_armed {
                 self.timer_remaining_secs = model.timer_secs;
                 self.timer_elapsed_secs = 0;
@@ -682,7 +697,7 @@ impl BackgroundIdleManager {
         }
 
         // Evaluate timer trigger condition
-        let is_armed_or_unassigned = if model.arm_switch > 0 && model.arm_switch <= 14 {
+        let is_armed_or_unassigned = if model.arm_switch > 0 && model.arm_switch <= 22 {
             flight.is_armed
         } else {
             true
@@ -726,6 +741,7 @@ impl BackgroundIdleManager {
         let frame_keys = self.board_idle.take_frame_keys(keys, menu_active);
 
         self.render_display_frame(
+            now,
             lcd,
             frame_keys,
             dt_ms,
@@ -744,6 +760,7 @@ impl BackgroundIdleManager {
     #[allow(clippy::too_many_arguments)]
     fn render_display_frame(
         &mut self,
+        now: u32,
         lcd: &mut St7567,
         keys: u16,
         dt_ms: u16,
@@ -817,6 +834,7 @@ impl BackgroundIdleManager {
                 timer_str,
                 timer_expired,
                 buzzer,
+                now,
             );
 
             if self.timer_reset_toast_ms > 0 {
@@ -1206,8 +1224,9 @@ fn main() -> ! {
             }
         }
 
+        let is_vario_setup = menu_controller.is_vario_setup();
         // Tier 1: High-Rate Flight Pipeline Tick (multi-kHz)
-        let flight_snapshot = pipeline.tick(now, storage, &trims, menu_active, &mut buzzer);
+        let flight_snapshot = pipeline.tick(now, storage, &trims, menu_active, is_vario_setup, &mut buzzer);
 
         // Tier 2: Background Idle & UI Tick (30 Hz rate-governed)
         idle_manager.tick(

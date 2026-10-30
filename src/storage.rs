@@ -155,7 +155,7 @@ pub struct RadioConfig {
     pub ext_adc: u8,               // 115 (0: Disabled, 1: Enabled / Header P7 AD12-AD15 or PC1-PC4)
     pub adc_modes: [u8; 10],       // 116..126: Input modes for the 10 auxiliary analog channels
     pub stick_mode: u8,            // 126 (0: Mode 1, 1: Mode 2, 2: Mode 3, 3: Mode 4)
-    pub telem_slots: [u8; 4],      // 127..131: Configurable telemetry dashboard sensor slots (1..4)
+    pub _reserved_telem: [u8; 4],  // 127..131: Reserved (previously global telem_slots, now per-model)
     pub trainer_config: u8,        // 131: Bit 0: PPM Out on PF10, Bit 1: PPM In on PF9
     pub rear_left_func: u8,        // 132: 0: RC Switch (SWE), 1: Timer Reset, 2: Trims Modifier
     pub rear_right_func: u8,       // 133: 0: RC Switch (SWF), 1: Instant Trim, 2: Trims Modifier
@@ -263,7 +263,7 @@ impl RadioConfig {
             ext_adc: 0,
             adc_modes: [0; 10],        // Default hardware modes
             stick_mode: 1,             // Mode 2 default
-            telem_slots: [0, 1, 2, 3], // Default: RxBat, RSSI/LQ, TxBat, Current/Link
+            _reserved_telem: [0, 1, 2, 3],
             trainer_config: 0,
             rear_left_func: 0,
             rear_right_func: 0,
@@ -431,12 +431,13 @@ pub struct ModelConfig {
     pub failsafe_timeout: u8, // 337: 10..50 (1.0s..5.0s)
     pub rf_protocol: u8,  // 338: 0: AFHDS 2A, 1: CRSF / ELRS
     pub crsf_baud: u8,    // 339: 0: 115.2k, 1: 416.6k, 2: 420k, 3: 921.6k, 4: 1.875M
-    pub arm_switch: u8,   // 340: 0: None, 1..14: SA^..SFv
+    pub arm_switch: u8,   // 340: 0: None, 1..22: SA^..SWJv
     pub rx_out_mode: u8,  // 341: 0: PWM, 1: PPM (default 0)
     pub servo_rate_hz: u16, // 342..344: 50..400 Hz (default 50 Hz)
     pub rx_serial_proto: u8, // 344: 0: i-BUS, 1: S.BUS (default 0)
     pub crsf_half_duplex: u8, // 345: 0: Full-Duplex (2-Wire), 1: Half-Duplex (1-Wire)
-    pub _pad_end: [u8; 2], // 346..348: Align struct to 2-byte boundary
+    pub crsf_arm_mode: u8, // 346: 0: CH5 (Standard 22B payload), 1: Switch (Extended 23B payload with arm flag)
+    pub _pad_end: [u8; 1], // 347..348: Align struct to 2-byte boundary
     pub gvars: [i16; 5],  // 348..358: Global Variables GV1..GV5 (-1000..+1000)
     pub vario_switch: u8, // 358: 0: Off, 1..=14: SA^..SFv (activation switch)
     pub vario_climb_deadband: u8, // 359: Climb deadband in 0.1 m/s (default 2 = +0.2 m/s)
@@ -444,6 +445,7 @@ pub struct ModelConfig {
     pub vario_sink_mode: u8, // 361: 0: Mute, 1: Pulse, 2: Continuous (default 1)
     pub vario_motor_mute: u8, // 362: 0: Disabled, 1: Enabled (default 1)
     pub _pad_vario: [u8; 1], // 363..364: Align struct to 4-byte word boundary
+    pub telem_slots: [u8; 4], // 364..368: Model-specific telemetry dashboard slots (Top-L, Top-R, Btm-L, Btm-R)
 }
 
 impl ModelConfig {
@@ -487,7 +489,8 @@ impl ModelConfig {
             rx_out_mode: 0,
             rx_serial_proto: 0,
             crsf_half_duplex: 0,
-            _pad_end: [0; 2],
+            crsf_arm_mode: 0,
+            _pad_end: [0; 1],
             gvars: [0; 5],
             vario_switch: 0,
             vario_climb_deadband: 2,
@@ -495,6 +498,7 @@ impl ModelConfig {
             vario_sink_mode: 1,
             vario_motor_mute: 1,
             _pad_vario: [0; 1],
+            telem_slots: [0, 1, 2, 3], // Default: RxBat, RSSI/LQ, TxBat, Current/Link
         }
     }
 
@@ -901,35 +905,35 @@ impl RadioStorage {
         cur
     }
 
-    /// Check if an Arm Switch condition (0..=14: 0: None, 1..=14: SA^..SFv) is available.
+    /// Check if an Arm Switch condition (0..=22: 0: None, 1..=22: SA^..SWJv) is available.
     pub fn is_arm_switch_available(&self, sw: u8) -> bool {
         match sw {
             0 => true, // None
-            1..=14 => self.is_switch_cond_available(sw),
+            1..=22 => self.is_switch_cond_available(sw),
             _ => false,
         }
     }
 
-    /// Cycle to next available Arm Switch (0..=14).
+    /// Cycle to next available Arm Switch (0..=22).
     pub fn next_available_arm_switch(&self, cur: u8) -> u8 {
-        let mut candidate = (cur + 1) % 15;
+        let mut candidate = (cur + 1) % 23;
         while candidate != cur {
             if self.is_arm_switch_available(candidate) {
                 return candidate;
             }
-            candidate = (candidate + 1) % 15;
+            candidate = (candidate + 1) % 23;
         }
         cur
     }
 
-    /// Cycle to previous available Arm Switch (0..=14).
+    /// Cycle to previous available Arm Switch (0..=22).
     pub fn prev_available_arm_switch(&self, cur: u8) -> u8 {
-        let mut candidate = if cur == 0 { 14 } else { cur - 1 };
+        let mut candidate = if cur == 0 { 22 } else { cur - 1 };
         while candidate != cur {
             if self.is_arm_switch_available(candidate) {
                 return candidate;
             }
-            candidate = if candidate == 0 { 14 } else { candidate - 1 };
+            candidate = if candidate == 0 { 22 } else { candidate - 1 };
         }
         cur
     }
@@ -963,6 +967,40 @@ impl RadioStorage {
                 return candidate;
             }
             candidate = if candidate == 0 { 17 } else { candidate - 1 };
+        }
+        cur
+    }
+
+    /// Check if a vario switch index (0..=23: 0: OFF, 1: ON, 2..=23: SA^..SWJv) is available.
+    pub fn is_vario_switch_available(&self, sw: u8) -> bool {
+        match sw {
+            0 => true, // OFF
+            1 => true, // ON (Always active)
+            2..=23 => self.is_switch_cond_available(sw - 1),
+            _ => false,
+        }
+    }
+
+    /// Cycle to next available Vario Switch (0..=23).
+    pub fn next_available_vario_switch(&self, cur: u8) -> u8 {
+        let mut candidate = (cur + 1) % 24;
+        while candidate != cur {
+            if self.is_vario_switch_available(candidate) {
+                return candidate;
+            }
+            candidate = (candidate + 1) % 24;
+        }
+        cur
+    }
+
+    /// Cycle to previous available Vario Switch (0..=23).
+    pub fn prev_available_vario_switch(&self, cur: u8) -> u8 {
+        let mut candidate = if cur == 0 { 23 } else { cur - 1 };
+        while candidate != cur {
+            if self.is_vario_switch_available(candidate) {
+                return candidate;
+            }
+            candidate = if candidate == 0 { 23 } else { candidate - 1 };
         }
         cur
     }
@@ -1054,11 +1092,6 @@ impl RadioStorage {
                 *mode = 0; // Default
             }
         }
-        for slot in self.radio.telem_slots.iter_mut() {
-            if *slot > 14 {
-                *slot = 14; // OFF
-            }
-        }
         if self.radio.trainer_config > 3 {
             self.radio.trainer_config = 0;
         }
@@ -1075,6 +1108,9 @@ impl RadioStorage {
         }
         if m.crsf_half_duplex > 1 {
             m.crsf_half_duplex = 0;
+        }
+        if m.crsf_arm_mode > 1 {
+            m.crsf_arm_mode = 0;
         }
         for axis in 0..3 {
             if m.dr_high[axis] < 30 || m.dr_high[axis] > 100 {
@@ -1127,7 +1163,7 @@ impl RadioStorage {
             m.thr_curve_pts = 5;
             m.thr_curve = [0, 25, 50, 75, 100, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
         }
-        if m.arm_switch > 14 {
+        if m.arm_switch > 22 {
             m.arm_switch = 0;
         }
         if m.timer_source > 17 {
@@ -1156,8 +1192,13 @@ impl RadioStorage {
                 b'M', b'O', b'D', b'E', b'L', b' ', digit1, digit2, b' ', b' ',
             ];
         }
-        if m.vario_switch > 14 {
+        if m.vario_switch > 23 {
             m.vario_switch = 0;
+        }
+        for slot in m.telem_slots.iter_mut() {
+            if *slot > 22 {
+                *slot = 22; // OFF
+            }
         }
         if m.vario_climb_deadband < 1 || m.vario_climb_deadband > 10 {
             m.vario_climb_deadband = 2;
@@ -1187,8 +1228,8 @@ impl RadioStorage {
 
 const _: () = assert!(core::mem::size_of::<RadioConfig>() == 140);
 const _: () = assert!(core::mem::size_of::<MixLine>() == 8);
-const _: () = assert!(core::mem::size_of::<ModelConfig>() == 364);
-const _: () = assert!(core::mem::size_of::<RadioStorage>() == 504);
+const _: () = assert!(core::mem::size_of::<ModelConfig>() == 368);
+const _: () = assert!(core::mem::size_of::<RadioStorage>() == 508);
 
 static mut GLOBAL_STORAGE: RadioStorage = RadioStorage::empty();
 
@@ -1956,13 +1997,13 @@ pub fn load_slot<T: Copy>(addr: u16, dst: &mut T) -> Result<(), StorageError> {
             return Ok(());
         }
 
-        // Check if this is a ModelConfig request and the slot holds legacy v2/v3 (348, 352, or 360 bytes)
+        // Check if this is a ModelConfig request and the slot holds legacy v2/v3/v4 (348, 352, 360, or 364 bytes)
         if expected_size == core::mem::size_of::<ModelConfig>()
-            && (hdr.len == 348 || hdr.len == 352 || hdr.len == 360)
+            && (hdr.len == 348 || hdr.len == 352 || hdr.len == 360 || hdr.len == 364)
             && hdr.magic == SLOT_MAGIC
             && hdr.flags == 0
         {
-            let mut prev_bytes = [0u8; 360];
+            let mut prev_bytes = [0u8; 364];
             let read_len = hdr.len as usize;
             EepromI2c::read(addr + HEADER_SIZE as u16, &mut prev_bytes[..read_len])?;
 
@@ -1976,7 +2017,7 @@ pub fn load_slot<T: Copy>(addr: u16, dst: &mut T) -> Result<(), StorageError> {
                 core::ptr::copy_nonoverlapping(
                     prev_bytes.as_ptr(),
                     &mut upgraded_model as *mut ModelConfig as *mut u8,
-                    read_len.min(360),
+                    read_len.min(364),
                 );
             }
             unsafe {
@@ -1987,7 +2028,7 @@ pub fn load_slot<T: Copy>(addr: u16, dst: &mut T) -> Result<(), StorageError> {
                 );
             }
 
-            // In-place upgrade: re-save slot as v4 (364 bytes) with updated CRC-16 envelope
+            // In-place upgrade: re-save slot as v5 (368 bytes) with updated CRC-16 envelope
             let _ = save_slot(addr, &upgraded_model);
 
             return Ok(());
@@ -2293,12 +2334,13 @@ mod tests {
 
     #[test]
     fn test_model_config_size_and_rf_power() {
-        assert_eq!(core::mem::size_of::<ModelConfig>(), 364);
+        assert_eq!(core::mem::size_of::<ModelConfig>(), 368);
         assert_eq!(core::mem::size_of::<RadioConfig>(), 140);
-        assert_eq!(core::mem::size_of::<RadioStorage>(), 504);
+        assert_eq!(core::mem::size_of::<RadioStorage>(), 508);
 
         let default_m = ModelConfig::default_for_index(0);
         assert_eq!(default_m.rf_power, 0);
+        assert_eq!(default_m.telem_slots, [0, 1, 2, 3]);
         assert_eq!(default_m.vario_switch, 0);
         assert_eq!(default_m.vario_climb_deadband, 2);
         assert_eq!(default_m.vario_sink_deadband, 5);
@@ -2395,9 +2437,9 @@ mod tests {
     #[test]
     fn test_telem_slots_sanitize() {
         let mut storage = RadioStorage::default_factory();
-        storage.radio.telem_slots = [0, 11, 14, 15];
+        storage.active_model.telem_slots = [0, 11, 22, 23];
         storage.sanitize();
-        assert_eq!(storage.radio.telem_slots, [0, 11, 14, 14]);
+        assert_eq!(storage.active_model.telem_slots, [0, 11, 22, 22]);
     }
 
     #[test]
