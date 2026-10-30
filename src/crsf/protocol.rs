@@ -46,8 +46,13 @@ pub const CRSF_FRAMETYPE_VARIO: u8 = 0x07;
 pub const CRSF_FRAMETYPE_BATTERY_SENSOR: u8 = 0x08;
 pub const CRSF_FRAMETYPE_BARO_ALTITUDE: u8 = 0x09;
 pub const CRSF_FRAMETYPE_HEARTBEAT: u8 = 0x0B;
+pub const CRSF_FRAMETYPE_RPM: u8 = 0x0C;
+pub const CRSF_FRAMETYPE_TEMP: u8 = 0x0D;
+pub const CRSF_FRAMETYPE_CELLS: u8 = 0x0E;
 pub const CRSF_FRAMETYPE_LINK_STATISTICS: u8 = 0x14;
 pub const CRSF_FRAMETYPE_RC_CHANNELS_PACKED: u8 = 0x16;
+pub const CRSF_FRAMETYPE_ATTITUDE: u8 = 0x1E;
+pub const CRSF_FRAMETYPE_FLIGHT_MODE: u8 = 0x21;
 pub const CRSF_FRAMETYPE_DEVICE_PING: u8 = 0x28;
 pub const CRSF_FRAMETYPE_DEVICE_INFO: u8 = 0x29;
 pub const CRSF_FRAMETYPE_PARAMETER_SETTINGS_ENTRY: u8 = 0x2B;
@@ -79,25 +84,51 @@ pub const STATUS_POLL: u8 = 6;
 
 pub const CRSF_FRAME_MAX_SIZE: usize = 64;
 pub const CRSF_RC_FRAME_SIZE: usize = 26; // 1 (addr) + 1 (len) + 1 (type) + 22 (payload) + 1 (crc)
+pub const CRSF_RC_EXT_FRAME_SIZE: usize = 27; // 1 (addr) + 1 (len) + 1 (type) + 23 (payload) + 1 (crc)
+
+pub const CRSF_CHANNELS_STATUS_ARMED: u8 = 0x01;
+pub const CRSF_CHANNELS_STATUS_ARMING_MODE_CH5: u8 = 0x02;
 
 /// Incoming telemetry data decoded from CRSF link
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub struct CrsfTelemetry {
     pub connected: bool,
-    pub uplink_rssi_1: i8,       // dBm (-130..0)
-    pub uplink_rssi_2: i8,       // dBm (-130..0)
-    pub uplink_link_quality: u8, // 0..100%
-    pub uplink_snr: i8,          // dB (-30..30)
-    pub active_antenna: u8,      // 0 or 1
-    pub rf_mode: u8,             // ExpressLRS / CRSF rate mode index
-    pub tx_power_mw: u16,        // Transmit power in milliwatts
-    pub rx_battery_mv: u16,      // Flight pack voltage in millivolts
-    pub rx_current_ma: u16,      // Current in 100mA units
-    pub rx_capacity_mah: u32,    // Capacity consumed in mAh
-    pub rx_battery_pct: u8,      // Battery remaining percentage (0..100)
-    pub vspeed_cms: i16,         // Vertical speed in cm/s (+ climb, - sink)
-    pub baro_alt_m: i16,         // Barometric altitude in meters (relative or AMSL)
-    pub last_telemetry_ms: u32,  // System tick when last valid frame was received
+    pub uplink_rssi_1: i8,            // dBm (-130..0)
+    pub uplink_rssi_2: i8,            // dBm (-130..0)
+    pub uplink_link_quality: u8,      // 0..100%
+    pub uplink_snr: i8,               // dB (-30..30)
+    pub active_antenna: u8,           // 0 or 1
+    pub rf_mode: u8,                  // ExpressLRS / CRSF rate mode index
+    pub tx_power_mw: u16,             // Transmit power in milliwatts
+    pub rx_battery_mv: u16,           // Flight pack voltage in millivolts
+    pub rx_current_ma: u16,           // Current in 100mA units
+    pub rx_capacity_mah: u32,         // Capacity consumed in mAh
+    pub rx_battery_pct: u8,           // Battery remaining percentage (0..100)
+    pub vspeed_cms: i16,              // Vertical speed in cm/s (+ climb, - sink)
+    pub has_vspeed: bool,             // True if explicit vertical speed was provided by telemetry
+    pub baro_alt_m: i16,              // Barometric altitude in meters (relative or AMSL)
+    pub baro_alt_dm: i16,             // Barometric altitude in decimeters (0.1m resolution)
+    pub cell_count: u8,               // Number of cells detected from 0x0E (0 if unknown)
+    pub cell_min_mv: u16,             // Minimum individual cell voltage in millivolts
+    pub rpm: u32,                     // Motor / rotor RPM decoded from 0x0C
+    pub temp_c_x10: i16,              // Temperature in 0.1 deg C decoded from 0x0D
+    pub gps_groundspeed_kmh_x10: u16, // Groundspeed in 0.1 km/h decoded from 0x02
+    pub gps_heading_cdeg: u16,        // Heading in 0.01 deg (cdeg) decoded from 0x02
+    pub gps_satellites: u8,           // Satellites count decoded from 0x02
+    pub pitch_cdeg: i16,              // Pitch angle in 0.1 deg / mrad decoded from 0x1E
+    pub roll_cdeg: i16,               // Roll angle in 0.1 deg / mrad decoded from 0x1E
+    pub yaw_cdeg: i16,                // Yaw angle in 0.1 deg / mrad decoded from 0x1E
+    pub flight_mode: [u8; 8],         // Flight mode string decoded from 0x21
+    pub last_telemetry_ms: u32,       // System tick when last valid frame was received
+    pub last_vbat_ms: u32,            // Timestamp of last battery frame
+    pub last_cells_ms: u32,           // Timestamp of last cells frame
+    pub last_alt_ms: u32,             // Timestamp of last altitude frame
+    pub last_vspd_ms: u32,            // Timestamp of last vertical speed frame
+    pub last_rpm_ms: u32,             // Timestamp of last RPM frame
+    pub last_temp_ms: u32,            // Timestamp of last temperature frame
+    pub last_gps_ms: u32,             // Timestamp of last GPS frame
+    pub last_att_ms: u32,             // Timestamp of last attitude frame
+    pub last_link_ms: u32,            // Timestamp of last link statistics frame
 }
 
 impl Default for CrsfTelemetry {
@@ -122,8 +153,30 @@ impl CrsfTelemetry {
             rx_capacity_mah: 0,
             rx_battery_pct: 0,
             vspeed_cms: 0,
+            has_vspeed: false,
             baro_alt_m: 0,
+            baro_alt_dm: 0,
+            cell_count: 0,
+            cell_min_mv: 0,
+            rpm: 0,
+            temp_c_x10: 0,
+            gps_groundspeed_kmh_x10: 0,
+            gps_heading_cdeg: 0,
+            gps_satellites: 0,
+            pitch_cdeg: 0,
+            roll_cdeg: 0,
+            yaw_cdeg: 0,
+            flight_mode: [0; 8],
             last_telemetry_ms: 0,
+            last_vbat_ms: 0,
+            last_cells_ms: 0,
+            last_alt_ms: 0,
+            last_vspd_ms: 0,
+            last_rpm_ms: 0,
+            last_temp_ms: 0,
+            last_gps_ms: 0,
+            last_att_ms: 0,
+            last_link_ms: 0,
         }
     }
 }
@@ -219,6 +272,71 @@ pub fn build_channels_frame(
     CRSF_RC_FRAME_SIZE
 }
 
+/// Build a packed 16-channel CRSF RC packet (Type 0x16) with optional ExpressLRS switch-based arming status byte.
+///
+/// If `arm_mode_switch` is false (standard mode), writes 26 bytes (`frame[1] = 24`, 22-byte payload).
+/// If `arm_mode_switch` is true (ExpressLRS 4.0+ switch arming mode), writes 27 bytes (`frame[1] = 25`, 23-byte payload with arm flag at byte 25).
+pub fn build_channels_frame_ext(
+    channels: &[u16; crate::mixer::NUM_CHANNELS],
+    arm_mode_switch: bool,
+    is_armed: bool,
+    out_frame: &mut [u8; CRSF_RC_EXT_FRAME_SIZE],
+) -> usize {
+    // Header
+    out_frame[0] = CRSF_SYNC_BYTE; // 0xC8 per TBS CRSF spec
+    out_frame[2] = CRSF_FRAMETYPE_RC_CHANNELS_PACKED; // 0x16
+
+    // Convert first 16 radio channels to 16 CRSF 11-bit values (channels 17 & 18 ignored by CRSF 16-ch packet)
+    let mut ch11 = [CRSF_CHANNEL_CENTER; 16];
+    for i in 0..16 {
+        ch11[i] = us_to_crsf(channels[i]);
+    }
+
+    // 16 channels * 11 bits = 176 bits = 22 bytes
+    let p = &mut out_frame[3..25];
+    p[0] = (ch11[0] & 0x07FF) as u8;
+    p[1] = ((ch11[0] >> 8) | (ch11[1] << 3)) as u8;
+    p[2] = ((ch11[1] >> 5) | (ch11[2] << 6)) as u8;
+    p[3] = (ch11[2] >> 2) as u8;
+    p[4] = ((ch11[2] >> 10) | (ch11[3] << 1)) as u8;
+    p[5] = ((ch11[3] >> 7) | (ch11[4] << 4)) as u8;
+    p[6] = ((ch11[4] >> 4) | (ch11[5] << 7)) as u8;
+    p[7] = (ch11[5] >> 1) as u8;
+    p[8] = ((ch11[5] >> 9) | (ch11[6] << 2)) as u8;
+    p[9] = ((ch11[6] >> 6) | (ch11[7] << 5)) as u8;
+    p[10] = (ch11[7] >> 3) as u8;
+    p[11] = (ch11[8] & 0x07FF) as u8;
+    p[12] = ((ch11[8] >> 8) | (ch11[9] << 3)) as u8;
+    p[13] = ((ch11[9] >> 5) | (ch11[10] << 6)) as u8;
+    p[14] = (ch11[10] >> 2) as u8;
+    p[15] = ((ch11[10] >> 10) | (ch11[11] << 1)) as u8;
+    p[16] = ((ch11[11] >> 7) | (ch11[12] << 4)) as u8;
+    p[17] = ((ch11[12] >> 4) | (ch11[13] << 7)) as u8;
+    p[18] = (ch11[13] >> 1) as u8;
+    p[19] = ((ch11[13] >> 9) | (ch11[14] << 2)) as u8;
+    p[20] = ((ch11[14] >> 6) | (ch11[15] << 5)) as u8;
+    p[21] = (ch11[15] >> 3) as u8;
+
+    if arm_mode_switch {
+        // Length: Type (1) + Payload (23) + CRC (1) = 25
+        out_frame[1] = 25;
+        // Byte 25 is the arm status flag byte: bit 0 = ARMED, bit 1 = ARMING_MODE_CH5 (0 for switch mode)
+        out_frame[25] = if is_armed {
+            CRSF_CHANNELS_STATUS_ARMED
+        } else {
+            0
+        };
+        // CRC8 calculated over Type (byte 2) and Payload (bytes 3..26)
+        out_frame[26] = crc8(&out_frame[2..26]);
+        CRSF_RC_EXT_FRAME_SIZE
+    } else {
+        // Standard 26-byte frame: Length = 24
+        out_frame[1] = 24;
+        out_frame[25] = crc8(&out_frame[2..25]);
+        CRSF_RC_FRAME_SIZE
+    }
+}
+
 /// Parse incoming telemetry frame and update telemetry state.
 pub fn parse_telemetry_frame(frame: &[u8], telem: &mut CrsfTelemetry, now_ms: u32) -> bool {
     if frame.len() < 4 {
@@ -261,6 +379,7 @@ pub fn parse_telemetry_frame(frame: &[u8], telem: &mut CrsfTelemetry, now_ms: u3
                     8 => 50,
                     _ => 0,
                 };
+                telem.last_link_ms = now_ms;
                 telem.connected = true;
                 telem.last_telemetry_ms = now_ms;
                 return true;
@@ -276,6 +395,7 @@ pub fn parse_telemetry_frame(frame: &[u8], telem: &mut CrsfTelemetry, now_ms: u3
                 ((payload[4] as u32) << 16) | ((payload[5] as u32) << 8) | (payload[6] as u32);
             telem.rx_capacity_mah = cap;
             telem.rx_battery_pct = payload[7];
+            telem.last_vbat_ms = now_ms;
             telem.connected = true;
             telem.last_telemetry_ms = now_ms;
             return true;
@@ -283,18 +403,117 @@ pub fn parse_telemetry_frame(frame: &[u8], telem: &mut CrsfTelemetry, now_ms: u3
         CRSF_FRAMETYPE_VARIO if payload.len() >= 2 => {
             // Vertical speed in cm/s (big-endian signed 16-bit)
             telem.vspeed_cms = i16::from_be_bytes([payload[0], payload[1]]);
+            telem.has_vspeed = true;
+            telem.last_vspd_ms = now_ms;
             telem.connected = true;
             telem.last_telemetry_ms = now_ms;
             return true;
         }
         CRSF_FRAMETYPE_BARO_ALTITUDE if payload.len() >= 2 => {
-            // Altitude with 10000m offset (big-endian unsigned 16-bit: 10000 = 0m)
             let raw_alt = u16::from_be_bytes([payload[0], payload[1]]);
-            telem.baro_alt_m = (raw_alt as i32 - 10000) as i16;
-            if payload.len() >= 4 {
-                // Extended payload includes vertical speed (big-endian signed 16-bit in cm/s)
-                telem.vspeed_cms = i16::from_be_bytes([payload[2], payload[3]]);
+            if (raw_alt & 0x8000) == 0 {
+                // MSB is 0: decimeters with 10,000 dm (1,000.0 m) offset
+                let alt_dm = (raw_alt as i32) - 10_000;
+                telem.baro_alt_dm = alt_dm as i16;
+                telem.baro_alt_m = (alt_dm / 10) as i16;
+            } else {
+                // MSB is 1: whole meters without offset
+                let alt_m = (raw_alt & 0x7FFF) as i16;
+                telem.baro_alt_m = alt_m;
+                telem.baro_alt_dm = alt_m.saturating_mul(10);
             }
+            telem.last_alt_ms = now_ms;
+
+            if payload.len() >= 4 {
+                // Extended 4-byte payload: 16-bit big-endian vspeed in cm/s
+                telem.vspeed_cms = i16::from_be_bytes([payload[2], payload[3]]);
+                telem.has_vspeed = true;
+                telem.last_vspd_ms = now_ms;
+            } else if payload.len() == 3 {
+                // Extended 3-byte payload: 8-bit packed logarithmic vspeed
+                telem.vspeed_cms = decode_packed_vspeed(payload[2] as i8);
+                telem.has_vspeed = true;
+                telem.last_vspd_ms = now_ms;
+            }
+
+            telem.connected = true;
+            telem.last_telemetry_ms = now_ms;
+            return true;
+        }
+        CRSF_FRAMETYPE_CELLS if payload.len() >= 2 => {
+            let mut total_mv: u32 = 0;
+            let mut min_cell = 0xFFFFu16;
+            let mut count = 0u8;
+            let mut offset = if payload.len() % 2 == 1 { 1 } else { 0 };
+            while offset + 2 <= payload.len() {
+                let cell_mv = u16::from_be_bytes([payload[offset], payload[offset + 1]]);
+                if cell_mv > 0 && cell_mv < 10_000 {
+                    total_mv = total_mv.saturating_add(cell_mv as u32);
+                    if cell_mv < min_cell {
+                        min_cell = cell_mv;
+                    }
+                    count += 1;
+                }
+                offset += 2;
+            }
+            if total_mv > 0 {
+                telem.rx_battery_mv = total_mv.min(65535) as u16;
+                telem.cell_count = count;
+                telem.cell_min_mv = if min_cell != 0xFFFF { min_cell } else { 0 };
+                telem.last_cells_ms = now_ms;
+                telem.last_vbat_ms = now_ms;
+                telem.connected = true;
+                telem.last_telemetry_ms = now_ms;
+                return true;
+            }
+        }
+        CRSF_FRAMETYPE_GPS if payload.len() >= 15 => {
+            let raw_alt = u16::from_be_bytes([payload[12], payload[13]]);
+            let alt_m = (raw_alt as i32) - 1000;
+            if telem.baro_alt_m == 0 && telem.baro_alt_dm == 0 {
+                telem.baro_alt_m = alt_m as i16;
+                telem.baro_alt_dm = (alt_m as i16).saturating_mul(10);
+                telem.last_alt_ms = now_ms;
+            }
+            telem.gps_groundspeed_kmh_x10 = u16::from_be_bytes([payload[8], payload[9]]);
+            telem.gps_heading_cdeg = u16::from_be_bytes([payload[10], payload[11]]);
+            telem.gps_satellites = payload[14];
+            telem.last_gps_ms = now_ms;
+            telem.connected = true;
+            telem.last_telemetry_ms = now_ms;
+            return true;
+        }
+        CRSF_FRAMETYPE_RPM if payload.len() >= 3 => {
+            let offset = if payload.len() >= 4 { 1 } else { 0 };
+            telem.rpm = ((payload[offset] as u32) << 16)
+                | ((payload[offset + 1] as u32) << 8)
+                | (payload[offset + 2] as u32);
+            telem.last_rpm_ms = now_ms;
+            telem.connected = true;
+            telem.last_telemetry_ms = now_ms;
+            return true;
+        }
+        CRSF_FRAMETYPE_TEMP if payload.len() >= 2 => {
+            let offset = if payload.len() >= 3 { 1 } else { 0 };
+            telem.temp_c_x10 = i16::from_be_bytes([payload[offset], payload[offset + 1]]);
+            telem.last_temp_ms = now_ms;
+            telem.connected = true;
+            telem.last_telemetry_ms = now_ms;
+            return true;
+        }
+        CRSF_FRAMETYPE_ATTITUDE if payload.len() >= 6 => {
+            telem.pitch_cdeg = i16::from_be_bytes([payload[0], payload[1]]);
+            telem.roll_cdeg = i16::from_be_bytes([payload[2], payload[3]]);
+            telem.yaw_cdeg = i16::from_be_bytes([payload[4], payload[5]]);
+            telem.last_att_ms = now_ms;
+            telem.connected = true;
+            telem.last_telemetry_ms = now_ms;
+            return true;
+        }
+        CRSF_FRAMETYPE_FLIGHT_MODE if !payload.is_empty() => {
+            let len = payload.len().min(8);
+            telem.flight_mode = [0; 8];
+            telem.flight_mode[..len].copy_from_slice(&payload[..len]);
             telem.connected = true;
             telem.last_telemetry_ms = now_ms;
             return true;
@@ -303,6 +522,25 @@ pub fn parse_telemetry_frame(frame: &[u8], telem: &mut CrsfTelemetry, now_ms: u3
     }
 
     false
+}
+
+/// Decode 1-byte packed logarithmic vertical speed used by Betaflight and ExpressLRS in 3-byte CRSF 0x09 frame.
+/// Formula: vspeed = 100 * (25 * (e^(abs(raw) * 0.026) - 1)) cm/s
+pub fn decode_packed_vspeed(raw: i8) -> i16 {
+    if raw == 0 {
+        return 0;
+    }
+    let abs_v = (raw as i32).abs().min(127);
+    let z = abs_v * 2600; // z in units of 1/100,000
+    let term1 = z / 40;
+    let term2 = (z as i64 * z as i64) / 8_000_000;
+    let term3 = (z as i64 * z as i64 / 1_000_000 * z as i64) / 2_400_000_000;
+    let cms = (term1 as i64 + term2 + term3).min(32767) as i16;
+    if raw < 0 {
+        -cms
+    } else {
+        cms
+    }
 }
 
 /// Convert ExpressLRS RF mode index to standard readable packet rate string.
@@ -521,6 +759,87 @@ mod tests {
     }
 
     #[test]
+    fn test_build_channels_frame_ext_switch_arming() {
+        let channels: [u16; crate::mixer::NUM_CHANNELS] = [
+            CHANNEL_CENTER_US,
+            CHANNEL_MIN_US,
+            CHANNEL_MAX_US,
+            1200,
+            1800,
+            1400,
+            1600,
+            1500,
+            988,
+            2012,
+            1500,
+            1500,
+            1500,
+            1500,
+            1750,
+            1250,
+            1900,
+            1100,
+        ];
+
+        // 1. Standard mode (arm_mode_switch = false) -> produces 26-byte frame matching build_channels_frame
+        let mut frame_std = [0u8; CRSF_RC_EXT_FRAME_SIZE];
+        let len_std = build_channels_frame_ext(&channels, false, false, &mut frame_std);
+        assert_eq!(len_std, CRSF_RC_FRAME_SIZE);
+        assert_eq!(frame_std[0], CRSF_SYNC_BYTE);
+        assert_eq!(frame_std[1], 24);
+        assert_eq!(frame_std[2], CRSF_FRAMETYPE_RC_CHANNELS_PACKED);
+        assert_eq!(frame_std[25], crc8(&frame_std[2..25]));
+
+        let mut ref_frame = [0u8; CRSF_RC_FRAME_SIZE];
+        build_channels_frame(&channels, &mut ref_frame);
+        assert_eq!(&frame_std[..26], &ref_frame[..26]);
+
+        // 2. Switch arming mode (arm_mode_switch = true, is_armed = false) -> 27-byte frame with status byte = 0x00
+        let mut frame_disarmed = [0u8; CRSF_RC_EXT_FRAME_SIZE];
+        let len_disarmed = build_channels_frame_ext(&channels, true, false, &mut frame_disarmed);
+        assert_eq!(len_disarmed, CRSF_RC_EXT_FRAME_SIZE);
+        assert_eq!(frame_disarmed[0], CRSF_SYNC_BYTE);
+        assert_eq!(frame_disarmed[1], 25, "Extended frame len = 25");
+        assert_eq!(frame_disarmed[2], CRSF_FRAMETYPE_RC_CHANNELS_PACKED);
+        assert_eq!(
+            &frame_disarmed[3..25],
+            &ref_frame[3..25],
+            "Packed channels bit-exact"
+        );
+        assert_eq!(
+            frame_disarmed[25], 0x00,
+            "Disarmed status byte must be 0x00"
+        );
+        assert_eq!(
+            frame_disarmed[26],
+            crc8(&frame_disarmed[2..26]),
+            "CRC covers byte 2..26"
+        );
+
+        // 3. Switch arming mode (arm_mode_switch = true, is_armed = true) -> 27-byte frame with status byte = 0x01
+        let mut frame_armed = [0u8; CRSF_RC_EXT_FRAME_SIZE];
+        let len_armed = build_channels_frame_ext(&channels, true, true, &mut frame_armed);
+        assert_eq!(len_armed, CRSF_RC_EXT_FRAME_SIZE);
+        assert_eq!(frame_armed[0], CRSF_SYNC_BYTE);
+        assert_eq!(frame_armed[1], 25);
+        assert_eq!(frame_armed[2], CRSF_FRAMETYPE_RC_CHANNELS_PACKED);
+        assert_eq!(
+            &frame_armed[3..25],
+            &ref_frame[3..25],
+            "Packed channels bit-exact"
+        );
+        assert_eq!(
+            frame_armed[25], CRSF_CHANNELS_STATUS_ARMED,
+            "Armed status byte must be 0x01"
+        );
+        assert_eq!(
+            frame_armed[26],
+            crc8(&frame_armed[2..26]),
+            "CRC covers byte 2..26"
+        );
+    }
+
+    #[test]
     fn test_parse_telemetry_link_statistics() {
         let mut telem = CrsfTelemetry::new();
         // Construct Link Statistics frame:
@@ -676,6 +995,7 @@ mod tests {
         let success = parse_telemetry_frame(&frame, &mut telem, 3000);
         assert!(success);
         assert_eq!(telem.vspeed_cms, 250);
+        assert!(telem.has_vspeed);
         assert!(telem.connected);
         assert_eq!(telem.last_telemetry_ms, 3000);
 
@@ -687,14 +1007,24 @@ mod tests {
         frame[5] = crc8(&frame[2..5]);
         assert!(parse_telemetry_frame(&frame, &mut telem, 3050));
         assert_eq!(telem.vspeed_cms, -120);
+        assert!(telem.has_vspeed);
+    }
+
+    #[test]
+    fn test_decode_packed_vspeed() {
+        assert_eq!(decode_packed_vspeed(0), 0);
+        assert_eq!(decode_packed_vspeed(1), 65); // 25 * 26 / 1000 * 100 = 65 cm/s
+        assert!(decode_packed_vspeed(10) > 0);
+        assert_eq!(decode_packed_vspeed(-10), -decode_packed_vspeed(10));
+        assert!(decode_packed_vspeed(50) > decode_packed_vspeed(10));
     }
 
     #[test]
     fn test_parse_telemetry_baro_altitude() {
         let mut telem = CrsfTelemetry::new();
-        // Frame: Sync (0xC8), Len (6 = Type + 4 payload + CRC), Type (0x09),
-        // Altitude (+150m -> 10150 = 0x27A6), vspeed (+80 cm/s = 0x0050), CRC
-        let alt_raw: u16 = 10150;
+        // 1. MSB = 0: Decimeters with 10000 offset
+        // Altitude (+150m = 1500 dm -> raw 11500 = 0x2CEC), vspeed (+80 cm/s)
+        let alt_raw: u16 = 11500;
         let alt_bytes = alt_raw.to_be_bytes();
         let vspeed_bytes = (80i16).to_be_bytes();
         let mut frame = [
@@ -711,9 +1041,198 @@ mod tests {
 
         let success = parse_telemetry_frame(&frame, &mut telem, 4000);
         assert!(success);
+        assert_eq!(telem.baro_alt_dm, 1500);
         assert_eq!(telem.baro_alt_m, 150);
         assert_eq!(telem.vspeed_cms, 80);
+        assert!(telem.has_vspeed);
         assert!(telem.connected);
         assert_eq!(telem.last_telemetry_ms, 4000);
+
+        // 2. MSB = 1: Direct meters
+        let alt_m_raw: u16 = 0x8000 | 230; // 230m
+        let alt_m_bytes = alt_m_raw.to_be_bytes();
+        frame[3] = alt_m_bytes[0];
+        frame[4] = alt_m_bytes[1];
+        frame[7] = crc8(&frame[2..7]);
+        assert!(parse_telemetry_frame(&frame, &mut telem, 4100));
+        assert_eq!(telem.baro_alt_m, 230);
+        assert_eq!(telem.baro_alt_dm, 2300);
+
+        // 3. 3-byte payload variant (2 bytes alt + 1 byte packed vspeed)
+        let mut frame3 = [
+            0xC8,
+            5,
+            CRSF_FRAMETYPE_BARO_ALTITUDE,
+            alt_bytes[0],
+            alt_bytes[1],
+            20, // raw packed vspeed
+            0,
+        ];
+        frame3[6] = crc8(&frame3[2..6]);
+        assert!(parse_telemetry_frame(&frame3, &mut telem, 4200));
+        assert_eq!(telem.baro_alt_m, 150);
+        assert_eq!(telem.vspeed_cms, decode_packed_vspeed(20));
+        assert!(telem.has_vspeed);
+
+        // 4. 2-byte payload variant (altitude only, does not set has_vspeed)
+        let mut frame2 = [
+            0xC8,
+            4,
+            CRSF_FRAMETYPE_BARO_ALTITUDE,
+            alt_bytes[0],
+            alt_bytes[1],
+            0,
+        ];
+        frame2[5] = crc8(&frame2[2..5]);
+        let mut telem2 = CrsfTelemetry::new();
+        assert!(parse_telemetry_frame(&frame2, &mut telem2, 4300));
+        assert_eq!(telem2.baro_alt_m, 150);
+        assert!(!telem2.has_vspeed);
+    }
+
+    #[test]
+    fn test_parse_telemetry_cells() {
+        let mut telem = CrsfTelemetry::new();
+        // 3-cell battery: 3.80V, 3.81V, 3.79V -> total 11.40V (11400 mV), min 3.79V
+        let cell1 = 3800u16.to_be_bytes();
+        let cell2 = 3810u16.to_be_bytes();
+        let cell3 = 3790u16.to_be_bytes();
+        // Standard Crossfire wire format: Type (1) + sensor_id (1) + 6 bytes cells + CRC (1) = Len 9
+        let mut frame = [
+            0xC8,
+            9,
+            CRSF_FRAMETYPE_CELLS,
+            0x00, // sensor_id
+            cell1[0],
+            cell1[1],
+            cell2[0],
+            cell2[1],
+            cell3[0],
+            cell3[1],
+            0,
+        ];
+        frame[10] = crc8(&frame[2..10]);
+
+        let success = parse_telemetry_frame(&frame, &mut telem, 5000);
+        assert!(success);
+        assert_eq!(telem.rx_battery_mv, 11400);
+        assert_eq!(telem.cell_count, 3);
+        assert_eq!(telem.cell_min_mv, 3790);
+        assert!(telem.connected);
+        assert_eq!(telem.last_telemetry_ms, 5000);
+
+        // Also test raw format (even payload length without sensor_id)
+        let mut raw_frame = [
+            0xC8,
+            8,
+            CRSF_FRAMETYPE_CELLS,
+            cell1[0],
+            cell1[1],
+            cell2[0],
+            cell2[1],
+            cell3[0],
+            cell3[1],
+            0,
+        ];
+        raw_frame[9] = crc8(&raw_frame[2..9]);
+        let mut telem2 = CrsfTelemetry::new();
+        assert!(parse_telemetry_frame(&raw_frame, &mut telem2, 5100));
+        assert_eq!(telem2.rx_battery_mv, 11400);
+        assert_eq!(telem2.cell_count, 3);
+        assert_eq!(telem2.cell_min_mv, 3790);
+    }
+
+    #[test]
+    fn test_parse_telemetry_rpm() {
+        let mut telem = CrsfTelemetry::new();
+        // RPM = 4250 -> 0x00, 0x10, 0x9A (24-bit)
+        // With source_id: Type (1) + source_id (1) + 3 bytes RPM + CRC (1) = len 6
+        let mut frame = [0xC8, 6, CRSF_FRAMETYPE_RPM, 0x00, 0x00, 0x10, 0x9A, 0x00];
+        frame[7] = crc8(&frame[2..7]);
+        assert!(parse_telemetry_frame(&frame, &mut telem, 6000));
+        assert_eq!(telem.rpm, 4250);
+        assert_eq!(telem.last_rpm_ms, 6000);
+        assert!(telem.connected);
+    }
+
+    #[test]
+    fn test_parse_telemetry_temp() {
+        let mut telem = CrsfTelemetry::new();
+        // Temp = 45.2 C -> 452 (0x01C4)
+        // With source_id: Type (1) + source_id (1) + 2 bytes temp + CRC (1) = len 5
+        let mut frame = [0xC8, 5, CRSF_FRAMETYPE_TEMP, 0x00, 0x01, 0xC4, 0x00];
+        frame[6] = crc8(&frame[2..6]);
+        assert!(parse_telemetry_frame(&frame, &mut telem, 6200));
+        assert_eq!(telem.temp_c_x10, 452);
+        assert_eq!(telem.last_temp_ms, 6200);
+        assert!(telem.connected);
+    }
+
+    #[test]
+    fn test_parse_telemetry_gps_extended() {
+        let mut telem = CrsfTelemetry::new();
+        // GPS: lat (4B), lon (4B), gspd 64.0 km/h (640 = 0x0280), hdg 245.00 deg (24500 = 0x5FBC), alt 150m (1150 = 0x047E), sats 14
+        let mut frame = [
+            0xC8,
+            17,
+            CRSF_FRAMETYPE_GPS,
+            0,
+            0,
+            0,
+            0, // Lat
+            0,
+            0,
+            0,
+            0, // Lon
+            0x02,
+            0x80, // GSPD: 640
+            0x5F,
+            0xB4, // HDG: 24500
+            0x04,
+            0x7E, // Alt: 1150 - 1000 = 150m
+            14,   // Sats
+            0,    // CRC
+        ];
+        frame[18] = crc8(&frame[2..18]);
+        assert!(parse_telemetry_frame(&frame, &mut telem, 6300));
+        assert_eq!(telem.gps_groundspeed_kmh_x10, 640);
+        assert_eq!(telem.gps_heading_cdeg, 24500);
+        assert_eq!(telem.gps_satellites, 14);
+        assert_eq!(telem.baro_alt_m, 150);
+        assert_eq!(telem.last_gps_ms, 6300);
+        assert_eq!(telem.last_alt_ms, 6300);
+    }
+
+    #[test]
+    fn test_parse_telemetry_attitude_and_flight_mode() {
+        let mut telem = CrsfTelemetry::new();
+        // Pitch: +120 (12.0 deg), Roll: -50 (-5.0 deg), Yaw: 1800 (180.0 deg)
+        let pitch_b = (120i16).to_be_bytes();
+        let roll_b = (-50i16).to_be_bytes();
+        let yaw_b = (1800i16).to_be_bytes();
+        let mut frame_att = [
+            0xC8,
+            8,
+            CRSF_FRAMETYPE_ATTITUDE,
+            pitch_b[0],
+            pitch_b[1],
+            roll_b[0],
+            roll_b[1],
+            yaw_b[0],
+            yaw_b[1],
+            0,
+        ];
+        frame_att[9] = crc8(&frame_att[2..9]);
+        assert!(parse_telemetry_frame(&frame_att, &mut telem, 6400));
+        assert_eq!(telem.pitch_cdeg, 120);
+        assert_eq!(telem.roll_cdeg, -50);
+        assert_eq!(telem.yaw_cdeg, 1800);
+        assert_eq!(telem.last_att_ms, 6400);
+
+        // Flight mode: "AIR"
+        let mut frame_fm = [0xC8, 5, CRSF_FRAMETYPE_FLIGHT_MODE, b'A', b'I', b'R', 0, 0];
+        frame_fm[6] = crc8(&frame_fm[2..6]);
+        assert!(parse_telemetry_frame(&frame_fm, &mut telem, 6500));
+        assert_eq!(&telem.flight_mode[..3], b"AIR");
     }
 }

@@ -123,12 +123,13 @@ pub struct ModelConfig {
     pub failsafe_timeout: u8,      // 10..50 (1.0s..5.0s)
     pub rf_protocol: u8,           // 0: AFHDS 2A, 1: CRSF / ELRS
     pub crsf_baud: u8,             // 0: 115.2k, 1: 416.6k, 2: 420k, 3: 921.6k, 4: 1.875M
-    pub arm_switch: u8,            // 0: None, 1..14: SA^..SFv
+    pub arm_switch: u8,            // 0: None, 1..22: SA^..SWJv
     pub rx_out_mode: u8,           // 0: PWM, 1: PPM (default 0)
     pub servo_rate_hz: u16,        // 50..400 Hz (default 50 Hz for analog servo safety)
     pub rx_serial_proto: u8,       // 0: i-BUS, 1: S.BUS (default 0)
     pub crsf_half_duplex: u8,      // 0: Full-Duplex (2-Wire), 1: Half-Duplex (1-Wire)
-    pub _pad_end: [u8; 2],         // Align struct to 4-byte boundary
+    pub crsf_arm_mode: u8,         // 0: CH5 (Standard 22B payload), 1: Switch (Extended 23B payload with arm flag)
+    pub _pad_end: [u8; 1],         // Align struct to 2-byte boundary
 }
 
 /// Active-Model Cache Storage layout (exactly 488 bytes in memory)

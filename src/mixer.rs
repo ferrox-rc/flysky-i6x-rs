@@ -183,7 +183,7 @@ pub fn is_switch_active(condition: u8, switches: &Switches) -> bool {
 /// Returns false if arm_switch is 0 (unassigned) or out of range.
 #[inline]
 pub fn eval_arm_switch(arm_switch: u8, switches: &Switches) -> bool {
-    if arm_switch > 0 && arm_switch <= 14 {
+    if arm_switch > 0 && arm_switch <= 22 {
         is_switch_active(arm_switch, switches)
     } else {
         false
@@ -508,11 +508,11 @@ pub fn compute_channels(
     // Safety Interlocks & Throttle Lockout:
     // 1. Helicopter Throttle Hold: SA Down forces throttle channel to absolute idle (CHANNEL_MIN_US)
     //    while collective pitch and cyclic controls remain fully responsive.
-    // 2. Configured Arm Switch: if an arm switch is configured (1..14) and disarmed, clamp throttle to idle.
+    // 2. Configured Arm Switch: if an arm switch is configured (1..22) and disarmed, clamp throttle to idle.
     let is_heli_hold =
         model.model_type() == crate::safety::ModelType::Heli && switches.sa == SwitchPos::Down;
     let is_disarmed = model.arm_switch > 0
-        && model.arm_switch <= 14
+        && model.arm_switch <= 22
         && !eval_arm_switch(model.arm_switch, switches);
 
     if is_heli_hold || is_disarmed {
@@ -680,7 +680,7 @@ mod tests {
             "SF Down does not arm when sw=14"
         );
         assert!(
-            !eval_arm_switch(15, &switches),
+            !eval_arm_switch(23, &switches),
             "Out of range arm switch does not arm"
         );
 

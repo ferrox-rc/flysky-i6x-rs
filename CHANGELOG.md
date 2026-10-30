@@ -5,6 +5,32 @@ All notable changes to the `flysky-i6x-rs` project will be documented in this fi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.27.0] - 2026-10-30
+
+### Added
+- **ExpressLRS / CRSF Switch-Based Arming (`0x16` Extended Frame) ([`src/crsf/protocol.rs`](src/crsf/protocol.rs), [`src/crsf/mod.rs`](src/crsf/mod.rs), [`src/storage.rs`](src/storage.rs), [`src/ui/menu/screens/setup.rs`](src/ui/menu/screens/setup.rs))**:
+  - Implemented the ExpressLRS 4.0+ extended `0x16` RC channels packet appending a 23rd payload status byte (`CRSF_CHANNELS_STATUS_ARMED`, 27-byte wire frame) to communicate arming state directly from the transmitter.
+  - Added configurable `Arm Mode: CH5 (Std) / Switch` toggle under `PROTOCOL SETUP -> CRSF` to freely select between legacy Channel 5 arming and switch-based arming without locking `CH5` (`AUX1`).
+  - Extended arm switch selection to all 22 transmitter switch positions (`SA^`..`SWJv`), enabling `SG`/`SH` on header `J4` or `SWI`/`SWJ` on `P7` to act as dedicated arm switches.
+- **Extended Telemetry Sensors & Staleness Indicators ([`src/crsf/mod.rs`](src/crsf/mod.rs), [`src/ui/dashboard/pages/telemetry.rs`](src/ui/dashboard/pages/telemetry.rs), [`src/ui/dashboard/pages/model.rs`](src/ui/dashboard/pages/model.rs))**:
+  - Added visual staleness indicator (`*`) after 2.5 seconds of silence across custom telemetry tiles and the Model Dashboard RX battery display.
+  - Added CRSF individual cell voltage decoding (`0x0E` `CELLS` frame) and dedicated `CELLS` telemetry sensor display.
+  - Added full support for extended sensors: GPS (`0x02`), Attitude / Pitch / Roll (`0x1E`), Flight Mode (`0x21`), RPM, and Temperature.
+  - Unified CRSF and AFHDS 2A RX battery staleness timestamping across both protocols.
+
+### Fixed
+- **Variometer & Altitude Filtering**:
+  - Improved climb/sink rate calculation with 0.1m decimeter altitude differential tracking.
+  - Retained 4-tap Exponential Moving Average (EMA) filtering during 0 cm/s sensor reports to ensure smooth leveling decay.
+- **Telemetry Frame Dispatching**:
+  - Ensured all CRSF telemetry frames are fully processed and dispatched in `poll_telemetry` even under rapid bursts.
+
+### Performance
+- **LCD Formatting & UI Flash Savings (-2.6 KB)**:
+  - Consolidated number and fixed-point string formatters into zero-allocation `format_fixed`, `format_vbat`, and `u32_to_dec_5` helpers.
+  - Unified menu row rendering and custom telemetry tile blitters.
+
+
 ## [0.26.0] - 2026-10-26
 
 ### Added
